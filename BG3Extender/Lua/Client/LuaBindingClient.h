@@ -1,68 +1,73 @@
 #pragma once
 
 #include <Lua/LuaBinding.h>
+#include <Lua/Shared/Proxies/LuaEvent.h>
+#include <Lua/Client/ClientEvents.h>
+#include <Lua/Client/ClientEntityReplicationEvents.h>
+#if defined(ENABLE_UI)
+#include <Lua/Client/UIEvents.h>
+#endif
 
-namespace bg3se::ecl::lua
+BEGIN_NS(ecl::lua)
+
+using namespace bg3se::lua;
+
+LifetimeHandle GetClientLifetime();
+LifetimePool& GetClientLifetimePool();
+
+class ExtensionLibraryClient : public ExtensionLibrary
 {
-	using namespace bg3se::lua;
-
-	LifetimeHandle GetClientLifetime();
-	LifetimePool& GetClientLifetimePool();
-
-	struct GameStateChangedEvent : public EventBase
-	{
-		ecl::GameState FromState;
-		ecl::GameState ToState;
-	};
-
-	class ExtensionLibraryClient : public ExtensionLibrary
-	{
-	public:
-		void Register(lua_State * L) override;
-		void RegisterLib(lua_State * L) override;
-	};
+public:
+    void Register(lua_State * L) override;
+    void RegisterLib(lua_State * L) override;
+};
 
 
-	/*class StatusHandleProxy : public Userdata<StatusHandleProxy>, public Indexable, public NewIndexable<PushPolicy::None>
-	{
-	public:
-		static char const* const MetatableName;
+class ClientState : public State
+{
+public:
+    static ClientState* FromLua(lua_State* L);
 
-		inline StatusHandleProxy(ComponentHandle character, NetId status)
-			: character_(character), statusNetId_(status)
-		{}
+    ClientState(ExtensionState& state, uint32_t generationId);
+    ~ClientState();
 
-		inline StatusHandleProxy(ComponentHandle character, ComponentHandle status)
-			: character_(character), statusHandle_(status)
-		{}
+    void Initialize() override;
+    bool IsClient() override;
+    void OnUpdate(GameTime const& time) override;
 
-		ecl::Status* Get(lua_State* L);
-		int Index(lua_State* L);
-		int NewIndex(lua_State* L);
+    ecs::EntityWorld* GetEntityWorld() override;
+    ecs::EntitySystemHelpersBase* GetEntitySystemHelpers() override;
+    EntityReplicationEventHooks* GetReplicationEventHooks() override;
 
-	private:
-		ComponentHandle character_;
-		ComponentHandle statusHandle_;
-		NetId statusNetId_;
-	};*/
+    inline ClientEntityReplicationEventHooks& GetClientReplicationEventHooks()
+    {
+        return replicationHooks_;
+    }
 
+    void OnGameStateChanged(GameState fromState, GameState toState);
+    bool IsEventCancelable(SDL_Event* event);
+    void OnInputEvent(SDL_Event* event, int* result);
 
-	class ClientState : public State
-	{
-	public:
-		ClientState(uint32_t generationId);
-		~ClientState();
+#if defined(ENABLE_UI)
+    UIEventHooks& GetUIEvents()
+    {
+        return uiEvents_;
+    }
+#endif
 
-		void Initialize() override;
-		bool IsClient() override;
-		void OnUpdate(GameTime const& time) override;
+#if defined(ENABLE_IMGUI)
+    extui::IMGUIObjectManager& IMGUI();
+#endif
 
-		ecs::EntityWorld* GetEntityWorld() override;
-		ecs::EntitySystemHelpersBase* GetEntitySystemHelpers() override;
-		EntityEventHooks* GetEntityEventHooks() override;
-		void OnGameStateChanged(GameState fromState, GameState toState);
+private:
+    ExtensionLibraryClient library_;
+    ClientEntityReplicationEventHooks replicationHooks_;
+#if defined(ENABLE_UI)
+    UIEventHooks uiEvents_;
+#endif
+#if defined(ENABLE_IMGUI)
+    extui::IMGUIObjectManager* imgui_{ nullptr };
+#endif
+};
 
-	private:
-		ExtensionLibraryClient library_;
-	};
-}
+END_NS()

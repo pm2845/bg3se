@@ -4,324 +4,337 @@
 
 BEGIN_NS(lua)
 
-BitmaskInfoStore<EnumUnderlyingType>* BitfieldValueMetatable::GetBitfieldInfo(CppValueMetadata const& self)
+BitfieldInfoStore* BitfieldValueMetatable::GetBitfieldInfo(CppObjectMetadata const& self)
 {
-	return BitmaskRegistry::Get().BitfieldsById[self.PropertyMapTag];
+    return BitfieldRegistry::Get().BitfieldsById[self.PropertyMapTag];
 }
 
-EnumUnderlyingType BitfieldValueMetatable::GetValue(CppValueMetadata const& self)
+EnumUnderlyingType BitfieldValueMetatable::GetValue(CppObjectMetadata const& self)
 {
-	return static_cast<EnumUnderlyingType>(self.Value);
+    return static_cast<EnumUnderlyingType>(self.Value);
 }
 
-std::optional<EnumUnderlyingType> BitfieldValueMetatable::GetValueAtIndex(CppValueMetadata const& self, int index)
+std::optional<EnumUnderlyingType> BitfieldValueMetatable::GetValueAtIndex(CppObjectMetadata const& self, int index)
 {
-	auto ei = GetBitfieldInfo(self);
-	auto v = self.Value & ei->AllowedFlags;
-	int i = 0;
-	DWORD bitIndex = 0;
-	while (i <= index && _BitScanForward64(&bitIndex, v)) {
-		v &= ~(1ull << bitIndex);
-		i++;
-	}
+    auto ei = GetBitfieldInfo(self);
+    auto v = self.Value & ei->AllowedFlags;
+    int i = 0;
+    DWORD bitIndex = 0;
+    while (i <= index && _BitScanForward64(&bitIndex, v)) {
+        v &= ~(1ull << bitIndex);
+        i++;
+    }
 
-	if (i > index) {
-		return (1ull << bitIndex);
-	} else {
-		return {};
-	}
+    if (i > index) {
+        return (1ull << bitIndex);
+    } else {
+        return {};
+    }
 }
 
-Json::Value BitfieldValueMetatable::ToJson(CppValueMetadata& self)
+STDString BitfieldValueMetatable::GetValueAsString(CppObjectMetadata& self)
 {
-	Json::Value arr(Json::arrayValue);
-	auto ei = GetBitfieldInfo(self);
-	for (auto const& val : ei->Values) {
-		if ((self.Value & val.Value) == val.Value) {
-			arr.append(val.Key.GetString());
-		}
-	}
-	return arr;
+    STDString labels;
+    auto ei = GetBitfieldInfo(self);
+    for (auto const& val : ei->Values) {
+        if ((self.Value & val.Value) == val.Value) {
+            if (!labels.empty()) labels += " | ";
+            labels += val.Key.GetString();
+        }
+    }
+
+    return labels;
 }
 
-int BitfieldValueMetatable::Index(lua_State* L, CppValueMetadata& self)
+Json::Value BitfieldValueMetatable::ToJson(CppObjectMetadata& self)
 {
-	switch (lua_type(L, 2)) {
-	case LUA_TSTRING:
-	{
-		auto index = get<FixedString>(L, 2);
-		if (index == GFS.str__Labels) {
-			auto ei = GetBitfieldInfo(self);
-			lua_newtable(L);
-			int i = 1;
-			for (auto const& val : ei->Values) {
-				if ((self.Value & val.Value) == val.Value) {
-					settable(L, i, val.Key, -3);
-					i++;
-				}
-			}
-		} else if (index == GFS.str__Value) {
-			push(L, GetValue(self));
-		} else if (index == GFS.str__EnumName) {
-			push(L, GetBitfieldInfo(self)->EnumName);
-		} else {
-			auto ei = GetBitfieldInfo(self);
-			auto val = ei->Find(index);
-			if (val) {
-				push(L, (self.Value & *val) == *val);
-			} else {
-				luaL_error(L, "Bitfield of type '%s' has no enum label or special property named '%s'", ei->EnumName.GetString(), index.GetString());
-				push(L, nullptr);
-			}
-		}
-		break;
-	}
-
-	case LUA_TNUMBER:
-	{
-		auto index = get<int>(L, 2);
-		if (index < 1) {
-			push(L, nullptr);
-		} else {
-			auto val = GetValueAtIndex(self, index - 1);
-			if (val) {
-				auto ei = GetBitfieldInfo(self);
-				push(L, ei->Find(*val));
-			} else {
-				push(L, nullptr);
-			}
-		}
-		break;
-	}
-
-	default:
-		luaL_error(L, "Bitfield __index parameter must be an integer, enum label, or special property name; got %s", lua_typename(L, lua_type(L, 2)));
-		push(L, nullptr);
-		break;
-	}
-
-	return 1;
+    Json::Value arr(Json::arrayValue);
+    auto ei = GetBitfieldInfo(self);
+    for (auto const& val : ei->Values) {
+        if ((self.Value & val.Value) == val.Value) {
+            arr.append(val.Key.GetString());
+        }
+    }
+    return arr;
 }
 
-int BitfieldValueMetatable::ToString(lua_State* L, CppValueMetadata& self)
+int BitfieldValueMetatable::Index(lua_State* L, CppObjectMetadata& self)
 {
-	StackCheck _(L, 1);
-	STDString labels;
-	auto ei = GetBitfieldInfo(self);
-	for (auto const& val : ei->Values) {
-		if ((self.Value & val.Value) == val.Value) {
-			if (!labels.empty()) labels += ',';
-			labels += val.Key.GetString();
-		}
-	}
+    switch (lua_type(L, 2)) {
+    case LUA_TSTRING:
+    {
+        auto index = get<FixedString>(L, 2);
+        if (index == GFS.str__Labels) {
+            auto ei = GetBitfieldInfo(self);
+            lua_newtable(L);
+            int i = 1;
+            for (auto const& val : ei->Values) {
+                if ((self.Value & val.Value) == val.Value) {
+                    settable(L, i, val.Key, -3);
+                    i++;
+                }
+            }
+        } else if (index == GFS.str__Value) {
+            push(L, GetValue(self));
+        } else if (index == GFS.str__EnumName) {
+            push(L, GetBitfieldInfo(self)->EnumName);
+        } else {
+            auto ei = GetBitfieldInfo(self);
+            auto val = ei->Find(index);
+            if (val) {
+                push(L, (self.Value & *val) == *val);
+            } else {
+                luaL_error(L, "Bitfield of type '%s' has no enum label or special property named '%s'", ei->EnumName.GetString(), index.GetString());
+                push(L, nullptr);
+            }
+        }
+        break;
+    }
 
-	if (self.Value & ~ei->AllowedFlags) {
-		if (!labels.empty()) labels += ',';
-		labels += "Unknowns:";
-		labels += std::to_string(self.Value & ~ei->AllowedFlags);
-	}
+    case LUA_TNUMBER:
+    {
+        auto index = get<int>(L, 2);
+        if (index < 1) {
+            push(L, nullptr);
+        } else {
+            auto val = GetValueAtIndex(self, index - 1);
+            if (val) {
+                auto ei = GetBitfieldInfo(self);
+                push(L, ei->Find(*val));
+            } else {
+                push(L, nullptr);
+            }
+        }
+        break;
+    }
 
-	push(L, STDString(ei->EnumName.GetString()) + "(" + labels + ")");
-	return 1;
+    default:
+        luaL_error(L, "Bitfield __index parameter must be an integer, enum label, or special property name; got %s", GetDebugName(L, 2));
+        push(L, nullptr);
+        break;
+    }
+
+    return 1;
 }
 
-bool BitfieldValueMetatable::IsEqual(lua_State* L, CppValueMetadata& self, int otherIndex)
+int BitfieldValueMetatable::ToString(lua_State* L, CppObjectMetadata& self)
 {
-	auto ei = GetBitfieldInfo(self);
-	auto other = try_get_bitfield_value(L, otherIndex, *ei, false);
-	return other && *other == self.Value;
+    StackCheck _(L, 1);
+    STDString labels;
+    auto ei = GetBitfieldInfo(self);
+    for (auto const& val : ei->Values) {
+        if ((self.Value & val.Value) == val.Value) {
+            if (!labels.empty()) labels += ',';
+            labels += val.Key.GetString();
+        }
+    }
+
+    if (self.Value & ~ei->AllowedFlags) {
+        if (!labels.empty()) labels += ',';
+        labels += "Unknowns:";
+        labels += std::to_string(self.Value & ~ei->AllowedFlags);
+    }
+
+    push(L, STDString(ei->EnumName.GetString()) + "(" + labels + ")");
+    return 1;
 }
 
-int BitfieldValueMetatable::Length(lua_State* L, CppValueMetadata& self)
+bool BitfieldValueMetatable::IsEqual(lua_State* L, CppObjectMetadata& self, int otherIndex)
 {
-	auto ei = GetBitfieldInfo(self);
-	auto len = (unsigned)_mm_popcnt_u64(self.Value & ei->AllowedFlags);
-	push(L, len);
-	return 1;
+    auto ei = GetBitfieldInfo(self);
+    auto other = try_get_bitfield_value(L, otherIndex, self.PropertyMapTag, false);
+    return other && *other == self.Value;
 }
 
-int BitfieldValueMetatable::Next(lua_State* L, CppValueMetadata& self)
+int BitfieldValueMetatable::Length(lua_State* L, CppObjectMetadata& self)
 {
-	int key;
-	if (lua_type(L, 2) == LUA_TNIL) {
-		key = 0;
-	} else {
-		key = get<int>(L, 2);
-	}
-
-	if (key >= 0) {
-		auto val = GetValueAtIndex(self, key);
-		if (val) {
-			auto ei = GetBitfieldInfo(self);
-			push(L, ++key);
-			push(L, ei->Find(*val));
-			return 2;
-		}
-	}
-
-	return 0;
+    auto ei = GetBitfieldInfo(self);
+    auto len = (unsigned)_mm_popcnt_u64(self.Value & ei->AllowedFlags);
+    push(L, len);
+    return 1;
 }
 
-int BitfieldValueMetatable::BAnd(lua_State* L, CppValueMetadata& self, int otherIndex)
+int BitfieldValueMetatable::Next(lua_State* L, CppObjectMetadata& self)
 {
-	auto ei = GetBitfieldInfo(self);
-	auto other = get_bitfield_value(L, otherIndex, *ei, true);
-	Make(L, self.Value & other, ei->RegistryIndex);
-	return 1;
+    int key;
+    if (lua_type(L, 2) == LUA_TNIL) {
+        key = 0;
+    } else {
+        key = get<int>(L, 2);
+    }
+
+    if (key >= 0) {
+        auto val = GetValueAtIndex(self, key);
+        if (val) {
+            auto ei = GetBitfieldInfo(self);
+            push(L, ++key);
+            push(L, ei->Find(*val));
+            return 2;
+        }
+    }
+
+    return 0;
 }
 
-int BitfieldValueMetatable::BOr(lua_State* L, CppValueMetadata& self, int otherIndex)
+int BitfieldValueMetatable::BAnd(lua_State* L, CppObjectMetadata& self, int otherIndex)
 {
-	auto ei = GetBitfieldInfo(self);
-	auto other = get_bitfield_value(L, otherIndex, *ei, false);
-	Make(L, self.Value | other, ei->RegistryIndex);
-	return 1;
+    auto other = get_bitfield_value(L, otherIndex, self.PropertyMapTag, true);
+    Make(L, self.Value & other, self.PropertyMapTag);
+    return 1;
 }
 
-int BitfieldValueMetatable::BXor(lua_State* L, CppValueMetadata& self, int otherIndex)
+int BitfieldValueMetatable::BOr(lua_State* L, CppObjectMetadata& self, int otherIndex)
 {
-	auto ei = GetBitfieldInfo(self);
-	auto other = get_bitfield_value(L, otherIndex, *ei, false);
-	Make(L, self.Value ^ other, ei->RegistryIndex);
-	return 1;
+    auto other = get_bitfield_value(L, otherIndex, self.PropertyMapTag, false);
+    Make(L, self.Value | other, self.PropertyMapTag);
+    return 1;
 }
 
-int BitfieldValueMetatable::BNot(lua_State* L, CppValueMetadata& self)
+int BitfieldValueMetatable::BXor(lua_State* L, CppObjectMetadata& self, int otherIndex)
 {
-	auto ei = GetBitfieldInfo(self);
-	Make(L, (~self.Value & ei->AllowedFlags), ei->RegistryIndex);
-	return 1;
+    auto other = get_bitfield_value(L, otherIndex, self.PropertyMapTag, false);
+    Make(L, self.Value ^ other, self.PropertyMapTag);
+    return 1;
 }
 
-char const* BitfieldValueMetatable::GetTypeName(lua_State* L, CppValueMetadata& self)
+int BitfieldValueMetatable::BNot(lua_State* L, CppObjectMetadata& self)
 {
-	auto ei = GetBitfieldInfo(self);
-	return ei->EnumName.GetString();
+    auto ei = GetBitfieldInfo(self);
+    Make(L, (~self.Value & ei->AllowedFlags), self.PropertyMapTag);
+    return 1;
 }
 
-EnumUnderlyingType get_bitfield_value(lua_State* L, int index, BitmaskInfoStore<EnumUnderlyingType> const& store, bool maskInvalidBits)
+char const* BitfieldValueMetatable::GetTypeName(lua_State* L, CppObjectMetadata& self)
 {
-	switch (lua_type(L, index)) {
-	case LUA_TSTRING:
-	{
-		auto val = do_get(L, index, Overload<FixedString>{});
-		auto valueIndex = store.Find(val);
-		if (valueIndex) {
-			return *valueIndex;
-		} else {
-			luaL_error(L, "Param %d: not a valid '%s' bitfield value: %s", index, store.EnumName.GetString(), val.GetString());
-		}
-		break;
-	}
-
-	case LUA_TNUMBER:
-	{
-		auto val = (EnumUnderlyingType)lua_tointeger(L, index);
-		if ((val & ~store.AllowedFlags) == 0) {
-			return val;
-		} else if (maskInvalidBits) {
-			return (val & store.AllowedFlags);
-		} else {
-			luaL_error(L, "Param %d: not a valid '%s' bitfield value: %p", index, store.EnumName.GetString(), val);
-		}
-		break;
-	}
-
-	case LUA_TTABLE:
-	{
-		EnumUnderlyingType val{ 0 };
-		for (auto valueIdx : iterate(L, index)) {
-			auto label = do_get(L, valueIdx, Overload<FixedString>{});
-			auto index = store.Find(label);
-			if (index) {
-				val |= *index;
-			} else {
-				luaL_error(L, "Param %d: not a valid '%s' bitfield value: %s", 
-					index, store.EnumName.GetString(), label.GetString());
-			}
-		}
-
-		return val;
-	}
-
-	case LUA_TLIGHTCPPOBJECT:
-	{
-		CppValueMetadata meta;
-		lua_get_cppvalue(L, lua_absindex(L, index), meta);
-		if (meta.MetatableTag == BitfieldValueMetatable::MetaTag && meta.PropertyMapTag == (unsigned)store.RegistryIndex) {
-			return static_cast<EnumUnderlyingType>(meta.Value);
-		} else {
-			luaL_error(L, "Param %d: expected a '%s' bitfield value, got type %d", index, store.EnumName.GetString(), meta.MetatableTag);
-		}
-		break;
-	}
-
-	default:
-		luaL_error(L, "Param %d: expected integer, string or table '%s' bitfield value, got %s", index,
-			store.EnumName.GetString(), lua_typename(L, lua_type(L, index)));
-		break;
-	}
-
-	return 0;
+    auto ei = GetBitfieldInfo(self);
+    return ei->LuaName.GetString();
 }
 
-std::optional<EnumUnderlyingType> try_get_bitfield_value(lua_State* L, int index, BitmaskInfoStore<EnumUnderlyingType> const& store, bool maskInvalidBits)
+EnumUnderlyingType get_bitfield_value(lua_State* L, int index, BitfieldTypeId typeId, bool maskInvalidBits)
 {
-	switch (lua_type(L, index)) {
-	case LUA_TSTRING:
-	{
-		auto val = do_get(L, index, Overload<FixedString>{});
-		auto valueIndex = store.Find(val);
-		if (valueIndex) {
-			return *valueIndex;
-		}
-		break;
-	}
+    auto const& store = *BitfieldRegistry::Get().BitfieldsById[typeId];
 
-	case LUA_TNUMBER:
-	{
-		auto val = (EnumUnderlyingType)lua_tointeger(L, index);
-		if ((val & ~store.AllowedFlags) == 0) {
-			return val;
-		} else if (maskInvalidBits) {
-			return (val & store.AllowedFlags);
-		}
-		break;
-	}
+    switch (lua_type(L, index)) {
+    case LUA_TSTRING:
+    {
+        auto val = do_get(L, index, Overload<FixedString>{});
+        auto valueIndex = store.Find(val);
+        if (valueIndex) {
+            return *valueIndex;
+        } else {
+            luaL_error(L, "Param %d: not a valid '%s' bitfield value: %s", index, store.EnumName.GetString(), val.GetString());
+        }
+        break;
+    }
 
-	case LUA_TTABLE:
-	{
-		EnumUnderlyingType val{ 0 };
-		for (auto valueIdx : iterate(L, index)) {
-			auto label = do_get(L, valueIdx, Overload<FixedString>{});
-			auto index = store.Find(label);
-			if (index) {
-				val |= *index;
-			} else {
-				return {};
-			}
-		}
+    case LUA_TNUMBER:
+    {
+        auto val = (EnumUnderlyingType)lua_tointeger(L, index);
+        if ((val & ~store.AllowedFlags) == 0) {
+            return val;
+        } else if (maskInvalidBits) {
+            return (val & store.AllowedFlags);
+        } else {
+            luaL_error(L, "Param %d: not a valid '%s' bitfield value: %p", index, store.EnumName.GetString(), val);
+        }
+        break;
+    }
 
-		return val;
-	}
+    case LUA_TTABLE:
+    {
+        EnumUnderlyingType val{ 0 };
+        for (auto valueIdx : iterate(L, index)) {
+            auto label = do_get(L, valueIdx, Overload<FixedString>{});
+            auto index = store.Find(label);
+            if (index) {
+                val |= *index;
+            } else {
+                luaL_error(L, "Param %d: not a valid '%s' bitfield value: %s", 
+                    index, store.EnumName.GetString(), label.GetString());
+            }
+        }
 
-	case LUA_TLIGHTCPPOBJECT:
-	{
-		CppValueMetadata meta;
-		lua_get_cppvalue(L, lua_absindex(L, index), meta);
-		if (meta.MetatableTag == BitfieldValueMetatable::MetaTag && meta.PropertyMapTag == (unsigned)store.RegistryIndex) {
-			return static_cast<EnumUnderlyingType>(meta.Value);
-		}
-		break;
-	}
-	}
+        return val;
+    }
 
-	return {};
+    case LUA_TLIGHTCPPOBJECT:
+    {
+        auto meta = lua_get_cppvalue(L, lua_absindex(L, index));
+        if (meta.MetatableTag == BitfieldValueMetatable::MetaTag && meta.PropertyMapTag == (unsigned)store.RegistryIndex) {
+            return static_cast<EnumUnderlyingType>(meta.Value);
+        } else {
+            luaL_error(L, "Param %d: expected a '%s' bitfield value, got %s", index, store.EnumName.GetString(), GetDebugName(L, index));
+        }
+        break;
+    }
+
+    default:
+        luaL_error(L, "Param %d: expected integer, string or table '%s' bitfield value, got %s", index,
+            store.EnumName.GetString(), GetDebugName(L, index));
+        break;
+    }
+
+    return 0;
 }
 
-void push_bitfield_value(lua_State* L, EnumUnderlyingType value, BitmaskInfoStore<EnumUnderlyingType> const& store)
+std::optional<EnumUnderlyingType> try_get_bitfield_value(lua_State* L, int index, BitfieldTypeId typeId, bool maskInvalidBits)
 {
-	BitfieldValueMetatable::Make(L, value, store.RegistryIndex);
+    auto const& store = *BitfieldRegistry::Get().BitfieldsById[typeId];
+
+    switch (lua_type(L, index)) {
+    case LUA_TSTRING:
+    {
+        auto val = do_get(L, index, Overload<FixedString>{});
+        auto valueIndex = store.Find(val);
+        if (valueIndex) {
+            return *valueIndex;
+        }
+        break;
+    }
+
+    case LUA_TNUMBER:
+    {
+        auto val = (EnumUnderlyingType)lua_tointeger(L, index);
+        if ((val & ~store.AllowedFlags) == 0) {
+            return val;
+        } else if (maskInvalidBits) {
+            return (val & store.AllowedFlags);
+        }
+        break;
+    }
+
+    case LUA_TTABLE:
+    {
+        EnumUnderlyingType val{ 0 };
+        for (auto valueIdx : iterate(L, index)) {
+            auto label = do_get(L, valueIdx, Overload<FixedString>{});
+            auto index = store.Find(label);
+            if (index) {
+                val |= *index;
+            } else {
+                return {};
+            }
+        }
+
+        return val;
+    }
+
+    case LUA_TLIGHTCPPOBJECT:
+    {
+        auto meta = lua_get_cppvalue(L, lua_absindex(L, index));
+        if (meta.MetatableTag == BitfieldValueMetatable::MetaTag && meta.PropertyMapTag == (unsigned)store.RegistryIndex) {
+            return static_cast<EnumUnderlyingType>(meta.Value);
+        }
+        break;
+    }
+    }
+
+    return {};
+}
+
+void push_bitfield_value(lua_State* L, EnumUnderlyingType value, BitfieldTypeId id)
+{
+    BitfieldValueMetatable::Make(L, value, id);
 }
 
 END_NS()

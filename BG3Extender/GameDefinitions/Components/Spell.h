@@ -1,312 +1,222 @@
 #pragma once
 
 #include <GameDefinitions/Base/Base.h>
+#include <GameDefinitions/RootTemplates.h>
 #include <GameDefinitions/Hit.h>
-#include <GameDefinitions/Interrupt.h>
-
-BEGIN_NS(interrupt)
-
-struct ActionStateComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptActionState;
-	static constexpr auto EngineClass = "eoc::interrupt::ActionStateComponent";
-
-	InterruptVariant2 Variant;
-	Array<InterruptEntities> Arr_EHx2;
-	Guid field_118;
-};
-
-struct ConditionallyDisabledComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptConditionallyDisabled;
-	static constexpr auto EngineClass = "eoc::interrupt::ConditionallyDisabledComponent";
-
-	uint8_t Dummy;
-};
-
-struct ContainerComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptContainer;
-	static constexpr auto EngineClass = "eoc::interrupt::ContainerComponent";
-
-	Array<EntityHandle> Interrupts;
-};
-
-struct DataComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptData;
-	static constexpr auto EngineClass = "eoc::interrupt::DataComponent";
-
-	FixedString Interrupt;
-	uint8_t field_4;
-	EntityHandle field_8;
-	EntityHandle field_10;
-	FixedString field_18;
-};
-
-struct DecisionComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptDecision;
-	static constexpr auto EngineClass = "eoc::interrupt::DecisionComponent";
-
-	MultiHashMap<InterruptVariant2, uint8_t> Decisions;
-};
-
-struct PreferencesComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptPreferences;
-	static constexpr auto EngineClass = "eoc::interrupt::PreferencesComponent";
-
-	MultiHashMap<FixedString, uint8_t> Preferences;
-};
-
-struct PreparedComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptPrepared;
-	static constexpr auto EngineClass = "eoc::interrupt::PreparedComponent";
-
-	uint8_t Dummy;
-};
-
-struct ZoneComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptZone;
-	static constexpr auto EngineClass = "eoc::interrupt::ZoneComponent";
-
-	Guid field_0;
-};
-
-struct ZoneParticipantComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptZoneParticipant;
-	static constexpr auto EngineClass = "eoc::interrupt::ZoneParticipantComponent";
-
-	MultiHashMap<EntityHandle, uint8_t> field_0;
-};
-
-struct ZoneSourceComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::InterruptZoneSource;
-	static constexpr auto EngineClass = "eoc::interrupt::ZoneSourceComponent";
-
-	uint8_t Dummy;
-};
-
-END_NS()
+#include <GameDefinitions/Stats/Common.h>
 
 BEGIN_NS(spell)
 
 struct Modification
 {
-	struct ModifyAreaRadius
-	{
-		uint64_t Value;
-	};
+    struct ModifyAreaRadius
+    {
+        SpellModificationValueType ValueType;
+        float AreaRadius;
+    };
 
-	struct ModifyMaximumTargets
-	{
-		uint64_t Value;
-	};
+    struct ModifyMaximumTargets
+    {
+        SpellModificationValueType ValueType;
+        int32_t MaximumTargets;
+    };
 
-	struct ModifyNumberOfTargets
-	{
-		glm::vec3 Value;
-	};
+    struct ModifyNumberOfTargets
+    {
+        SpellModificationValueType ValueType;
+        int32_t NumberOfTargets;
+    };
 
-	struct ModifySavingThrowDisadvantage
-	{
-		uint8_t Value;
-	};
+    struct ModifySavingThrowDisadvantage
+    {
+        uint8_t SavingThrowDisadvantage;
+    };
 
-	struct ModifySpellFlags
-	{
-		uint8_t Value;
-		uint8_t field_1;
-	};
+    struct ModifySpellFlags
+    {
+        uint8_t SpellFlags;
+        uint8_t field_1;
+    };
 
-	struct ModifySpellRoll
-	{
-		STDString field_0;
-		STDString field_18;
-		int field_30;
-	};
+    struct ModifySpellRoll
+    {
+        STDString Conditions;
+        STDString Conditions2;
+        int field_30;
+    };
 
-	struct ModifyStatusDuration
-	{
-		uint64_t Value;
-	};
+    struct ModifyStatusDuration
+    {
+        SpellModificationValueType ValueType;
+        float StatusDuration;
+    };
 
-	struct ModifySummonDuration
-	{
-		uint64_t Value;
-	};
+    struct ModifySummonDuration
+    {
+        SpellModificationValueType ValueType;
+        float SummonDuration;
+    };
 
-	struct ModifySurfaceDuration
-	{
-		uint64_t Value;
-	};
+    struct ModifySurfaceDuration
+    {
+        SpellModificationValueType ValueType;
+        float SurfaceDuration;
+    };
 
-	struct ModifyTargetRadius
-	{
-		uint64_t Value;
-	};
+    struct ModifyTargetRadius
+    {
+        SpellModificationValueType ValueType;
+        float TargetRadius;
+    };
 
-	struct ModifyUseCosts
-	{
-		uint8_t Type;
-		Guid field_10;
-		STDString field_18;
-		int field_30;
-		Guid field_38;
-	};
+    struct ModifyUseCosts
+    {
+        uint8_t Type;
+        Guid Resource;
+        STDString Expression;
+        int Level;
+        Guid Resource2;
+    };
 
-	struct ModifyVisuals
-	{
-		uint8_t Value;
-	};
+    struct ModifyVisuals
+    {
+        uint8_t Visuals;
+    };
 
-	struct ModifyIconGlow
-	{
-		uint8_t Value;
-	};
+    struct ModifyIconGlow
+    {
+        uint8_t IconGlow;
+    };
 
-	struct ModifyTooltipDescription
-	{
-		uint8_t Value;
-	};
+    struct ModifyTooltipDescription
+    {
+        uint8_t TooltipDescription;
+    };
 
-	using Variant = std::variant<ModifyAreaRadius, ModifyMaximumTargets, ModifyNumberOfTargets, ModifySavingThrowDisadvantage, ModifySpellFlags, ModifySpellRoll, ModifyStatusDuration, ModifySummonDuration, ModifySurfaceDuration, ModifyTargetRadius, ModifyUseCosts, ModifyVisuals, ModifyIconGlow, ModifyTooltipDescription>;
+    using Variant = std::variant<ModifyAreaRadius, ModifyMaximumTargets, ModifyNumberOfTargets, ModifySavingThrowDisadvantage, ModifySpellFlags, ModifySpellRoll, ModifyStatusDuration, ModifySummonDuration, ModifySurfaceDuration, ModifyTargetRadius, ModifyUseCosts, ModifyVisuals, ModifyIconGlow, ModifyTooltipDescription>;
 
-	uint8_t field_0;
-	FixedString field_4;
-	Variant Modification;
-	MultiHashSet<SpellId> Spells;
+    uint8_t field_0;
+    FixedString Source;
+    Variant Modification;
+    HashSet<SpellId> Spells;
+};
+
+struct SpellMeta
+{
+    SpellMetaId SpellId;
+    EntityHandle BoostHandle;
+    [[bg3::legacy(SelectionType)]] SpellLearningStrategy LearningStrategy;
+    uint8_t field_29;
+    [[bg3::legacy(SpellUUID)]] Guid PreferredCastingResource;
+    AbilityId SpellCastingAbility;
+    SpellCooldownType CooldownType;
+    FixedString ContainerSpell;
+    uint8_t field_48;
 };
 
 struct SpellContainerComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellContainer;
-	static constexpr auto EngineClass = "eoc::spell::ContainerComponent";
+    DEFINE_COMPONENT(SpellContainer, "eoc::spell::ContainerComponent")
 
-	struct Spell
-	{
-		SpellIdBase SpellId;
-		EntityHandle ItemHandle;
-		SpellChildSelectionType SelectionType;
-		uint8_t field_29;
-		Guid SpellUUID;
-		AbilityId SpellCastingAbility;
-		SpellCooldownType CooldownType;
-		FixedString ContainerSpell;
-		uint8_t field_48;
-	};
-
-	Array<Spell> Spells;
+    Array<SpellMeta> Spells;
 };
 
 struct PlayerPrepareSpellComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::PlayerPrepareSpell;
-	static constexpr auto EngineClass = "eoc::spell::PlayerPrepareSpellComponent";
+    DEFINE_COMPONENT(PlayerPrepareSpell, "eoc::spell::PlayerPrepareSpellComponent")
 
-	Array<SpellIdBase> Spells;
-	uint8_t field_30;
+    Array<SpellMetaId> Spells;
+    uint8_t field_30;
 };
 
 struct CCPrepareSpellComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::CCPrepareSpell;
-	static constexpr auto EngineClass = "eoc::spell::CCPrepareSpellComponent";
+    DEFINE_COMPONENT(CCPrepareSpell, "eoc::spell::CCPrepareSpellComponent")
 
-	Array<SpellIdBase> Spells;
+    Array<SpellMetaId> Spells;
 };
 
 struct SpellModificationContainerComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellModificationContainer;
-	static constexpr auto EngineClass = "eoc::spell::ModificationContainerComponent";
+    DEFINE_COMPONENT(SpellModificationContainer, "eoc::spell::ModificationContainerComponent")
 
-	MultiHashMap<FixedString, Array<Modification>> Modifications;
+    HashMap<FixedString, Array<Modification>> Modifications;
 };
 
 struct AddedSpellsComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::AddedSpells;
-	static constexpr auto EngineClass = "eoc::spell::AddedSpellsComponent";
+    DEFINE_COMPONENT(AddedSpells, "eoc::spell::AddedSpellsComponent")
 
-	Array<SpellContainerComponent::Spell> Spells;
+    Array<SpellMeta> Spells;
+};
+
+struct CooldownData
+{
+    SpellId SpellId;
+    SpellCooldownType CooldownType;
+    uint8_t field_29;
+    float Cooldown;
+    Guid field_30;
 };
 
 struct SpellBookCooldownsComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellBookCooldowns;
-	static constexpr auto EngineClass = "eoc::spell::BookCooldownsComponent";
+    DEFINE_COMPONENT(SpellBookCooldowns, "eoc::spell::BookCooldownsComponent")
 
-	struct Cooldown
-	{
-		SpellId SpellId;
-		SpellCooldownType CooldownType;
-		uint8_t field_29;
-		float Cooldown;
-		Guid field_30;
-	};
-
-	Array<Cooldown> Cooldowns;
+    Array<CooldownData> Cooldowns;
 };
 
 struct LearnedSpellsComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::LearnedSpells;
-	static constexpr auto EngineClass = "eoc::spell::LearnedSpellsComponent";
+    DEFINE_COMPONENT(LearnedSpells, "eoc::spell::LearnedSpellsComponent")
 
-	MultiHashMap<Guid, MultiHashSet<FixedString>> field_18;
-	MultiHashSet<uint8_t> field_70;
+    HashMap<Guid, HashSet<FixedString>> field_18;
+    HashSet<SpellSchoolId> SpellSchools;
 };
 
 struct SpellAiConditionsComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellAiConditions;
-	static constexpr auto EngineClass = "eoc::spell::AiConditionsComponent";
+    DEFINE_COMPONENT(SpellAiConditions, "eoc::spell::AiConditionsComponent")
 
-	MultiHashMap<FixedString, uint64_t> field_18;
+    HashMap<FixedString, AiActionConditions> Conditions;
 };
 
-struct SpellBookEntry
+struct CastRequirements
 {
-	struct InnerEntry
-	{
-		uint8_t field_0;
-		int32_t field_4;
-	};
+    uint8_t field_0;
+    int32_t field_4;
+};
 
-	SpellId Id;
-	Guid SpellUUID;
-	int32_t field_38;
-	int32_t field_3C;
-	SpellCooldownType CooldownType;
-	uint8_t field_41;
-	uint8_t field_42;
-	AbilityId SpellCastingAbility;
-	Array<InnerEntry> InnerEntries;
+struct SpellData
+{
+    SpellId Id;
+    [[bg3::legacy(SpellUUID)]] Guid PreferredCastingResource;
+    int32_t field_38;
+    int32_t field_3C;
+    SpellCooldownType CooldownType;
+    [[bg3::legacy(field_41)]] bool Charged;
+    [[bg3::legacy(field_42)]] SpellPrepareType PrepareType;
+    AbilityId SpellCastingAbility;
+    Array<CastRequirements> CastRequirements;
+    // uint32_t NumCharges;
+    // uint32_t UsedCharges;
 };
 
 struct BookComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellBook;
-	static constexpr auto EngineClass = "eoc::spell::BookComponent";
+    DEFINE_COMPONENT(SpellBook, "eoc::spell::BookComponent")
 
-	uint64_t field_0;
-	Array<SpellBookEntry> Spells;
+    EntityHandle field_0;
+    Array<SpellData> Spells;
 };
 
 struct BookPreparesComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellBookPrepares;
-	static constexpr auto EngineClass = "eoc::spell::BookPreparesComponent";
+    DEFINE_COMPONENT(SpellBookPrepares, "eoc::spell::BookPreparesComponent")
 
-	Array<SpellIdBase> PreparedSpells;
-	MultiHashMap<Guid, int> field_30;
-	MultiHashMap<Guid, int> field_88;
+    Array<SpellMetaId> PreparedSpells;
+    HashMap<Guid, int> field_30;
+    HashMap<Guid, int> field_88;
 };
 
 END_NS()
@@ -315,389 +225,444 @@ BEGIN_NS(spell_cast)
 
 struct AnimationInfoComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellCastAnimationInfo;
-	static constexpr auto EngineClass = "eoc::spell_cast::AnimationInfoComponent";
+    DEFINE_COMPONENT(SpellCastAnimationInfo, "eoc::spell_cast::AnimationInfoComponent")
 
-	uint8_t field_0;
-	glm::vec3 field_4;
-	uint8_t field_10;
-	glm::vec3 field_14;
-	EntityHandle field_20;
-	uint8_t field_28;
-	uint8_t field_29;
-	uint8_t field_2A;
-	uint8_t field_2B;
-	uint8_t field_2C;
-	uint8_t field_2D;
-	uint8_t field_2E;
+    [[bg3::legacy(field_0)]] uint8_t Event;
+    std::optional<glm::vec3> TargetPosition;
+    glm::vec3 TargetRotation;
+    EntityHandle Target;
+    uint8_t field_28;
+    uint8_t field_29;
+    [[bg3::legacy(field_2A)]] uint8_t LoopingCastAnimation;
+    uint8_t field_2B;
+    [[bg3::legacy(field_2C)]] uint8_t DualWielding;
+    [[bg3::legacy(field_2D)]] uint8_t HasWeapon;
+    [[bg3::legacy(field_2E)]] uint8_t ObjectSize;
 };
 
 struct CacheComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellCastCache;
-	static constexpr auto EngineClass = "eoc::spell_cast::CacheComponent";
+    DEFINE_COMPONENT(SpellCastCache, "eoc::spell_cast::CacheComponent")
 
-	uint8_t field_0;
-	uint32_t field_4;
+    uint8_t field_0;
+    uint32_t field_4;
 };
 
 struct CanBeTargetedComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellCastCanBeTargeted;
-	static constexpr auto EngineClass = "eoc::spell_cast::CanBeTargetedComponent";
+    DEFINE_COMPONENT(SpellCastCanBeTargeted, "eoc::spell_cast::CanBeTargetedComponent")
 
-	uint8_t Dummy;
+    uint8_t Dummy;
 };
 
 struct IsCastingComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellCastIsCasting;
-	static constexpr auto EngineClass = "eoc::spell_cast::IsCastingComponent";
-	
-	EntityHandle Cast;
+    DEFINE_COMPONENT(SpellCastIsCasting, "eoc::spell_cast::IsCastingComponent")
+    
+    EntityHandle Cast;
 };
 
 struct InterruptResultsComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellCastInterruptResults;
-	static constexpr auto EngineClass = "eoc::spell_cast::InterruptResultsComponent";
-	
-	char field_0;
-	MultiHashSet<EntityHandle> Results;
+    DEFINE_COMPONENT(SpellCastInterruptResults, "eoc::spell_cast::InterruptResultsComponent")
+    
+    char field_0;
+    HashSet<EntityHandle> Results;
 };
 
 struct MovementComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellCastMovement;
-	static constexpr auto EngineClass = "eoc::spell_cast::MovementComponent";
+    DEFINE_COMPONENT(SpellCastMovement, "eoc::spell_cast::MovementComponent")
 
-	glm::vec3 field_0;
-	glm::vec3 field_C;
-	bool field_18;
+    glm::vec3 field_0;
+    std::optional<glm::vec3> field_C;
+    // FixedString TextKey;
+};
+
+struct SpellRollCastEventData
+{
+    [[bg3::legacy(field_0)]] FixedString CastKey;
+    HitDesc Hit;
+};
+
+struct SpellRollTargetInfo
+{
+    uint64_t Flags;
+    glm::vec3 Position;
+};
+
+struct SpellRollData
+{
+    EntityHandle Target;
+    std::optional<EntityHandle> field_8;
+    [[bg3::legacy(Hits)]] Array<SpellRollCastEventData> Casts;
+    HashMap<FixedString, int32_t> NameToCastIndex;
+    int NextReaction;
+    SpellMetaConditionType SpellConditionsType;
+    std::optional<SpellRollTargetInfo> TargetInfo;
 };
 
 struct RollsComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellCastRolls;
-	static constexpr auto EngineClass = "eoc::spell_cast::RollsComponent";
+    DEFINE_COMPONENT(SpellCastRolls, "eoc::spell_cast::RollsComponent")
 
-	struct RollHit
-	{
-		FixedString field_0;
-		Hit Hit;
-	};
-
-	struct Roll
-	{
-		EntityHandle field_0;
-		std::optional<EntityHandle> field_8;
-		Array<RollHit> Hits;
-		MultiHashMap<FixedString, int32_t> MHS_FS_i32;
-		int field_68;
-		uint8_t field_6C;
-		__int64 field_70;
-		__int64 field_78;
-		__int64 field_80;
-		uint8_t field_88;
-	};
-
-	Array<Roll> Rolls;
+    Array<SpellRollData> Rolls;
 };
 
-struct ReposeState
+struct BaseTarget : public ProtectedGameObject<BaseTarget>
 {
-	__int64 field_0;
-	EntityHandle field_8;
-	std::optional<EntityHandle> field_10;
-	std::optional<glm::vec3> field_20;
+    [[bg3::hidden]] void* VMT;
+    EntityHandle Target;
+    std::optional<EntityHandle> field_10;
+    std::optional<glm::vec3> Position;
 };
 
-struct ReposeState2
+struct InitialTarget : public BaseTarget
 {
-	ReposeState Repose;
-	uint8_t field_30;
-	std::optional<ReposeState> Repose2;
+    SpellType SpellType;
+    std::optional<BaseTarget> Target2;
+};
+
+struct IntermediateTarget : public BaseTarget
+{
+    [[bg3::legacy(Target2)]] InitialTarget InitialTarget;
+    uint8_t field_A0;
 };
 
 struct StateComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellCastState;
-	static constexpr auto EngineClass = "eoc::spell_cast::StateComponent";
+    DEFINE_COMPONENT(SpellCastState, "eoc::spell_cast::StateComponent")
 
-	EntityHandle Entity;
-	EntityHandle field_8;
-	SpellIdBase SpellId;
-	int field_38;
-	Array<ReposeState2> Repose;
-	std::optional<glm::vec3> field_50;
-	std::optional<glm::vec3> field_60;
-	glm::vec3 field_70;
-	EntityHandle field_80;
-	int field_88;
-	Guid field_90;
-	STDString field_A0;
+    StateComponent(const StateComponent&) = delete;
+    StateComponent& operator = (const StateComponent&) = delete;
+
+    EntityHandle Entity;
+    EntityHandle Caster;
+    SpellId SpellId;
+    [[bg3::legacy(field_38)]] uint32_t Flags;
+    Array<InitialTarget> Targets;
+    std::optional<glm::vec3> CasterMoveToPosition;
+    std::optional<glm::vec3> field_60;
+    glm::vec3 CasterStartPosition;
+    EntityHandle field_80;
+    [[bg3::legacy(field_88)]] uint32_t StartTime;
+    Guid SpellCastGuid;
+    STDString field_A0;
 };
 
 struct SyncTargetingComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::SpellSyncTargeting;
-	static constexpr auto EngineClass = "eoc::spell_cast::SyncTargetingComponent";
+    DEFINE_COMPONENT(SpellSyncTargeting, "eoc::spell_cast::SyncTargetingComponent")
 
-	[[bg3::hidden]]
-	void* VMT;
-	EntityHandle field_8;
-	std::optional<EntityHandle> field_10;
-	std::optional<glm::vec3> field_20;
-	Array<ReposeState2> Repose;
-	uint8_t field_40;
-	int field_44;
-	std::optional<glm::vec3> field_48;
-	std::optional<glm::vec3> field_58;
-	std::optional<glm::vec3> field_68;
-	std::optional<glm::vec3> field_78;
-	std::optional<glm::vec3> field_88;
+    SyncTargetingComponent(const SyncTargetingComponent&) = delete;
+    SyncTargetingComponent& operator = (const SyncTargetingComponent&) = delete;
+
+    [[bg3::hidden]]
+    void* VMT;
+    EntityHandle field_8;
+    std::optional<EntityHandle> field_10;
+    std::optional<glm::vec3> field_20;
+    Array<InitialTarget> Targets;
+    [[bg3::legacy(field_40)]] uint8_t CanMoveToThrowTarget;
+    int field_44;
+    std::optional<glm::vec3> field_48;
+    [[bg3::legacy(field_58)]] std::optional<glm::vec3> HoverPosition;
+    std::optional<glm::vec3> CasterPosition;
+    std::optional<glm::vec3> CasterMoveToPosition;
+    std::optional<glm::vec3> field_88;
 };
+
+
+struct CastTextKeyEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastTextKeyEvent, "eoc::spell_cast::CastTextKeyEventOneFrameComponent")
+
+    EntityHandle CastEntity;
+    FixedString TextKey;
+};
+
+struct CastHitEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastHitEvent, "eoc::spell_cast::CastHitEventOneFrameComponent")
+
+    EntityHandle CastEntity;
+    FixedString TextKey;
+};
+
+struct DestroyEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastDestroyEvent, "eoc::spell_cast::DestroyEventOneFrameComponent")
+
+    Guid SpellCastGuid;
+};
+
+struct SpellRollAbortEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastSpellRollAbortEvent, "eoc::spell_cast::SpellRollAbortEventOneFrameComponent")
+
+    HitDesc Hit;
+    EntityHandle field_1B0;
+    __int64 field_1B8;
+    uint8_t field_1C0;
+};
+
+struct TargetHitEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastTargetHitEvent, "eoc::spell_cast::TargetHitEventOneFrameComponent")
+
+    HitDesc Hit;
+    AttackDesc Attack;
+    EntityHandle field_1D0;
+    __int64 field_1D8;
+    uint8_t field_1E0;
+    EntityHandle field_1E8;
+    glm::vec3 field_1F0;
+};
+
+struct TargetHitInterruptEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastTargetHitInterruptEvent, "eoc::spell_cast::TargetHitInterruptEventOneFrameComponent")
+
+    HitDesc Hit;
+    AttackDesc Attack;
+    EntityHandle field_1D0;
+    EntityHandle field_1D8;
+    std::optional<glm::vec3> field_1E0;
+    std::optional<glm::vec3> field_1F0;
+    SpellId Spell;
+};
+
+struct TargetReactionEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastTargetReactionEvent, "eoc::spell_cast::TargetReactionEventOneFrameComponent")
+
+    HitDesc Hit;
+    EntityHandle field_1B0;
+    std::optional<glm::vec3> field_1B8;
+    EntityHandle CastEntity;
+};
+
+struct TargetsChangedEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastTargetsChangedEvent, "eoc::spell_cast::TargetsChangedEventOneFrameComponent")
+
+    TargetsChangedEventOneFrameComponent(const TargetsChangedEventOneFrameComponent&) = delete;
+    TargetsChangedEventOneFrameComponent& operator = (const TargetsChangedEventOneFrameComponent&) = delete;
+
+    Array<InitialTarget> Targets;
+};
+
+struct AnimationRequestOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastAnimationRequest, "eoc::spell_cast::AnimationRequestOneFrameComponent")
+
+    uint8_t Event;
+    std::optional<glm::vec3> TargetHitPosition;
+    glm::vec3 field_14;
+    EntityHandle Target;
+    uint8_t field_28;
+    uint8_t field_29;
+    bool LoopingCastAnimation;
+    bool CacheFlag256;
+    bool DualWielding;
+    bool HasWeapon;
+    uint8_t ObjectSize;
+};
+
+DEFINE_ONEFRAME_TAG_COMPONENT(eoc::spell_cast, CounteredEventOneFrameComponent, SpellCastCounteredEvent)
+DEFINE_ONEFRAME_TAG_COMPONENT(eoc::spell_cast, JumpStartEventOneFrameComponent, SpellCastJumpStartEvent)
+DEFINE_ONEFRAME_TAG_COMPONENT(eoc::spell_cast, LogicExecutionEndEventOneFrameComponent, SpellCastLogicExecutionEndEvent)
+DEFINE_ONEFRAME_TAG_COMPONENT(eoc::spell_cast, PrepareEndEventOneFrameComponent, SpellCastPrepareEndEvent)
+DEFINE_ONEFRAME_TAG_COMPONENT(eoc::spell_cast, PrepareStartEventOneFrameComponent, SpellCastPrepareStartEvent)
+DEFINE_ONEFRAME_TAG_COMPONENT(eoc::spell_cast, PreviewEndEventOneFrameComponent, SpellCastPreviewEndEvent)
+DEFINE_ONEFRAME_TAG_COMPONENT(eoc::spell_cast, ThrowPickupPositionChangedEventOneFrameComponent, SpellCastThrowPickupPositionChangedEvent)
+
 
 END_NS()
 
-BEGIN_NS(esv::interrupt)
+BEGIN_NS(esv::spell)
 
-struct ActionRequest1
+struct OnDamageSpell
 {
-	__int64 field_0;
-	__int64 field_8;
-	bg3se::interrupt::InterruptVariant2 field_10;
-	MultiHashMap<EntityHandle, MultiHashSet<EntityHandle>> MHM_EH_MHS_EH;
-	__int64 field_158;
+    FixedString Spell;
+    int field_4;
+    uint8_t field_8;
 };
 
-struct ActionRequest2
+struct OnDamageSpellsComponent : public BaseComponent
 {
-	__int64 field_0;
-	__int64 field_8;
-	bg3se::interrupt::InterruptVariant2 field_10;
-	__int64 field_118;
+    DEFINE_COMPONENT(OnDamageSpells, "esv::spell::OnDamageSpellsComponent")
+
+    Array<OnDamageSpell> Spells;
 };
 
-struct ActionRequest3
+struct NewSpellsAddedEventOneFrameComponent : public BaseComponent
 {
-	__int64 field_0;
-	__int64 field_8;
-	MultiHashMap<EntityHandle, MultiHashSet<EntityHandle>> MHM_EH_MHS_EH;
+    DEFINE_ONEFRAME_COMPONENT(NewSpellsAddedEvent, "esv::spell::NewSpellsAddedEventOneFrameComponent")
+
+    Array<SpellMetaId> Spells;
 };
 
-struct ActionRequest4
+struct LearnedSpell
 {
-	__int64 field_0;
-	Array<stats::SpellPrototype::UseCostGroup> UseCosts;
-	MultiHashMap<EntityHandle, MultiHashMap<bg3se::interrupt::InterruptVariant2, ConditionRoll>> field_18;
+    FixedString SpellId;
+    Guid ProgressionSource;
 };
+
+struct SpellsLearnedEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellsLearnedEvent, "esv::spell::SpellsLearnedEventOneFrameComponent")
+
+    Array<LearnedSpell> Spells;
+};
+
+DEFINE_ONEFRAME_TAG_COMPONENT(esv::spell, BookChangedOneFrameComponent, SpellBookChanged)
 
 END_NS()
 
 BEGIN_NS(esv::spell_cast)
 
-struct CastState
+struct CastHitDelayInfo
 {
-	Guid field_0;
-	FixedString field_10;
-	FixedString field_14;
-	FixedString field_18;
-	uint8_t field_1C;
+    int HitNumber;
+    int field_4;
+    int field_8;
+    int field_C;
+    float field_10;
+    FixedString TextKey;
+    int field_18;
 };
 
 struct CastHitDelayComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerSpellCastHitDelay;
-	static constexpr auto EngineClass = "esv::spell_cast::CastHitDelayComponent";
+    DEFINE_COMPONENT(ServerSpellCastHitDelay, "esv::spell_cast::CastHitDelayComponent")
 
-	struct CastHitDelay
-	{
-		int field_0;
-		int field_4;
-		int field_8;
-		int field_C;
-		int field_10;
-		FixedString field_14;
-		int field_18;
-	};
-
-	Array<CastHitDelay> CastHitDelays;
-	float CastTargetHitDelay;
-	float CastTargetHitDelay2;
+    Array<CastHitDelayInfo> CastHitDelays;
+    float CastTargetHitDelay;
+    float CastTargetHitDelay2;
 };
 
 struct CastResponsibleComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerSpellCastResponsible;
-	static constexpr auto EngineClass = "esv::spell_cast::CastResponsibleComponent";
+    DEFINE_COMPONENT(ServerSpellCastResponsible, "esv::spell_cast::CastResponsibleComponent")
 
-	EntityHandle Entity;
+    EntityHandle Entity;
 };
 
-struct ClientInitiatedComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerSpellClientInitiated;
-	static constexpr auto EngineClass = "esv::spell_cast::ClientInitiatedComponent";
-
-	uint8_t Dummy;
-};
+DEFINE_TAG_COMPONENT(esv::spell_cast, ClientInitiatedComponent, ServerSpellClientInitiated)
 
 struct ExternalsComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerSpellExternals;
-	static constexpr auto EngineClass = "esv::spell_cast::ExternalsComponent";
+    DEFINE_COMPONENT(ServerSpellExternals, "esv::spell_cast::ExternalsComponent")
 
-	Array<Guid> Externals;
+    Array<Guid> Externals;
+};
+
+struct HitRegister
+{
+    EntityHandle field_0;
+    uint64_t field_8;
 };
 
 struct HitRegisterComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerSpellHitRegister;
-	static constexpr auto EngineClass = "esv::spell_cast::HitRegisterComponent";
+    DEFINE_COMPONENT(ServerSpellHitRegister, "esv::spell_cast::HitRegisterComponent")
 
-	Array<Guid> Hits;
-};
-
-struct InterruptRequestsComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerSpellInterruptRequests;
-	static constexpr auto EngineClass = "esv::spell_cast::InterruptRequestsComponent";
-
-	Array<interrupt::ActionRequest1> Requests1;
-	Array<interrupt::ActionRequest2> Requests2;
-	Array<interrupt::ActionRequest4> Requests4;
-	Array<interrupt::ActionRequest3> Requests3;
-};
-
-struct InterruptIdentifier
-{
-	Guid field_0;
-	uint64_t field_10;
-
-	inline bool operator == (InterruptIdentifier const& o) const
-	{
-		return field_0 == o.field_0
-			&& field_10 == o.field_10;
-	}
-};
-
-struct InterruptRollData
-{
-	__int64 field_0;
-	Array<ResolvedUnknown> field_8;
-};
-
-struct InterruptResult
-{
-	MultiHashMap<uint8_t, MultiHashMap<uint8_t, InterruptRollData>> field_0;
-	MultiHashMap<uint8_t, MultiHashMap<uint8_t, uint64_t>> field_40;
-	Array<uint16_t> field_50;
-	MultiHashSet<uint8_t> field_60;
-	MultiHashSet<uint8_t> field_90;
-};
-
-struct InterruptResult2
-{
-	__int64 field_0;
-	__int64 field_8;
-	__int64 field_10;
-	int field_18;
-	uint8_t field_1C;
-	uint32_t _Pad;
-	uint8_t field_20;
-	uint8_t field_21;
-	std::variant<StatsRollType0, StatsRollType1> Roll;
-	int field_138;
-	__int64 field_140;
-	__int64 field_148;
-	uint8_t field_150;
-	uint8_t field_151;
-	uint8_t field_152;
-};
-
-struct InterruptResultsComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerSpellInterruptResults;
-	static constexpr auto EngineClass = "esv::spell_cast::InterruptResultsComponent";
-
-	MultiHashMap<InterruptIdentifier, InterruptResult> Results;
-	Array<InterruptResult2> Results2;
+    Array<HitRegister> Hits;
 };
 
 struct StateComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerSpellCastState;
-	static constexpr auto EngineClass = "esv::spell_cast::StateComponent";
+    DEFINE_COMPONENT(ServerSpellCastState, "esv::spell_cast::StateComponent")
 
-	uint8_t field_0;
-	int field_4;
-	CastState State;
-	int field_28;
+    uint8_t Status;
+    int field_4;
+    ActionOriginator Originator;
+    int StoryActionId;
 };
 
+struct CacheComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerSpellCastCache, "esv::spell_cast::CacheComponent")
+
+    CacheComponent(const CacheComponent&) = delete;
+    CacheComponent& operator = (const CacheComponent&) = delete;
+
+    Array<stats::ActionResourceCost> Costs;
+    HashMap<int, bool> field_10;
+    uint32_t field_50;
+    int32_t field_54;
+    [[bg3::hidden]] HashMap<FixedString, HashMap<int, Array<bg3se::spell_cast::IntermediateTarget>>> Targets;
+    HashMap<FixedString, int> field_98;
+    uint32_t field_D8;
+    int32_t field_DC;
+    [[bg3::hidden]] void* field_E0;
+    uint8_t field_E8;
+    uint16_t field_EC;
+    uint16_t field_EE;
+};
+
+struct MoveDuringCastUpdateEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastMoveDuringCastUpdateEvent, "esv::spell_cast::MoveDuringCastUpdateEventOneFrameComponent")
+
+    glm::vec3 field_0;
+    glm::vec3 field_C;
+    glm::vec3 SurfaceTrail;
+};
+
+struct MovementAndPrecalculationEndEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastMovementAndPrecalculationEndEvent, "esv::spell_cast::MovementAndPrecalculationEndEventOneFrameComponent")
+
+    uint8_t field_0;
+    int field_4;
+};
+
+struct RequestTargetTrackingOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastRequestTargetTracking, "esv::spell_cast::RequestTargetTrackingOneFrameComponent")
+
+    Guid field_0;
+    HashSet<EntityHandle> Targets;
+};
+
+struct UpdateTargetTrackingOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(SpellCastUpdateTargetTracking, "esv::spell_cast::UpdateTargetTrackingOneFrameComponent")
+
+    Guid field_0;
+    HashSet<EntityHandle> Targets;
+};
 
 END_NS()
 
-BEGIN_NS(esv::interrupt)
+BEGIN_NS(esv::concentration)
 
-struct AddRemoveRequestsComponent : public BaseComponent
+struct ConcentrationChangedOneFrameComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerInterruptAddRemoveRequests;
-	static constexpr auto EngineClass = "esv::interrupt::AddRemoveRequestsComponent";
+    DEFINE_ONEFRAME_COMPONENT(ConcentrationChanged, "esv::concentration::ConcentrationChangedOneFrameComponent")
 
-	MultiHashMap<EntityHandle, uint8_t> Requests;
+    SpellId Started;
+    SpellId Ended;
+    bool Interrupted;
 };
 
-struct ActionRequestsComponent : public BaseComponent
+struct DamageCheckOneFrameComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerInterruptActionRequests;
-	static constexpr auto EngineClass = "esv::interrupt::ActionRequestsComponent";
+    DEFINE_ONEFRAME_COMPONENT(ConcentrationDamageCheck, "esv::concentration::DamageCheckOneFrameComponent")
 
-	Array<ActionRequest1> Requests1;
-	Array<ActionRequest2> Requests2;
-	Array<ActionRequest3> Requests3;
+    Array<HitDesc> Hits;
 };
 
-struct ZoneRequestsComponent : public BaseComponent
+struct OnConcentrationClearedEventOneFrameComponent : public BaseComponent
 {
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerInterruptZoneRequests;
-	static constexpr auto EngineClass = "esv::interrupt::ZoneRequestsComponent";
+    DEFINE_ONEFRAME_COMPONENT(ConcentrationClearedEvent, "esv::concentration::OnConcentrationClearedEventOneFrameComponent")
 
-	Array<ActionRequest1> Requests1;
-	Array<ActionRequest2> Requests2;
-};
-
-struct InitialParticipantsComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerInterruptInitialParticipants;
-	static constexpr auto EngineClass = "esv::interrupt::InitialParticipantsComponent";
-	
-	struct Participant
-	{
-		ActionRequest1 Request1;
-		MultiHashSet<EntityHandle> Entities;
-	};
-
-	MultiHashMap<EntityHandle, Participant> Participants;
-};
-
-struct TurnOrderInZoneComponent : public BaseComponent
-{
-	static constexpr ExtComponentType ComponentType = ExtComponentType::ServerInterruptTurnOrderInZone;
-	static constexpr auto EngineClass = "esv::interrupt::TurnOrderInZoneComponent";
-	
-	MultiHashSet<EntityHandle> InZone;
+    EntityHandle Target;
+    EntityHandle Status;
+    int16_t SurfaceIndex;
+    bool field_12;
 };
 
 END_NS()
-
-BEGIN_SE()
-
-template <>
-inline uint64_t MultiHashMapHash<esv::spell_cast::InterruptIdentifier>(esv::spell_cast::InterruptIdentifier const& v)
-{
-	return HashMulti(v.field_0, v.field_10);
-}
-
-END_SE()

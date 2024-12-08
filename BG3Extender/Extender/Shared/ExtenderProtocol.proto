@@ -9,6 +9,9 @@ option optimize_for = LITE_RUNTIME;
 message MsgPostLuaMessage {
   string channel_name = 1;
   string payload = 2;
+  string module = 3;
+  uint32 request_id = 4;
+  uint32 reply_id = 5;
 }
 
 // Notifies the Lua runtime to reload client-side state
@@ -83,6 +86,7 @@ message UserVar {
     double dblval = 5;
     string strval = 6;
     bytes luaval = 7;
+    bool boolval = 9;
   };
   UserVarType type = 8;
 }

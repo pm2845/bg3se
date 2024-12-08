@@ -13,9 +13,6 @@
     <ClCompile Include="Lua\LuaBinding.cpp">
       <Filter>Lua</Filter>
     </ClCompile>
-    <ClCompile Include="Lua\LuaOsiBridge.cpp">
-      <Filter>Lua</Filter>
-    </ClCompile>
     <ClCompile Include="GameDefinitions\GameHelpers.cpp">
       <Filter>GameDefinitions</Filter>
     </ClCompile>
@@ -146,7 +143,7 @@
     <ClCompile Include="Extender\Client\ExtensionStateClient.cpp">
       <Filter>Extender\Client</Filter>
     </ClCompile>
-    <ClCompile Include="Lua\Server\LuaOsirisBinding.cpp">
+    <ClCompile Include="Lua\Osiris\LuaOsirisBinding.cpp">
       <Filter>Lua\Server</Filter>
     </ClCompile>
     <ClCompile Include="Lua\Libs\LuaSharedLibs.cpp" />
@@ -157,6 +154,9 @@
     <ClCompile Include="Extender\Shared\ExtenderNet.cpp" />
     <ClCompile Include="Extender\Client\ClientNetworking.cpp" />
     <ClCompile Include="Extender\Server\ServerNetworking.cpp" />
+    <ClCompile Include="Extender\Client\IMGUI\IMGUI.cpp" />
+    <ClCompile Include="Extender\Client\SDL.cpp" />
+    <ClCompile Include="GameDefinitions\GameDefinitionHelpers.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
@@ -195,9 +195,6 @@
     </ClInclude>
     <ClInclude Include="GameDefinitions\Components\Data.h">
       <Filter>GameDefinitions\Components</Filter>
-    </ClInclude>
-    <ClInclude Include="GameDefinitions\Passives.h">
-      <Filter>GameDefinitions</Filter>
     </ClInclude>
     <ClInclude Include="GameDefinitions\Stats\Stats.h">
       <Filter>GameDefinitions\Stats</Filter>
@@ -248,9 +245,6 @@
       <Filter>GameDefinitions</Filter>
     </ClInclude>
     <ClInclude Include="GameDefinitions\Character.h">
-      <Filter>GameDefinitions</Filter>
-    </ClInclude>
-    <ClInclude Include="GameDefinitions\GameAction.h">
       <Filter>GameDefinitions</Filter>
     </ClInclude>
     <ClInclude Include="GameDefinitions\GuidResources.h">
@@ -338,9 +332,6 @@
       <Filter>GameDefinitions</Filter>
     </ClInclude>
     <ClInclude Include="stdafx.h" />
-    <ClInclude Include="Extender\Shared\ModuleHasher.h">
-      <Filter>Extender\Shared</Filter>
-    </ClInclude>
     <ClInclude Include="Extender\Shared\StatLoadOrderHelper.h">
       <Filter>Extender\Shared</Filter>
     </ClInclude>
@@ -371,9 +362,6 @@
     <ClInclude Include="Lua\Shared\Proxies\LuaMapProxy.h">
       <Filter>Lua\Shared\Proxies</Filter>
     </ClInclude>
-    <ClInclude Include="Lua\Shared\Proxies\LuaObjectProxy.h">
-      <Filter>Lua\Shared\Proxies</Filter>
-    </ClInclude>
     <ClInclude Include="Lua\Shared\Proxies\LuaPropertyMapHelpers.h">
       <Filter>Lua\Shared\Proxies</Filter>
     </ClInclude>
@@ -395,7 +383,7 @@
     <ClInclude Include="GameDefinitions\Base\ForwardDeclarations.h">
       <Filter>GameDefinitions\Base</Filter>
     </ClInclude>
-    <ClInclude Include="Lua\Server\LuaOsirisBinding.h">
+    <ClInclude Include="Lua\Osiris\Binding.h">
       <Filter>Lua\Server</Filter>
     </ClInclude>
     <ClInclude Include="Lua\Libs\LibraryRegistrationHelpers.h">
@@ -442,7 +430,7 @@
     <ClInclude Include="Extender\Shared\ExtenderProtocol.pb.h" />
     <ClInclude Include="Extender\Client\ClientNetworking.h" />
     <ClInclude Include="Extender\Server\ServerNetworking.h" />
-    <ClInclude Include="Lua\Server\EntityEvents.h" />
+    <ClInclude Include="Lua\Server\ServerEntityReplicationEvents.h" />
     <ClInclude Include="Extender\Shared\UserVariables.h" />
     <ClInclude Include="Lua\Shared\LuaCustomizations.h" />
     <ClInclude Include="Lua\Shared\Proxies\LuaCppObjectProxy.h" />
@@ -453,6 +441,65 @@
     <ClInclude Include="GameDefinitions\Base\LuaAnnotations.h" />
     <ClInclude Include="Extender\Version.h" />
     <ClInclude Include="Extender\BuildInfo.h" />
+    <ClInclude Include="Extender\Shared\VirtualTextures.h" />
+    <ClInclude Include="GameDefinitions\Components\Camp.h" />
+    <ClInclude Include="GameDefinitions\Components\Hit.h" />
+    <ClInclude Include="GameDefinitions\Components\Item.h" />
+    <ClInclude Include="GameDefinitions\Components\Party.h" />
+    <ClInclude Include="GameDefinitions\Components\Status.h" />
+    <ClInclude Include="GameDefinitions\Components\Tadpole.h" />
+    <ClInclude Include="GameDefinitions\VirtualTextureFormat.h" />
+    <ClInclude Include="GameDefinitions\Stats\Prototype.h" />
+    <ClInclude Include="GameDefinitions\Components\ServerData.h" />
+    <ClInclude Include="GameDefinitions\Components\Progression.h" />
+    <ClInclude Include="GameDefinitions\Components\Shapeshift.h" />
+    <ClInclude Include="Lua\Shared\EntityComponentEvents.h" />
+    <ClInclude Include="Lua\Shared\RawComponentRef.h" />
+    <ClInclude Include="GameDefinitions\Render.h" />
+    <ClInclude Include="GameDefinitions\UI.h" />
+    <ClInclude Include="Lua\Client\UIEvents.h" />
+    <ClInclude Include="GameDefinitions\Sound.h" />
+    <ClInclude Include="Extender\Client\IMGUI\IMGUI.h" />
+    <ClInclude Include="Extender\Client\IMGUI\Backends.h" />
+    <ClInclude Include="Extender\Client\IMGUI\Objects.h" />
+    <ClInclude Include="Lua\Shared\Proxies\LuaImguiProxy.h" />
+    <ClInclude Include="Lua\Shared\LuaDelegate.h" />
+    <ClInclude Include="Extender\Client\SDLManager.h" />
+    <ClInclude Include="GameDefinitions\Picking.h" />
+    <ClInclude Include="Lua\Libs\Timer.h" />
+    <ClInclude Include="GameDefinitions\Stats\UseActions.h" />
+    <ClInclude Include="GameDefinitions\EnumRepository.h" />
+    <ClInclude Include="Lua\Shared\Proxies\LuaStructIDs.h" />
+    <ClInclude Include="GameDefinitions\CharacterCreation.h" />
+    <ClInclude Include="GameDefinitions\Components\Interrupt.h" />
+    <ClInclude Include="GameDefinitions\Progression.h" />
+    <ClInclude Include="Lua\Osiris\FunctionProxy.h" />
+    <ClInclude Include="Lua\Osiris\CallbackManager.h" />
+    <ClInclude Include="Lua\Osiris\NameCache.h" />
+    <ClInclude Include="Lua\Osiris\Function.h" />
+    <ClInclude Include="Lua\Osiris\CustomFunction.h" />
+    <ClInclude Include="Lua\Osiris\ValueHelpers.h" />
+    <ClInclude Include="Lua\Shared\EntityEventHelpers.h" />
+    <ClInclude Include="Lua\Client\ClientEvents.h" />
+    <ClInclude Include="Lua\Server\ServerEvents.h" />
+    <ClInclude Include="GameDefinitions\Dialog.h" />
+    <ClInclude Include="GameDefinitions\Animation.h" />
+    <ClInclude Include="GameDefinitions\AllSpark.h" />
+    <ClInclude Include="GameDefinitions\Components\Roll.h" />
+    <ClInclude Include="GameDefinitions\Ai.h" />
+    <ClInclude Include="GameDefinitions\Components\Timeline.h" />
+    <ClInclude Include="GameDefinitions\Components\Events.h" />
+    <ClInclude Include="Extender\Shared\UseActions.h" />
+    <ClInclude Include="GameDefinitions\Components\Camera.h" />
+    <ClInclude Include="GameDefinitions\AllSparkShared.h" />
+    <ClInclude Include="Lua\Shared\EntityReplicationEvents.h" />
+    <ClInclude Include="Lua\Client\ClientEntityReplicationEvents.h" />
+    <ClInclude Include="Lua\Libs\Level.h" />
+    <ClInclude Include="Lua\Shared\Proxies\LuaLightCppObjectMeta.h" />
+    <ClInclude Include="Lua\Shared\Proxies\LuaCppObjectMeta.h" />
+    <ClInclude Include="Lua\Libs\Net.h" />
+    <ClInclude Include="GameDefinitions\Cursor.h" />
+    <ClInclude Include="GameDefinitions\Effect.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="BG3Extender.rc" />
@@ -465,13 +512,7 @@
     <None Include="LuaScripts\Game.Tooltip.lua" />
     <None Include="LuaScripts\SandboxStartup.lua" />
     <None Include="Misc\ExtIdeHelpers.lua" />
-    <None Include="Lua\Shared\LuaShared.inl">
-      <Filter>Lua\Shared</Filter>
-    </None>
     <None Include="Lua\Libs\StatAttributes.inl">
-      <Filter>Lua\Shared</Filter>
-    </None>
-    <None Include="Lua\Libs\StatEntries.inl">
       <Filter>Lua\Shared</Filter>
     </None>
     <None Include="Lua\Libs\StatEnumerators.inl">
@@ -480,14 +521,8 @@
     <None Include="Lua\Libs\StatMisc.inl">
       <Filter>Lua\Shared</Filter>
     </None>
-    <None Include="Lua\Server\ServerNetwork.inl">
-      <Filter>Lua\Server</Filter>
-    </None>
     <None Include="Lua\Server\ServerStatus.inl">
       <Filter>Lua\Server</Filter>
-    </None>
-    <None Include="GameDefinitions\Enumerations.inl">
-      <Filter>GameDefinitions</Filter>
     </None>
     <None Include="LuaScripts\BuiltinLibrary.lua">
       <Filter>LuaScripts</Filter>
@@ -498,19 +533,13 @@
     <None Include="LuaScripts\BuiltinLibraryServer.lua">
       <Filter>LuaScripts</Filter>
     </None>
-    <None Include="GameDefinitions\PropertyMaps\AllPropertyMaps.inl">
+    <None Include="GameDefinitions\PropertyMaps\Stats.inl">
       <Filter>GameDefinitions\PropertyMaps</Filter>
     </None>
     <None Include="Lua\LevelIteratorFunctions.inl">
       <Filter>Lua\Shared</Filter>
     </None>
     <None Include="GameDefinitions\PropertyMaps\ServerObjects.inl">
-      <Filter>GameDefinitions\PropertyMaps</Filter>
-    </None>
-    <None Include="GameDefinitions\PropertyMaps\FunctorExecParams.inl">
-      <Filter>GameDefinitions\PropertyMaps</Filter>
-    </None>
-    <None Include="GameDefinitions\PropertyMaps\Functors.inl">
       <Filter>GameDefinitions\PropertyMaps</Filter>
     </None>
     <None Include="GameDefinitions\PropertyMaps\CommonTypes.inl">
@@ -531,9 +560,6 @@
     <None Include="GameDefinitions\PropertyMaps\SurfaceActions.inl">
       <Filter>GameDefinitions\PropertyMaps</Filter>
     </None>
-    <None Include="GameDefinitions\PropertyMaps\Statuses.inl">
-      <Filter>GameDefinitions\PropertyMaps</Filter>
-    </None>
     <None Include="GameDefinitions\Components\AllComponentTypes.inl">
       <Filter>GameDefinitions\Components</Filter>
     </None>
@@ -542,9 +568,6 @@
     </None>
     <None Include="GameDefinitions\GlobalFixedStrings.inl">
       <Filter>GameDefinitions</Filter>
-    </None>
-    <None Include="Extender\Shared\ModuleHasher.inl">
-      <Filter>Extender\Shared</Filter>
     </None>
     <None Include="Extender\Shared\StatLoadOrderHelper.inl">
       <Filter>Extender\Shared</Filter>
@@ -565,9 +588,6 @@
       <Filter>Lua\Shared\Proxies</Filter>
     </None>
     <None Include="Lua\Shared\Proxies\LuaMapProxy.inl">
-      <Filter>Lua\Shared\Proxies</Filter>
-    </None>
-    <None Include="Lua\Shared\Proxies\LuaObjectProxy.inl">
       <Filter>Lua\Shared\Proxies</Filter>
     </None>
     <None Include="Lua\Shared\Proxies\LuaSetProxy.inl">
@@ -620,7 +640,7 @@
     <None Include="Lua\Libs\Localization.inl">
       <Filter>Lua\Libs</Filter>
     </None>
-    <None Include="Lua\Server\EntityEvents.inl">
+    <None Include="Lua\Server\ServerEntityReplicationEvents.inl">
       <Filter>Lua\Server</Filter>
     </None>
     <None Include="Extender\Shared\UserVariables.inl">
@@ -656,6 +676,73 @@
     <None Include="Lua\Shared\Proxies\PolymorphicPush.inl">
       <Filter>Lua\Shared\Proxies</Filter>
     </None>
+    <None Include="Extender\Shared\VirtualTextures.inl">
+      <Filter>Extender</Filter>
+    </None>
+    <None Include="Extender\Shared\VirtualTextureMerge.inl">
+      <Filter>Extender\Shared</Filter>
+    </None>
+    <None Include="Lua\Libs\ClientTemplate.inl">
+      <Filter>Lua\Libs</Filter>
+    </None>
+    <None Include="Lua\Shared\EntityComponentEvents.inl">
+      <Filter>Lua\Shared</Filter>
+    </None>
+    <None Include="Lua\Libs\ClientUI\NsHelpers.inl">
+      <Filter>Lua\Libs</Filter>
+    </None>
+    <None Include="GameDefinitions\PropertyMaps\UI.inl">
+      <Filter>GameDefinitions\PropertyMaps</Filter>
+    </None>
+    <None Include="Lua\Client\UIEvents.inl">
+      <Filter>Lua\Client</Filter>
+    </None>
+    <None Include="GameDefinitions\ExternalEnumerations\GUI.inl">
+      <Filter>GameDefinitions</Filter>
+    </None>
+    <None Include="Lua\Libs\ClientUI\Symbols.inl">
+      <Filter>Lua\Libs</Filter>
+    </None>
+    <None Include="Lua\Libs\ClientUI\Events.inl">
+      <Filter>Lua\Libs</Filter>
+    </None>
+    <None Include="Lua\Libs\ClientUI\Module.inl" />
+    <None Include="Lua\Libs\ClientAudio.inl" />
+    <None Include="Extender\Client\IMGUI\Vulkan.inl" />
+    <None Include="Lua\Libs\ClientIMGUI.inl" />
+    <None Include="GameDefinitions\PropertyMaps\IMGUI.inl" />
+    <None Include="Lua\Shared\Proxies\LuaImguiProxy.inl" />
+    <None Include="Extender\Client\IMGUI\DX11.inl" />
+    <None Include="Lua\Libs\ClientInput.inl" />
+    <None Include="Lua\Libs\Timer.inl" />
+    <None Include="GameDefinitions\Enumerations\IMGUI.inl" />
+    <None Include="GameDefinitions\Enumerations\Stats.inl" />
+    <None Include="GameDefinitions\Enumerations\Engine.inl" />
+    <None Include="GameDefinitions\Enumerations\ECS.inl" />
+    <None Include="GameDefinitions\Enumerations\NetMessage.inl" />
+    <None Include="Lua\Osiris\FunctionProxy.inl" />
+    <None Include="Lua\Osiris\CallbackManager.inl" />
+    <None Include="Lua\Osiris\NameCache.inl" />
+    <None Include="Lua\Osiris\Function.inl" />
+    <None Include="Lua\Osiris\CustomFunction.inl" />
+    <None Include="Lua\Osiris\ValueHelpers.inl" />
+    <None Include="Lua\Osiris\LuaNameResolver.inl" />
+    <None Include="GameDefinitions\PropertyMaps\ClientObjects.inl" />
+    <None Include="Lua\Shared\EntityEventHelpersServer.inl" />
+    <None Include="GameDefinitions\Ai.inl" />
+    <None Include="Lua\Libs\ClientUI\Names.inl" />
+    <None Include="Lua\Shared\LuaDelegate.inl" />
+    <None Include="GameDefinitions\Animation.inl" />
+    <None Include="Extender\Shared\UseActions.inl" />
+    <None Include="GameDefinitions\RootTemplates.inl" />
+    <None Include="GameDefinitions\Render.inl" />
+    <None Include="Lua\Libs\Log.inl" />
+    <None Include="GameDefinitions\AllSpark.inl" />
+    <None Include="Lua\Shared\EntityEventHelpersClient.inl" />
+    <None Include="Lua\Client\ClientEntityReplicationEvents.inl" />
+    <None Include="Lua\Libs\Level.inl" />
+    <None Include="Lua\Libs\Net.inl" />
+    <None Include=".editorconfig" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="GameDefinitions">

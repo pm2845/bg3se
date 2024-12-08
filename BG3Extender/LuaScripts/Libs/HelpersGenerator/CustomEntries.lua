@@ -1,17 +1,17 @@
 ---@diagnostic disable
 
-local SubscribableEventType = [[--- @class SubscribableEvent<T>:{ (Subscribe:fun(self:SubscribableEvent, callback:fun(e:T|LuaEventBase), opts:{Priority:integer, Once:boolean}|nil):integer), (Unsubscribe:fun(self:SubscribableEvent, index:integer))}
+local SubscribableEventType = [[--- @class SubscribableEvent<T>:{ (Subscribe:fun(self:SubscribableEvent, callback:fun(e:T|LuaEventBase), opts:{Priority:integer, Once:boolean}?):integer), (Unsubscribe:fun(self:SubscribableEvent, index:integer))}
 
 --- Developer functions for the SubscribableEvent type. 
 --- Throw can be used to manually throw the event, but special care may be needed to ensure the table used for the event data is valid.  
 --- @class SubscribableEventDev<T>:{ (Throw:fun(self:SubscribableEvent, e:T|LuaEventBase))}
 ]]
 return {
-	Specific = {SubscribableEventType = SubscribableEventType},
-	Misc = {
+    Specific = {SubscribableEventType = SubscribableEventType},
+    Misc = {
 [[--#region Extender Functions / Globals
 
---- @alias NetListenerCallback fun(channel:string, payload:string, user:UserId|nil)
+--- @alias NetListenerCallback fun(channel:string, payload:string, user:UserId?)
 
 --- Registers a listener that is called when a network message is received on the specified channel
 --- @param channel string Network channel name
@@ -19,7 +19,7 @@ return {
 function Ext.RegisterNetListener(channel, handler) end
 
 --- Loads the specified Lua file
---- @param fileName string|nil Path of Lua file, relative to Mods/<Mod>/Story/RawFiles/Lua
+--- @param fileName string? Path of Lua file, relative to Mods/<Mod>/Story/RawFiles/Lua
 --- @see Ext_Utils#Include
 --- @return any
 function Ext.Require(fileName) end
@@ -77,4 +77,18 @@ function Ext.RegisterConsoleCommand(cmd, handler) end
 ]],
 },
 
+    Entity = [[
+--- @class EntityHandle
+--- @field CreateComponent fun(self:EntityHandle, type:ExtComponentType):BaseComponent
+--- @field GetComponent fun(self:EntityHandle, type:ExtComponentType):BaseComponent
+--- @field GetAllComponents fun(self:EntityHandle, warnOnMissing:boolean?):table<ExtComponentType,BaseComponent>
+--- @field GetAllComponentNames fun(self:EntityHandle, mapped:boolean?):table<number,string>
+--- @field GetEntityType fun(self:EntityHandle):number
+--- @field GetSalt fun(self:EntityHandle):number
+--- @field GetIndex fun(self:EntityHandle):number
+--- @field IsAlive fun(self:EntityHandle):boolean
+--- @field GetReplicationFlags fun(self:EntityHandle, type:ExtComponentType, qword:number?):number
+--- @field SetReplicationFlags fun(self:EntityHandle, type:ExtComponentType, flags:number, qword:number?)
+--- @field Replicate fun(self:EntityHandle, type:ExtComponentType)
+--- @field Vars table User variables registered using Ext.Vars]]
 }

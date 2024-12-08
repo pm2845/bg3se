@@ -1,6 +1,6 @@
 param($Channel)
 
-if ($Channel -ne "Devel" -And $Channel -ne "Release" -And $Channel -ne "Nightly") {
+if ($Channel -ne "Devel" -And $Channel -ne "Release" -And $Channel -ne "NextVersion") {
 	Write-Error -Message "Usage: publish.ps1 <Channel>"
 	Exit 1
 }
@@ -15,30 +15,30 @@ $CloudFrontDistributionID = "EVZRUV2YONUZF"
 
 $S3ManifestPath = "Manifest.json"
 
-$PublishingRoot = Join-Path "C:\Dev\LS\BG3PublishingRoot" "$Channel"
-$SigningKey = Join-Path "C:\Dev\LS\BG3PublishingRoot" "package-signer.key"
+$PublishingRoot = Join-Path "D:\Dev\LS\BG3PublishingRoot" "$Channel"
+$SigningKey = Join-Path "D:\Dev\LS\BG3PublishingRoot" "package-signer.key"
 $BuildRoot = Join-Path "$PublishingRoot" "Build"
 $PDBRoot = Join-Path "$PublishingRoot" "PDB"
 $RootPath = (Get-Location).Path
 $GameManifestPath = Join-Path $PublishingRoot "GameManifest.json"
 $EditorManifestPath = Join-Path $PublishingRoot "EditorManifest.json"
 $GameBuildZipPath = Join-Path $BuildRoot "GameLatest.zip"
-$GameManualBuildZipPath = Join-Path $BuildRoot "GameLatestManual.zip"
+$GameOfflineBuildZipPath = Join-Path $BuildRoot "GameLatestOffline.zip"
 $GameDebugAdapterBuildZipPath = Join-Path $BuildRoot "DebugAdapter.zip"
 $EditorBuildZipPath = Join-Path $BuildRoot "EditorLatest.zip"
 $GameDllPath = Join-Path $RootPath "x64\Game Release\BG3ScriptExtender.dll"
 $EditorDllPath = Join-Path $RootPath "x64\Editor Release\BG3EditorScriptExtender.dll"
 
 $GameBuildDir = Join-Path "$BuildRoot" "TempGameBuild"
-$GameManualBuildDir = Join-Path "$BuildRoot" "TempGameManualBuild"
+$GameOfflineBuildDir = Join-Path "$BuildRoot" "TempGameOfflineBuild"
 $GameDebugAdapterBuildDir = Join-Path "$BuildRoot" "TempGameDebugAdapter"
 $EditorBuildDir = Join-Path "$BuildRoot" "TempEditorBuild"
 $PDBDir = Join-Path "$PDBRoot" "TempPDB"
 	
-$EditorMinVersion = "4.38.81.0"
+$EditorMinVersion = "4.57.26.0"
 $EditorMaxVersion = "-"
 
-$GameMinVersion = "4.38.81.0"
+$GameMinVersion = "4.57.26.0"
 $GameMaxVersion = "-"
 
 function Build-Extender
@@ -76,7 +76,7 @@ function Create-PDBDir
 	#Copy-Item "x64\Editor Release\BG3EditorScriptExtender.dll" -Destination $PDBDir\BG3EditorScriptExtender.dll
 	Copy-Item External\protobuf\bin\libprotobuf-lite.dll -Destination $PDBDir\libprotobuf-lite.dll
 
-	if ($Channel -eq "Devel" -Or $Channel -ne "Nightly") {
+	if ($Channel -eq "Devel" -Or $Channel -eq "NextVersion") {
 		New-Item $PDBDir\DAP -ItemType "directory"
 		Copy-Item "LuaDebugger\bin\Release\Google.Protobuf.dll" -Destination $PDBDir\DAP\Google.Protobuf.dll
 		Copy-Item "LuaDebugger\bin\Release\Newtonsoft.Json.dll" -Destination $PDBDir\DAP\Newtonsoft.Json.dll
@@ -109,7 +109,7 @@ function Create-Update-Package ($BuildDir, $ZipPath, $HasEditor, $HasGame)
 	Compress-Archive -Path $BuildDir\* -DestinationPath $ZipPath -CompressionLevel Optimal -Force
 }
 
-function Create-ManualInstall-Package ($BuildDir, $ZipPath)
+function Create-Offline-Package ($BuildDir, $ZipPath)
 {
 	Remove-Item $BuildDir -Recurse -ErrorAction SilentlyContinue
 	New-Item $BuildDir -ItemType "directory"
@@ -163,21 +163,33 @@ function Build-Package ($BuildDir, $ZipPath, $DllPath, $Channel, $IsGame, $IsEdi
 	}
 }
 
-function Publish-Package ($ZipPath, $DigestPath, $Channel, $ManifestPath)
+function Publish-Package ($ZipPath, $OfflineZipPath, $DigestPath, $Channel, $ManifestPath)
 {
-	Write-Output "S3 path: s3://$S3Bucket/$S3RootPath/$Channel/Packages/$DigestPath"
+	$OfflineDigestPath = $DigestPath.replace('.package', '-offline.zip')
+	$S3Path = "s3://$S3Bucket/$S3RootPath/$Channel/Packages/$DigestPath"
+	$OfflineS3Path = "s3://$S3Bucket/$S3RootPath/$Channel/Packages/$OfflineDigestPath"
+	
+	Write-Output " ==== UPDATER PACKAGE ===== "
+	Write-Output "S3 path: $S3Path"
 	Write-Output "CloudFront path: $CloudFrontRootPath/$Channel/Packages/$DigestPath"
 	Write-Output "URL: $CloudFrontRootURL/$Channel/Packages/$DigestPath"
+	Write-Output "Offline URL: $CloudFrontRootURL/$Channel/Packages/$OfflineDigestPath"
+	
 
-	aws s3 cp $ZipPath "s3://$S3Bucket/$S3RootPath/$Channel/Packages/$DigestPath"
+	aws s3 cp $ZipPath "$S3Path"
 	aws s3api put-object-acl --bucket nb-stor --key "$S3RootPath/$Channel/Packages/$DigestPath" --acl public-read
+
+	aws s3 cp $OfflineZipPath "$OfflineS3Path"
+	aws s3api put-object-acl --bucket nb-stor --key "$S3RootPath/$Channel/Packages/$OfflineDigestPath" --acl public-read
+
 	aws s3 cp $ManifestPath "s3://$S3Bucket/$S3RootPath/$Channel/$S3ManifestPath"
 	aws s3api put-object-acl --bucket nb-stor --key "$S3RootPath/$Channel/$S3ManifestPath" --acl public-read
 	aws cloudfront create-invalidation --distribution-id $CloudFrontDistributionID --paths "$CloudFrontRootPath/$Channel/$S3ManifestPath" "$CloudFrontRootPath/$Channel/Packages/$DigestPath"
 }
 
-function Publish-Manual-Package ($ZipPath, $Channel)
+function Publish-Latest-Offline-Package ($ZipPath, $Channel)
 {
+	Write-Output " ==== LATEST OFFLINE PACKAGE ===== "
 	Write-Output "S3 path: s3://$S3Bucket/$S3RootPath/$Channel/ManualInstall.zip"
 	Write-Output "CloudFront path: $CloudFrontRootPath/$Channel/ManualInstall.zip"
 	Write-Output "URL: $CloudFrontRootURL/$Channel/ManualInstall.zip"
@@ -195,7 +207,7 @@ function Publish-DebugAdapter-Package ($ZipPath, $Channel)
 Build-Extender
 
 Build-Package $GameBuildDir $GameBuildZipPath $GameDllPath $GameChannel 1 0
-Create-ManualInstall-Package $GameManualBuildDir $GameManualBuildZipPath
+Create-Offline-Package $GameOfflineBuildDir $GameOfflineBuildZipPath
 Create-DebugAdapter-Package $GameDebugAdapterBuildDir $GameDebugAdapterBuildZipPath
 # Build-Package $EditorBuildDir $EditorBuildZipPath $EditorDllPath $EditorChannel 0 1
 
@@ -218,7 +230,7 @@ Write-Output "******************************************************************
 Read-Host
 
 Write-Output " ===== UPLOADING PACKAGES ===== "
-Publish-Package $GameBuildZipPath $GameDigestPath $GameChannel $GameManifestPath
-Publish-Manual-Package $GameManualBuildZipPath $GameChannel
+Publish-Package $GameBuildZipPath $GameOfflineBuildZipPath $GameDigestPath $GameChannel $GameManifestPath
+Publish-Latest-Offline-Package $GameOfflineBuildZipPath $GameChannel
 Publish-DebugAdapter-Package $GameDebugAdapterBuildZipPath $GameChannel
 # Publish-Package $EditorBuildZipPath $EditorDigestPath $EditorChannel $EditorManifestPath

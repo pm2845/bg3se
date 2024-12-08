@@ -4,13 +4,13 @@ local _format = string.format
 
 local NEWLINE = "\r\n"
 
----@type {Specific:table<string,string>, Misc:string[]}
+---@type {Specific:table<string,string>, Misc:string[], Entity:string}
 local _CustomEntries = Ext.Utils.Include(nil, "builtin://Libs/HelpersGenerator/CustomEntries.lua")
 
----@type table<string,{Before:string|nil, After:string|nil}>
+---@type table<string,{Before:string?, After:string?, Replace:string?}>
 local _CustomTypeEntries = Ext.Utils.Include(nil, "builtin://Libs/HelpersGenerator/CustomTypeEntries.lua")
 
----@type table<string,{Before:string|nil, After:string|nil}>
+---@type table<string,{Before:string?, After:string?, Replace:string?, ReplaceReturnValue:string?}>
 
 local _CustomFunctionExtras = Ext.Utils.Include(nil, "builtin://Libs/HelpersGenerator/CustomFunctionExtras.lua")
 
@@ -19,9 +19,6 @@ local _Aliases = Ext.Utils.Include(nil, "builtin://Libs/HelpersGenerator/Aliases
 
 ---@type {Regular:table<string, table<string, {Params:{name:string, arg:string, description:string}, Return:{}}>>, Field:table<string, table<string, string>>}
 local _FuncData = Ext.Utils.Include(nil, "builtin://Libs/HelpersGenerator/FunctionFixes.lua")
-
-local _PreventableEvent = {
-}
 
 local _TypeAliasReplace = {
     ComponentHandle = "userdata",
@@ -91,27 +88,33 @@ ModuleUUID = "UUID"
 --- @type table
 PersistentVars = {}
 
+--- @alias OsirisEventType string|"before"|"after"|"beforeDelete"|"afterDelete"
+--- @alias i16vec2 int16[]
+--- @alias YesNo "Yes"|"No"
+]]
+
+local dynamicTypesText = [[
 --- @alias OsirisValue number|string
 
 --- Using a DB like a function will allow inserting new values into the database (ex. `Osi.DB_IsPlayer("02a77f1f-872b-49ca-91ab-32098c443beb")`  
---- @overload fun(...:OsirisValue|nil)
+--- @overload fun(...:OsirisValue?)
 --- @class OsiDatabase
 local OsiDatabase = {}
 --- Databases can be read using the Get method. The method checks its parameters against the database and only returns rows that match the query.  
 --- The number of parameters passed to Get must be equivalent to the number of columns in the target database.  
 --- Each parameter defines an (optional) filter on the corresponding column.  
 --- If the parameter is nil, the column is not filtered (equivalent to passing _ in Osiris). If the parameter is not nil, only rows with matching values will be returned.
---- @vararg OsirisValue|nil
+--- @param ... OsirisValue?
 --- @return table<integer,table<integer,OsirisValue>>
 function OsiDatabase:Get(...) end
 --- The Delete method can be used to delete rows from databases.  
 --- The number of parameters passed to Delete must be equivalent to the number of columns in the target database.  
 --- Each parameter defines an (optional) filter on the corresponding column.  
 --- If the parameter is nil, the column is not filtered (equivalent to passing _ in Osiris). If the parameter is not nil, only rows with matching values will be deleted. 
---- @vararg OsirisValue|nil
+--- @param ... OsirisValue?
 function OsiDatabase:Delete(...) end
 
---- @alias OsiFunction fun(...:OsirisValue):OsirisValue|nil
+--- @alias OsiFunction fun(...:OsirisValue):OsirisValue?
 --- @alias OsiDynamic table<string, OsiFunction|OsiDatabase>
 
 --- @class OsiCommonDatabases
@@ -125,10 +128,6 @@ function OsiDatabase:Delete(...) end
 --- The Osi table contains databases as well as calls, queries, events, and custom PROC / QRY defintions, as long as they are used in a script.  
 --- @type OsiCommonDatabases|OsiDynamic
 Osi = {}
-
---- @alias OsirisEventType string|"before"|"after"|"beforeDelete"|"afterDelete"
---- @alias i16vec2 int16[]
---- @alias YesNo "Yes"|"No"
 ]]
 
 --- @return GenerateIdeHelpersGenerator
@@ -139,6 +138,7 @@ function Generator:New()
     o.Builtins = {}
     o.Enumerations = {}
     o.Classes = {}
+    o.Components = {}
     o.Modules = {}
     o.NativeClasses = {}
     o.NativeModules = {}
@@ -165,8 +165,8 @@ function Generator:LoadNativeData()
             self.NativeModules[name] = mod
         end
     else
-        Ext.Utils.PrintWarning("Unable to load native class data; IDE helpers will not include annotations from C++ code")
-        Ext.Utils.PrintWarning(res)
+        Ext.Log.PrintWarning("Unable to load native class data; IDE helpers will not include annotations from C++ code")
+        Ext.Log.PrintWarning(res)
     end
 end
 
@@ -310,6 +310,10 @@ end
 
 --- @param opts GenerateIdeHelpersOptions
 function Generator:Build(opts)
+    if opts.OsiDynamics then
+        self.Text = self.Text .. dynamicTypesText
+    end
+
     local types = Ext.Types.GetAllTypes()
     local sortedTypes = {}
 
@@ -324,7 +328,23 @@ function Generator:Build(opts)
 
     for i,typeName in ipairs(sortedTypes) do
         local type = Ext.Types.GetTypeInfo(typeName)
-        if type.Kind == "Object" then
+        if typeName == "EntityHandle" then
+            -- EntityHandle generation handled separately
+        elseif type.Kind == "Object" then
+            local isComponent = false
+            local parent = type.ParentType
+            while parent ~= nil do
+                if parent.TypeName == "BaseComponent" then
+                    isComponent = true
+                    break
+                end
+                parent = parent.ParentType
+            end
+
+            if isComponent then
+                table.insert(self.Components, type)
+            end
+
             table.insert(self.Classes, type)
         elseif type.Kind == "Module" then
             local index = #self.Modules+1
@@ -353,6 +373,11 @@ function Generator:Build(opts)
     for i,type in ipairs(self.Builtins) do
         self:EmitBuiltinType(type)
     end
+
+    self:EmitEmptyLine()
+    self:EmitEmptyLine()
+
+    self:EmitEntityClass()
 
     self:EmitEmptyLine()
     self:EmitEmptyLine()
@@ -432,16 +457,21 @@ local function _TableIsNullOrEmpty(tbl)
     return tbl == nil or tbl[1] == nil
 end
 
-function Generator:MakeTypeSignature(cls, type, forceExpand, nativeDefn)
+function Generator:MakeTypeSignature(cls, type, forceExpand, nativeDefn, overrides, missingFuncData)
     if _TypeReplace[type.TypeName] then
         return _TypeReplace[type.TypeName]
     end
+
+    if overrides and overrides.ReplaceSignature then
+        return overrides.ReplaceSignature
+    end
+
     if type.IsBuiltin and forceExpand ~= true then
         return type.TypeName
     elseif type.Kind == "Any" then
         return "any"
     elseif type.Kind == "Nullable" then
-        return self:MakeTypeSignature(cls, type.ParentType) .. "|nil"
+        return self:MakeTypeSignature(cls, type.ParentType) .. "?"
     elseif type.Kind == "Array" then
         if type.ElementType.Kind == "Array" or type.ElementType.Kind == "Map" then
             return self:MakeTypeSignature(nil, type.ElementType) .. "[]"
@@ -460,7 +490,7 @@ function Generator:MakeTypeSignature(cls, type, forceExpand, nativeDefn)
             table.insert(args, "self:" .. clsName)
         end
 
-        local missingFuncData = {}
+        missingFuncData = missingFuncData or {}
         if _FuncData.Regular[clsName] and _FuncData.Regular[clsName][type.TypeName] then
             missingFuncData = _FuncData.Regular[clsName][type.TypeName]
         end
@@ -479,7 +509,9 @@ function Generator:MakeTypeSignature(cls, type, forceExpand, nativeDefn)
             end
         end
 
-        if not _TableIsNullOrEmpty(missingFuncData.Return) then
+        if overrides and overrides.ReplaceReturnValue then
+            table.insert(retval, overrides.ReplaceReturnValue)
+        elseif not _TableIsNullOrEmpty(missingFuncData.Return) then
             for i,arg in ipairs(missingFuncData.Return) do
                 table.insert(retval, arg)
             end
@@ -542,11 +574,26 @@ end
 
 function Generator:EmitEnumeration(type)
     local decl = "string"
-    
+
+    local orderedKeys = {}
     for key,value in pairs(type.EnumValues) do
+        table.insert(orderedKeys, key)
+    end
+
+    table.sort(orderedKeys)
+    
+    for _,key in pairs(orderedKeys) do
         decl = _format("%s|\"%s\"", decl, key)
     end
     self:EmitAlias(type.TypeName, decl)
+end
+
+function Generator:EmitEntityClass()
+    self:EmitLine(_CustomEntries.Entity)
+
+    for _,type in ipairs(self.Components) do
+        self:EmitFieldComment(type.ComponentName .. " " .. self:MakeTypeName(type.TypeName) .. "?")
+    end
 end
 
 function Generator:FindNativeClass(type)
@@ -598,23 +645,23 @@ function Generator:MethodNeedsFullSignature(nativeMethod)
     return false
 end
 
-function Generator:EmitMethod(type, fname, nativeDefn)
+function Generator:EmitMethod(type, fname, nativeDefn, overrides)
     local nativeMethod = self:FindNativeMethod(fname, nativeDefn)
 
     if self:MethodNeedsFullSignature(nativeMethod) then
-        self:EmitFullMethodSignature(type, fname, type.Methods[fname], nativeMethod)
+        self:EmitFullMethodSignature(type, fname, type.Methods[fname], nativeMethod, overrides)
     else
         local clsName = self:MakeTypeSignature(nil, type)
         local fieldOverride = _FuncData.Field[clsName] and _FuncData.Field[clsName][fname]
         if fieldOverride then
             self:EmitFieldComment(fname .. " " .. fieldOverride)
         else
-            self:EmitFieldComment(fname .. " " .. self:MakeTypeSignature(type, type.Methods[fname],  false, nativeMethod))
+            self:EmitFieldComment(fname .. " " .. self:MakeTypeSignature(type, type.Methods[fname],  false, nativeMethod, overrides))
         end
     end
 end
 
-function Generator:EmitModuleFunction(type, fname, nativeDefn, afterText)
+function Generator:EmitModuleFunction(type, fname, nativeDefn, overrides)
     local nativeFunc = self:FindNativeFunction(fname, nativeDefn)
 
     if nativeFunc == nil then
@@ -623,15 +670,16 @@ function Generator:EmitModuleFunction(type, fname, nativeDefn, afterText)
         if _FuncData.Field[clsName] and _FuncData.Field[clsName][fname] then
             typeSig = _FuncData.Field[clsName][fname]
         else
-            typeSig = self:MakeTypeSignature(nil, type.Methods[fname])
+            local missingFuncData = _FuncData.Regular[clsName] and _FuncData.Regular[clsName][fname] or nil
+            typeSig = self:MakeTypeSignature(nil, type.Methods[fname], nil, nil, overrides, missingFuncData)
         end
         self:EmitFieldComment(fname .. " " .. typeSig)
     else
-        self:EmitFullMethodSignature(type, fname, type.Methods[fname], nativeFunc, afterText)
+        self:EmitFullMethodSignature(type, fname, type.Methods[fname], nativeFunc, overrides)
     end
 end
 
-function Generator:EmitFullMethodSignature(cls, funcName, fun, nativeMethod, afterText)
+function Generator:EmitFullMethodSignature(cls, funcName, fun, nativeMethod, overrides)
     local argDescs = {}
     local args = {}
     local overloads = {}
@@ -655,11 +703,7 @@ function Generator:EmitFullMethodSignature(cls, funcName, fun, nativeMethod, aft
             overloads = missingFuncData.Overload
         end
         for i,data in ipairs(missingFuncData.Params) do
-            if data.name == "..." then
-                table.insert(argDescs, "--- @vararg " .. data.arg or "any" .. " " ..  self.Trim(data.description or ""))
-            else
-                table.insert(argDescs, "--- @param " .. data.name .. " " .. data.arg .. " " ..  self.Trim(data.description or ""))
-            end
+            table.insert(argDescs, "--- @param " .. data.name .. " " .. data.arg or any .. " " ..  self.Trim(data.description or ""))
             table.insert(args, data.name)
         end
     else
@@ -720,8 +764,8 @@ function Generator:EmitFullMethodSignature(cls, funcName, fun, nativeMethod, aft
     else
         self.Text = self.Text .. fun
     end
-    if afterText then
-        self.Text = self.Text .. NEWLINE .. afterText
+    if overrides and overrides.After then
+        self.Text = self.Text .. NEWLINE .. overrides.After
     end
     self.Text = self.Text .. NEWLINE .. NEWLINE
 end
@@ -795,7 +839,7 @@ function Generator:EmitModifierList(modifierList)
 
     local modifiers = Ext.Stats.GetStatsManager().ModifierValueLists
     for _,attr in ipairs(modifierList.Attributes.Primitives) do
-        local modifier = modifiers.Primitives[attr.EnumerationIndex]
+        local modifier = modifiers.Primitives[attr.EnumerationIndex+1]
         self:EmitModifier(attr, modifier)
     end
 end
@@ -803,9 +847,7 @@ end
 function Generator:EmitClass(type)
     local name = self:MakeTypeName(type.TypeName)
     local nameWithParent = name
-    -- if _PreventableEvent[name] then
-    --     nameWithParent = name .. ":PreventableSubscribableEventParams"
-    -- end
+    
     if type.ParentType ~= nil then
         nameWithParent = nameWithParent .. ":" .. self:MakeTypeName(type.ParentType.TypeName)
     end
@@ -813,6 +855,11 @@ function Generator:EmitClass(type)
     local nativeDefn = self:FindNativeClass(type)
 
     local customText = _CustomTypeEntries[name]
+    if customText and customText.Replace then
+        self:EmitLine(customText.Replace)
+        return
+    end
+
     --TODO Hacky output fixes [_CustomTypeEntries.Before(EmitClass)]. May not be required later on.
     if customText and customText.Before then
         self:EmitLine(customText.Before)
@@ -860,7 +907,8 @@ function Generator:EmitClass(type)
     end
     
     for i,fname in ipairs(basicMethodSigs) do
-        self:EmitMethod(type, fname, nativeDefn)
+        local overrides = _CustomFunctionExtras[name.."."..fname]
+        self:EmitMethod(type, fname, nativeDefn, overrides)
     end
 
     if #extendedMethodSigs > 0 then
@@ -868,7 +916,8 @@ function Generator:EmitClass(type)
         self:EmitLine("")
         
         for i,fname in ipairs(extendedMethodSigs) do
-            self:EmitMethod(type, fname, nativeDefn)
+            local overrides = _CustomFunctionExtras[name.."."..fname]
+            self:EmitMethod(type, fname, nativeDefn, overrides)
         end
     end
 
@@ -890,7 +939,7 @@ function Generator:MakeModuleTypeName(type)
     return "Ext_" .. name
 end
 
----@param moduleToClassField table|nil
+---@param moduleToClassField table?
 function Generator:EmitModule(type, moduleToClassField)
     local helpersModuleName = self:MakeModuleTypeName(type)
     local nativeModuleName = type.NativeName
@@ -942,7 +991,8 @@ function Generator:EmitModule(type, moduleToClassField)
     end
     
     for i,fname in ipairs(basicFuncSigs) do
-        self:EmitModuleFunction(type, fname, nativeDefn)
+        local overrides = _CustomFunctionExtras[helpersModuleName.."."..fname]
+        self:EmitModuleFunction(type, fname, nativeDefn, overrides)
     end
 
     self:EmitLine('local ' .. helpersModuleName .. ' = {}')
@@ -956,23 +1006,23 @@ function Generator:EmitModule(type, moduleToClassField)
         --TODO Hacky output fixes [_CustomFunctionExtras(EmitModule)]. May not be required later on.
         local replaceText = nil
         local afterText = nil
-        if nativeDefn ~= nil then
-            local functionAdditions = _CustomFunctionExtras[helpersModuleName.."."..fname]
-            if functionAdditions then
-                if functionAdditions.Before then
-                    self:EmitLine(functionAdditions.Before, true)
-                end
-                afterText = functionAdditions.After
-                replaceText = functionAdditions.Replace
+
+        local overrides = _CustomFunctionExtras[helpersModuleName.."."..fname]
+        if overrides then
+            if overrides.Before then
+                self:EmitLine(overrides.Before, true)
             end
+            afterText = overrides.After
+            replaceText = overrides.Replace
         end
+
         if replaceText then
             self:EmitLine(replaceText, true)
             if afterText then
                 self:EmitLine(afterText, true)
             end
         else
-            self:EmitModuleFunction(type, fname, nativeDefn, afterText)
+            self:EmitModuleFunction(type, fname, nativeDefn, overrides)
         end
     end
 end
@@ -981,7 +1031,7 @@ local function GenerateSubscriptionEvents(self)
     for _,k in pairs(Ext._Internal._PublishedSharedEvents) do
         if not eventTypeGenerationDataIndex[k] then
             if _DEBUG then
-                Ext.Utils.PrintWarning("Found unregistered event, assuming empty event", k)
+                Ext.Log.PrintWarning("Found unregistered event, assuming empty event", k)
             end
             eventTypeGenerationData[#eventTypeGenerationData+1] = {Type="LuaEmptyEvent", Event = k, Context = "any"}
         end
@@ -1000,7 +1050,6 @@ local function GenerateSubscriptionEvents(self)
     end
 end
 
-local _enumNamePattern = ".-%((.+)%).-"
 local _restrictedKeys = {
     ["end"] = true,
 }
@@ -1024,26 +1073,35 @@ function Generator:GenerateEnums()
 
         local enum = Ext.Enums[enumName]
 
-        local valueToName = {}
-
-        for i,label in ipairs(enum) do
-            local name = tostring(label)
-            local _,_,actualName = string.find(name, _enumNamePattern)
-            if actualName then
-                name = actualName
-            end
-
-            valueToName[i] = name
-            
-            if string.find(name, "%s") or _restrictedKeys[name] then
-                self:EmitLine(string.format("\t[\"%s\"] = %s,", name, i))
-            else
-                self:EmitLine(string.format("\t%s = %s,", name, i))
+        local sortedKeys = {}
+        for i,label in pairs(enum) do
+            if type(i) == "number" then
+                table.insert(sortedKeys, i)
             end
         end
+        table.sort(sortedKeys)
+        
+        local valueToName = {}
+        for _,i in ipairs(sortedKeys) do
+            local label = enum[i]
+            if Ext.Types.GetTypeInfo(Ext.Types.GetObjectType(label)).IsBitfield then
+                label = label.__Labels[1]
+            else
+                label = tostring(label)
+            end
 
-        for i,v in ipairs(valueToName) do
-            self:EmitLine(string.format("\t[%s] = \"%s\",", i, v))
+            valueToName[i] = label
+            
+            if string.find(label, "%s") or _restrictedKeys[label] then
+                self:EmitLine(string.format("\t[\"%s\"] = %s,", label, i))
+            else
+                self:EmitLine(string.format("\t%s = %s,", label, i))
+            end
+        end
+        
+        for _,i in ipairs(sortedKeys) do
+            local label = valueToName[i]
+            self:EmitLine(string.format("\t[%s] = \"%s\",", i, label))
         end
 
         self:EmitLine("}")
@@ -1112,15 +1170,14 @@ function Generator:EmitExt(role, declareGlobal)
 end
 
 --Ext.Types.GenerateIdeHelpers("ExtIdeHelpers_New.lua")
---Ext.Types.GenerateIdeHelpers("ExtIdeHelpers_New.lua", {UseBaseExtraData=true,AddDeprecated=true})
+--Ext.Types.GenerateIdeHelpers("ExtIdeHelpers_New.lua", {UseBaseExtraData=true})
 
 --- @class GenerateIdeHelpersOptions
 local _DefaultOpts = {
-    AddOsiris = false,
-    AddDeprecated = false,
     AddAliasEnums = true,
     UseBaseExtraData = false,
-    GenerateExtraDataAsClass = false
+    GenerateExtraDataAsClass = false,
+    OsiDynamics = true
 }
 
 --- @param outputPath? string

@@ -1,83 +1,88 @@
 #pragma once
 
 #include <GameDefinitions/Base/Base.h>
+#include <GameDefinitions/EntitySystem.h>
 
 BEGIN_SE()
 
 struct ModuleShortDesc
 {
-	FixedString ModuleUUID;
-	STDString Name;
-	Version ModVersion;
-	Version PublishVersion;
-	STDString Hash;
-	STDString Folder;
+    FixedString ModuleUUIDString;
+    Guid ModuleUUID;
+    STDString Name;
+    Version ModVersion;
+    Version PublishVersion;
+    STDString Hash;
+    STDString Folder;
+    uint64_t PublishHandle;
 };
 
 struct ModuleSettings : public ProtectedGameObject<ModuleSettings>
 {
-	using ValidateProc = int(ModuleSettings& self, ModuleSettings& host, ObjectSet<ModuleShortDesc>& mismatches);
+    [[bg3::hidden]]
+    void* VMT;
+    Array<ModuleShortDesc> Mods;
+};
 
-	[[bg3::hidden]]
-	void* VMT;
-	Array<ModuleShortDesc> Mods;
-	Array<FixedString> ModOrder;
+struct UGCModDependency
+{
+    uint64_t DependencyHandle;
+    STDString DependencyName;
 };
 
 struct ModuleInfo
 {
-	FixedString ModuleUUIDString;
-	Guid ModuleUUID;
-	STDString Name;
-	FixedString StartLevelName;
-	FixedString MenuLevelName;
-	FixedString LobbyLevelName;
-	FixedString CharacterCreationLevelName;
-	FixedString PhotoBoothLevelName;
-	FixedString MainMenuBackgroundVideo;
-	Version ModVersion{ 0 };
-	Version PublishVersion{ 0 };
-	STDString Hash;
-	STDString Directory;
-	[[bg3::hidden]]
-	Array<void*> Scripts; // ScriptDataList*
-	STDString Author;
-	STDString Description;
-	Array<STDString> Tags;
-	uint8_t NumPlayers{ 4 };
-	Array<FixedString> TargetModes;
-	FixedString ModuleType;
+    FixedString ModuleUUIDString;
+    Guid ModuleUUID;
+    STDString Name;
+    FixedString StartLevelName;
+    FixedString MenuLevelName;
+    FixedString LobbyLevelName;
+    FixedString CharacterCreationLevelName;
+    FixedString PhotoBoothLevelName;
+    Version ModVersion{ 0 };
+    Version PublishVersion{ 0 };
+    STDString Hash;
+    STDString Directory;
+    [[bg3::hidden]] Array<void*> Scripts; // ScriptDataList*
+    STDString Author;
+    STDString Description;
+    uint8_t NumPlayers{ 4 };
+    uint64_t FileSize;
+    uint64_t PublishHandle;
 };
 
 struct Module
 {
-	using HashProc = bool (Module* self);
+    using HashProc = bool (Module* self);
 
-	[[bg3::hidden]]
-	void* VMT{ nullptr };
-	ModuleInfo Info;
-	Array<Module> LoadOrderedModules;
-	Array<Module> ContainedModules;
-	Array<Module> DependentModules;
-	Array<Module> AddonModules;
-	bool HasValidHash{ true };
-	bool UsesLsfFormat{ false };
-	bool FinishedLoading{ false };
+    [[bg3::hidden]] void* VMT{ nullptr };
+    ModuleInfo Info;
+    Array<Module> LoadOrderedModules;
+    Array<Module> DependentModules;
+    Array<Module> AddonModules;
+    Array<ModuleShortDesc> Dependencies;
+    Array<ModuleShortDesc> ModConflicts;
+    Array<ModuleShortDesc> Addons;
+    uint8_t UnknownFlag;
 };
 
 struct ModManager : public ProtectedGameObject<ModManager>
 {
-	[[bg3::hidden]]
-	void * VMT;
-	uint64_t Unknown;
-	[[bg3::hidden]]
-	Array<void*> Unknowns;
-	Module BaseModule;
-	uint8_t Flag;
-	ObjectSet<Module> AvailableMods;
-	ModuleSettings Settings;
+    [[bg3::hidden]] void* VMT;
+    // FIXME - swap this to a generic callback list
+    [[bg3::hidden]] UnknownSignal LoadCallbacks;
+    [[bg3::hidden]] UnknownSignal UnloadCallbacks;
+    Module BaseModule;
+    uint8_t Flag;
+    uint8_t Flag2;
+    Array<Module> LoadOrderedModules;
+    Array<Module> AvailableMods;
+    [[bg3::hidden]] HashMap<uint64_t, void*> field_190;
+    [[bg3::hidden]] uint64_t field_218;
+    ModuleSettings Settings;
 
-	Module const * FindModByNameGuid(char const * nameGuid) const;
+    Module const * FindModByNameGuid(char const * nameGuid) const;
 };
 
 END_SE()

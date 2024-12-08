@@ -1,10 +1,18 @@
 FS_NAME(Empty, "");
+FS_NAME(UnknownTSHandle, "ls::TranslatedStringRepository::s_HandleUnknown");
 
 // Stat attributes
 FS(Level);
 FS(Name);
 FS(Using);
 FS(AIFlags);
+FS(ModifierList);
+FS(OriginalModId);
+FS(ComboProperties);
+FS(ComboCategories);
+FS(StatusType);
+FS(SpellType);
+FS(Boosts);
 
 // Stat modifier types
 FS(Character);
@@ -14,6 +22,7 @@ FS(Weapon);
 FS(SpellData);
 FS(StatusData);
 FS(PassiveData);
+FS(InterruptData);
 
 FS(SpellSet);
 FS(EquipmentSet);
@@ -25,19 +34,18 @@ FS(NameGroup);
 // Stat proxy functions
 FS(Sync);
 FS(SetPersistence);
+FS(SetRawAttribute);
+FS(CopyFrom);
 
 // Entity proxy functions
-FS(CreateComponent);
-FS(GetComponent);
-FS(GetAllComponents);
-FS(GetAllComponentNames);
-FS(GetEntityType);
-FS(GetSalt);
-FS(GetIndex);
-FS(IsAlive);
-FS(GetReplicationFlags);
-FS(SetReplicationFlags);
-FS(Replicate);
+FS(Vars);
+
+// Osi proxy functions
+FS(Get);
+FS(Delete);
+FS(Exists);
+FS(Arities);
+FS(InputArities);
 
 // Stat modifier value types
 FS(FixedString);
@@ -51,6 +59,7 @@ FS(TargetConditions);
 FS(UseConditions);
 FS(RollConditions);
 FS(Requirements);
+FS(MemorizationRequirements);
 FS(TranslatedString);
 
 FS(AttributeFlags);
@@ -100,6 +109,15 @@ FS(ModVariables);
 FS(ModVariable);
 FS(Module);
 
+// Timers
+FS(PersistentTimers);
+FS(GameTimers);
+FS(RealtimeTimers);
+FS(Timer);
+FS(Time);
+FS(Handler);
+FS(Args);
+
 // Enums
 FS(Label);
 FS(EnumValue);
@@ -119,3 +137,39 @@ FS(trigger);
 FS(decal);
 FS(prefab);
 FS(light);
+
+// Default IMGUI fonts
+FS(Tiny);
+FS(Small);
+FS(Medium);
+FS(Large);
+FS(Big);
+
+// Dialog node types
+FS(Alias);
+FS(Jump);
+FS(TagQuestion);
+FS(TagAnswer);
+FS(TagGreeting);
+FS(CinematicTagged);
+FS(SelectSpeaker);
+FS(FallibleQuestionResult);
+FS(VisualState);
+FS(NestedDialog);
+FS(ActiveRoll);
+FS(PassiveRoll);
+FS(Trade);
+FS(Pop);
+
+// Genome type names
+FS(Int);
+FS(Enum);
+FS(String);
+FS(Path);
+FS(Vector3);
+FS(Rotator3);
+FS(Float3x3);
+FS(Float4x4);
+FS(AnimationSimpleName);
+FS(AnimationSetID);
+FS(AnimationComplexName);

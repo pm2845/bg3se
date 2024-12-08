@@ -10,35 +10,42 @@ using LuaClientPin = LuaStatePin<ExtensionState, lua::ClientState>;
 class ExtensionState : public ExtensionStateBase
 {
 public:
-	static ExtensionState & Get();
+    static ExtensionState & Get();
 
-	ExtensionState();
-	~ExtensionState() override;
+    ExtensionState();
+    ~ExtensionState() override;
 
-	lua::State * GetLua() override;
-	ModManager * GetModManager() override;
+    lua::State * GetLua() override;
+    ModManager * GetModManager() override;
+    bg3se::LevelManager * GetLevelManager() override;
+    void OnUpdate(GameTime const& time) override;
 
-	lua::ClientState* GetClientLua()
-	{
-		if (Lua) {
-			return Lua.get();
-		} else {
-			return nullptr;
-		}
-	}
+    lua::ClientState* GetClientLua()
+    {
+        if (Lua) {
+            return Lua.get();
+        } else {
+            return nullptr;
+        }
+    }
 
-	inline char const * GetBootstrapFileName() override
-	{
-		return "BootstrapClient.lua";
-	}
+    inline char const * GetBootstrapFileName() override
+    {
+        return "BootstrapClient.lua";
+    }
+
+    void OnInputEvent(SDL_Event* event, int& result);
 
 protected:
-	friend LuaStatePin<ExtensionState, lua::ClientState>;
-	std::unique_ptr<lua::ClientState> Lua;
-	uint32_t nextGenerationId_{ 1 };
+    friend LuaStatePin<ExtensionState, lua::ClientState>;
+    std::unique_ptr<lua::ClientState> Lua;
+    uint32_t nextGenerationId_{ 1 };
 
-	void DoLuaReset() override;
-	void LuaStartup() override;
+    Array<SDL_Event> deferredInputEvents_;
+
+    void DoLuaReset() override;
+    void LuaStartup() override;
+    void FireInputEvents();
 };
 
 END_NS()

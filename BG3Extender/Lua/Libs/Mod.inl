@@ -3,7 +3,7 @@ BEGIN_NS(lua::mod)
 
 /// <summary>
 /// Returns whether the module with the specified GUID is loaded.
-/// This is equivalent to Osiris `NRD_IsModLoaded`, but is callable when the Osiris scripting runtime is not yet available (i.e. `ModuleLoading˙, etc events).
+/// This is equivalent to Osiris `NRD_IsModLoaded`, but is callable when the Osiris scripting runtime is not yet available (i.e. `ModuleLoadStarted˙, etc events).
 /// 
 /// Example:
 /// ```lua
@@ -13,77 +13,90 @@ BEGIN_NS(lua::mod)
 /// ```
 /// </summary>
 /// <param name="modNameGuid">UUID of mod to check</param>
-bool IsModLoaded(char const* modNameGuid)
+bool IsModLoaded(lua_State* L, FixedString modNameGuid)
 {
-	auto modUuid = Guid::Parse(modNameGuid);
-	if (modUuid) {
-		auto modManager = gExtender->GetCurrentExtensionState()->GetModManager();
-		for (auto const& mod : modManager->BaseModule.LoadOrderedModules) {
-			if (mod.Info.ModuleUUID == *modUuid) {
-				return true;
-			}
-		}
-	}
+    auto modManager = ExtensionStateBase::FromLua(L).GetModManager();
 
-	return false;
+    auto modUuid = Guid::Parse(modNameGuid.GetStringView());
+    if (modUuid) {
+        for (auto const& mod : modManager->BaseModule.LoadOrderedModules) {
+            if (mod.Info.ModuleUUID == *modUuid) {
+                return true;
+            }
+        }
+    }
+    
+    for (auto const& mod : modManager->BaseModule.LoadOrderedModules) {
+        if (mod.Info.ModuleUUIDString == modNameGuid) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /// <summary>
 /// Returns the list of loaded module UUIDs in the order they're loaded in.
 /// </summary>
 /// <returns></returns>
-ObjectSet<Guid> GetLoadOrder()
+Array<FixedString> GetLoadOrder(lua_State* L)
 {
-	ObjectSet<Guid> loadOrder;
-	auto modManager = gExtender->GetCurrentExtensionState()->GetModManager();
+    Array<FixedString> loadOrder;
+    auto modManager = ExtensionStateBase::FromLua(L).GetModManager();
 
-	for (auto const& mod : modManager->BaseModule.LoadOrderedModules) {
-		loadOrder.Add(mod.Info.ModuleUUID);
-	}
+    for (auto const& mod : modManager->BaseModule.LoadOrderedModules) {
+        loadOrder.Add(mod.Info.ModuleUUIDString);
+    }
 
-	return loadOrder;
+    return loadOrder;
 }
 
 /// <summary>
 /// Returns detailed information about the specified (loaded) module.
 /// </summary>
 /// <param name="modNameGuid">Mod UUID to query</param>
-Module* GetMod(char const* modNameGuid)
+Module* GetMod(lua_State* L, FixedString modNameGuid)
 {
-	Module const * module{ nullptr };
-	auto modUuid = Guid::Parse(modNameGuid);
-	if (modUuid) {
-		auto modManager = gExtender->GetCurrentExtensionState()->GetModManager();
-		for (auto& mod : modManager->BaseModule.LoadOrderedModules) {
-			if (mod.Info.ModuleUUID == *modUuid) {
-				return &mod;
-			}
-		}
-	}
+    auto modManager = ExtensionStateBase::FromLua(L).GetModManager();
 
-	return nullptr;
+    auto modUuid = Guid::Parse(modNameGuid.GetStringView());
+    if (modUuid) {
+        for (auto& mod : modManager->BaseModule.LoadOrderedModules) {
+            if (mod.Info.ModuleUUID == *modUuid) {
+                return &mod;
+            }
+        }
+    }
+
+    for (auto& mod : modManager->BaseModule.LoadOrderedModules) {
+        if (mod.Info.ModuleUUIDString == modNameGuid) {
+            return &mod;
+        }
+    }
+
+    return nullptr;
 }
 
-Module* GetBaseMod()
+Module* GetBaseMod(lua_State* L)
 {
-	return &gExtender->GetCurrentExtensionState()->GetModManager()->BaseModule;
+    return &ExtensionStateBase::FromLua(L).GetModManager()->BaseModule;
 }
 
-ModManager* GetModManager()
+ModManager* GetModManager(lua_State* L)
 {
-	return gExtender->GetCurrentExtensionState()->GetModManager();
+    return ExtensionStateBase::FromLua(L).GetModManager();
 }
 
 void RegisterModLib()
 {
-	DECLARE_MODULE(Mod, Both)
-	BEGIN_MODULE()
-	MODULE_FUNCTION(IsModLoaded)
-	MODULE_FUNCTION(GetLoadOrder)
-	MODULE_FUNCTION(GetMod)
-	MODULE_FUNCTION(GetBaseMod)
-	MODULE_FUNCTION(GetModManager)
-	END_MODULE()
+    DECLARE_MODULE(Mod, Both)
+    BEGIN_MODULE()
+    MODULE_FUNCTION(IsModLoaded)
+    MODULE_FUNCTION(GetLoadOrder)
+    MODULE_FUNCTION(GetMod)
+    MODULE_FUNCTION(GetBaseMod)
+    MODULE_FUNCTION(GetModManager)
+    END_MODULE()
 }
 
 END_NS()

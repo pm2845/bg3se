@@ -1,8 +1,7 @@
-#include <GameDefinitions/Components/GeneratedComponentTypes.inl>
+#include <GameDefinitions/Generated/ComponentTypes.inl>
 
-T(esv::CharacterComponent)
-T(esv::ItemComponent)
-T(esv::Projectile)
+T(esv::Character)
+T(esv::Item)
 
 /*
 TODO - client not supported yet!

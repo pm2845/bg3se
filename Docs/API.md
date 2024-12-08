@@ -1,4 +1,5 @@
-### BG3SE Lua API v10 Documentation
+
+### BG3SE Lua API v11 Documentation
 
 ### Table of Contents  
  - [Getting Started](#getting-started)
@@ -6,8 +7,15 @@
  - [Client / Server States](#client-server)
     - [Persistent Variables](#persistent-vars)
  - [Console](#console)
- - [Calling Lua from Osiris](#calling-lua-from-osiris)
-    * [Capturing Events/Calls](#l2o_captures)
+    - [Multiline Mode](#multiline-mode)
+    - [Saving output to a file](#save-console-output)
+- [General Lua Rules](#lua-general)
+    * [Object Scopes](#lua-scopes)
+    * [Object Behavior](#lua-objects)
+    * [Parameter Passing](#lua-parameters)
+    * [Enumerations](#lua-enumerations)
+    * [Bitfields](#lua-bitfields)
+    * [Events](#lua-events)
  - [Calling Osiris from Lua](#calling-osiris-from-lua)
     * [Calls](#o2l_calls)
     * [Queries](#o2l_queries)
@@ -15,13 +23,14 @@
     * [PROCs](#o2l_procs)
     * [User Queries](#o2l_qrys)
     * [Databases](#o2l_dbs)
- - [General Lua Rules](#lua-general)
-    * [Object Scopes](#lua-scopes)
-    * [Object Behavior](#lua-objects)
-    * [Parameter Passing](#lua-parameters)
-    * [Enumerations](#lua-enumerations)
-    * [Bitfields](#lua-bitfields)
-    * [Events](#lua-events)
+ - [Calling Lua from Osiris](#calling-lua-from-osiris)
+    * [Capturing Events/Calls](#l2o_captures)
+ - [Stats](#stats)
+ - [ECS](#ecs)
+ - [Networking](#networking)
+    * [Sending NetMessages](#net-send)
+    * [Listening for NetMessages](#net-receive)
+    * [Utility functions](#net-utils)
  - [Custom Variables](#custom-variables)
  - [Utility functions](#ext-utility)
  - [JSON Support](#json-support)
@@ -143,6 +152,43 @@ Anything else typed in the console will be executed as Lua code in the current c
 The console has full access to the underlying Lua state, i.e. server console commands can also call builtin/custom Osiris functions, so Osiris calls like `AddExplorationExperience(GetHostCharacter(), 100)` are possible using the console.
 Variables can be used just like in Lua, i.e. variable in one command can later on be used in another console command. Be careful, console code runs in global context, so make sure console variable names don't conflict with globals (i.e. `Mods`, `Ext`, etc.)! Don't use `local` for console variables, since the lifetime of the local will be one console command. (Each console command is technically a separate chunk).
 
+<a id="multiline-mode"></a>
+### Multiline mode
+
+One unique feature of the console is its multiline mode, which facilitates the input of multiple lines of code at once. To enter multiline mode, start your input with "--\[\[" followed by pressing the enter key. This signals the console to expect multiple lines of code. Once you've entered all your lines, close the multiline mode with "]]--".
+
+Here's an example demonstrating the usage of multiline mode:
+
+```
+--[[
+someTable={1,2,3,4,5}
+for key,value in pairs(someTable) do
+    print(value)
+end
+]]--
+```
+
+<a id="save-console-output"></a>
+### Saving the console output to a file
+
+Sometimes, the output of a command in the console might be too lengthy or complex to analyze effectively within the console interface. In such cases, you might prefer to save the output to a file for easier review. This can be accomplished using a combination of two functions: Ext.IO.SaveFile(filename, content) and Ext.DumpExport(object).
+
+Here's how it works:
+
+`Ext.IO.SaveFile(filename, content)`: This function allows you to save content to a file with a specified filename. You need to provide the filename and the content you want to save. If the directory specified in the filename does not exist, `SaveFile` will automatically create it.
+
+`Ext.DumpExport(object)`: This function serializes the given object into a string, which can then be saved to a file using `Ext.IO.SaveFile`.
+
+Here's an example illustrating how to save console output to a file:
+
+```lua
+entity=Ext.Entity.Get("0133f2ad-e121-4590-b5f0-a79413919805") --Wither's UUID, for demonstration purposes
+Ext.IO.SaveFile("output.json", Ext.DumpExport(entity:GetAllComponents()))
+```
+
+The saved file will be located in the Script Extender folder, typically found at `%localappdata%\Larian Studios\Baldur's Gate 3\Script Extender`
+
+This method provides a convenient way to store and analyze complex console output, allowing for easier debugging and analysis outside of the console environment.
 
 <a id="lua-general"></a>
 ## General Lua Rules
@@ -428,8 +474,8 @@ local handlerId = Ext.Events.GameStateChanged:Subscribe(handler)
 ...
 Ext.Events.GameStateChanged:Unsubscribe(handlerId)
 ```
-
-## Calling Osiris from Lua <sup>S</sup>
+<a id="calling-osiris-from-lua"></a>
+## Calling Osiris from Lua
 
 Lua server contexts have a special global table called `Osi` that contains every Osiris symbol. In addition, built-in engine functions (calls, queries, events) are also added to the global table.
 
@@ -523,6 +569,9 @@ Osi.DB_GiveTemplateFromNpcToPlayerDialogEvent:Delete(nil, nil, nil)
 Osi.DB_GiveTemplateFromNpcToPlayerDialogEvent:Delete("CON_Drink_Cup_A_Tea_080d0e93-12e0-481f-9a71-f0e84ac4d5a9", nil, nil)
 ```
 
+<a id="calling-lua-from-osiris"></a>
+## Calling Lua from Osiris
+
 <a id="l2o_captures"></a>
 ### Capturing Events/Calls
 
@@ -545,6 +594,382 @@ Ext.Osiris.RegisterListener("TurnEnded", 1, "after", function (characterGuid)
     _P("TurnEnded- " .. characterGuid)
 end)
 ```
+
+<a id="stats"></a>
+## Stats (Ext.Stats module)
+
+<a id="stats-GetStatEntries"></a>
+### Ext.Stats.GetStats(type: string): string[]
+
+Returns a table with the names of all stat entries.
+When the optional parameter `type` is specified, it'll only return stats with the specified type.
+The following types are supported: `StatusData`, `SpellData`, `PassiveData`, `Armor`,  `Weapon`, `Character`, `Object`, `SpellSet`, `EquipmentSet`, `TreasureTable`, `TreasureCategory`,  `ItemGroup`, `NameGroup`
+
+
+<a id="stats-objects"></a>
+## Stats Objects
+
+The following functions are only usable for Spell, Status, Passive, Interrupt, Armor, Weapon, Character and Object stats entries. Other stats types (eg. ItemGroups, TreasureTables) have their own separate sections in the docs and cannot be manipulated using these functions.
+
+
+### Ext.Stats.GetStatsLoadedBefore(modGuid: string, type: string): string[]
+
+Returns a table with the names of all stat entries that were loaded before the specified mod.
+This function is useful for retrieving stats that can be overridden by a mod according to the module load order.
+When the optional parameter `type` is specified, it'll only return stats with the specified type. (The type of a stat entry is specified in the stat .txt file itself (eg. `type "StatusData"`).
+
+### Ext.Stats.Create(name: string, type: string, template: string?): StatEntry
+
+Creates a new stats entry. 
+If a stat object with the same name already exists, the specified modifier type is invalid or the specified template doesn't exist, the function returns `nil`.
+After all stat properties were initialized, the stats entry must be synchronized by calling `stat:Sync()`. 
+
+ - `name` is the name of stats entry to create; it should be globally unique
+ - `type` is the stats entry type (eg. `SkillData`, `StatusData`, `Weapon`, etc.)
+ - If the `template` parameter is not null, stats properties are copied from the template entry to the newly created entry
+ - If the entry was created on the server, `stat:Sync()` will replicate the stats entry to all clients. If the entry was created on the client, `stat:Sync()` will only update it locally.
+
+Example:
+```lua
+local stat = Ext.Stats.CreateStat("NRD_Dynamic_Skill", "SkillData", "Rain_Water")
+stat.RainEffect = "RS3_FX_Environment_Rain_Fire_01"
+stat.SurfaceType = "Fire"
+stat:Sync()
+```
+
+### Ext.Stats.Get(stat, [level], [warnOnError]): StatEntry
+
+Returns the specified stats entry as an object for easier manipulation.
+If the `level` argument is not specified or is `nil`, the table will contain stat values as specified in the stat entry.
+If the `level` argument is not `nil`, the table will contain level-scaled values for the specified level. A `level` value of `-1` will use the level specified in the stat entry.
+
+The behavior of getting a table entry is identical to that of `StatGetAttribute` and setting a table entry is identical to `StatSetAttribute`.
+
+The `StatSetAttribute` example rewritten using `Stats.Get`:
+```lua
+-- Swap DamageType from Poison to Air on all skills
+for i,name in pairs(Ext.Stats.GetStats("SkillData")) do
+    local stat = Ext.Stats.Get(name)
+    if stat.DamageType == "Poison" then
+        stat.DamageType = "Air"
+    end
+end
+```
+
+### Reading stat attributes
+
+Stat attributes can be retrieved by reading the appropriate property of the StatEntry object:
+
+```lua
+local spell = Ext.Stats.Get("Shout_FlameBlade")
+local useCosts = spell.UseCosts
+```
+
+If the stat entry doesn't have the specified attribute or the attribute is not supported, `nil` is returned. 
+The list of attributes each stat type supports can be found in `Public\Shared\Stats\Generated\Structure\Modifiers.txt`.
+
+*Technical note:* The StatEntry object has an `__index` metamethod that retrieves the stats property; the StatEntry is not a Lua table and shouldn't be treated as such!
+
+### Writing stat attributes
+
+Stat attributes can be updated using simple table assignment:
+
+```lua
+local spell = Ext.Stats.Get("Shout_FlameBlade")
+spell.UseCosts = "BonusActionPoint:1;SpellSlot:1:1:2"
+```
+
+This essentially allows on-the-fly changing of data loaded from stat .txt files without having to override the whole stat entry.
+If the function is called while the module is loading (i.e. from a `ModuleLoading`/`StatsLoaded` listener) no additional synchronization is needed. If the function is called after module load, the stats entry must be synchronized with the client via the `StatEntry:Sync()` call. 
+
+*Technical note:* The StatEntry object has a `__newindex` metamethod that performs validation and updates the real stats entry in the background.
+
+
+Example usage of stats read/write (Disable autocast on all spells):
+```lua
+for i,name in pairs(Ext.Stats.GetStats("SpellData")) do
+    local spell = Ext.Stats.Get(name)
+    if spell.Autocast == "Yes" then
+        spell.Autocast = "No"
+    end
+end
+```
+
+**Note:** When modifying stat attributes that are tables (i.e. `Requirements`, `SpellSuccess`, `SpellProperties` etc.) it is not sufficient to just modify the table, the modified table must be reassigned to the stat property:
+```lua
+local requirements = spell.Requirements
+table.insert(requirements, {Name = "Immobile", Param = -1, Not = false})
+-- Reassign table to update Requirements
+spell.Requirements = requirements
+```
+
+### Stat property type notes
+
+For a list of enumeration types and their possible values see `Public\Shared\Stats\Generated\Structure\Base\ValueLists.txt` or `Enumerations.xml`.
+
+#### Flags 
+
+The `AttributeFlags`, `SpellFlagList`, `WeaponFlags`, `ResistanceFlags`, `PassiveFlags`, `ProficiencyGroupFlags`, `StatsFunctorContext`, `StatusEvent`, `StatusPropertyFlags`, `StatusGroupFlags` and `LineOfSightFlags` enumerations are flags; this means that multiple enumeration values may be assigned to a stats property. 
+
+Reading flags:
+```lua
+local spell = Ext.Stats.Get("Shout_ArmorOfAgathys")
+_D(spell.SpellFlags)
+-- Prints:
+-- ["HasSomaticComponent", "HasVerbalComponent", "IsSpell"]
+```
+
+Writing flags:
+```lua
+local spell = Ext.Stats.Get("Shout_ArmorOfAgathys")
+spell.SpellFlags = {"HasVerbalComponent", "IsSpell"}
+```
+
+#### Requirements
+
+`Requirements` and `MemorizationRequirements` are returned in the following format:
+```js
+[
+    {
+        "Not" : true, // Negated condition?
+        "Param" : "Tag", // Parameter; number for ability/attribute level, string for Tag
+        "Requirement" : "TADPOLE_POWERS_BLOCKED" // Requirement name
+    },
+    {
+        "Not" : true,
+        "Param" : -1,
+        "Requirement" : "Immobile"
+    }
+]
+```
+
+#### StatsFunctors
+
+**StatsFunctors are not supported as of v11.**
+
+### Ext.Stats.ExtraData
+
+`Ext.ExtraData` is an object containing all entries from `Data.txt`.
+
+*Note*: It is possible to add custom `ExtraData` keys by adding a new `Data.txt` to the mod and then retrieve them using Lua.
+
+Example:
+```lua
+Ext.Utils.Print(Ext.Stats.ExtraData.WisdomTierHigh)
+```
+
+
+## ECS
+
+### TODO - WIP
+
+<a id="networking"></a>
+## Networking
+To exchange data between the server and client(s), we use NetMessages. These can be sent and received from either context to facilitate communication. This allows us to share data between the server and the client(s) and vice versa.
+
+<a id="net-send"></a>
+### Sending NetMessages
+NetMessages can be sent from either the server or client. They consist of a channel and a payload. The channel is a string used to distinguish your messages from others, and the payload is the data being sent. Currently, the payload must be a string. Here are some examples:
+
+**Sending data from the server to the client(s) :**
+```lua
+--Server context
+local channel = "MyModChannel_SomethingSpecific"
+local payload = {["somedata"] = somevalue, ["supertable"]={1,2,3,4,5}}
+
+--We need to stringify our payload in this case since it is a table and not a string
+payload=Ext.Json.Stringify(payload)
+
+--If we want to send the message to ALL the clients
+Ext.ServerNet.BroadcastMessage(channel, payload)
+
+--If we wanted to send the message to a specific userId
+local somePeer = 9999
+Ext.ServerNet.PostMessageToUser(somePeer, channel, payload)
+
+--If we wanted to send the message to the client controlling a specific character
+local someUUID = "c774d764-4a17-48dc-b470-32ace9ce447d" -- Wyll's uuid
+Ext.ServerNet.PostMessageToClient(characterUUID, channel, payload)
+
+```
+
+**Sending data from the client to the server :**
+```lua
+local channel = "MyModChannel_SomethingSpecific"
+local payload = "I'm a cute message"
+--No need to stringify since we're sending a simple string
+Ext.ClientNet.PostMessageToServer(channel, payload)
+```
+
+
+
+<a id="net-receive"></a>
+### Listening for NetMessages
+
+To handle incoming messages, we can listen to a channel on either side and use the received data. If the payload was stringified, use `Ext.Json.Parse` to convert it back into a table; otherwise, it remains a string.
+
+**Listening for a Message from the Server in the Client Context :**
+
+```lua
+--Client context
+local channel = "MyModChannel_SomethingSpecific"
+Ext.Events.NetMessage:Subscribe(function(data)
+ if data.Channel == channel then
+  --Parse the string back into a table if it was stringified
+  local data = Ext.Json.Parse(data.Payload)
+  --Do whatever you want with the data in the client context
+  someFunction(data)
+ end
+end)
+```
+
+**Alternatively :**
+```lua
+--wrapper for Ext.Events.NetMessage:Subscribe(function(data) ...end) 
+--which removes the need to check for the channel
+Ext.RegisterNetListener(channel, function(channel, payload, userID)
+  --Parse the string back into a table
+  local data = Ext.Json.Parse(payload)
+  --Do whatever you want with the data in the client context
+  someFunction(data)
+end)
+```
+
+*The code to listen for messages from the client on the server context would be similar.*
+
+Note that the `userId` in these examples is actually a peerId. Osiris functions usually expect a different userId, which is typically `peerId + 1`. Use the following function to convert between the peerId used by network functions and the userId expected by Osiris functions:
+
+```lua
+function PeerToUserID(peerID)
+ -- usually just userid+1
+ return (u & 0xffff0000) | 0x0001
+end
+--Example usage, Server context, pretend the client just sent something on the whatever channel
+--And that we need to get which character they're controlling
+Ext.Events.NetMessage:Subscribe(function(data)
+ if data.Channel == "whatever" then
+  local character = Osi.GetCurrentCharacter(PeerToUserID(data.UserID)) -- returns the character the client was using when the client sent the message
+  _P(character ) --Prints the character of the user the message originates from
+ end  
+end)
+```
+
+<a id="net-utils"></a>
+### Utility functions 
+
+### Ext.Net.IsHost()
+
+Returns true if the client it was called from is the host, always return true from the server context.
+
+## Entity class
+
+Game objects in BG3 are called entities. Each entity consists of multiple components that describes certain properties or behaviors of the entity.
+The Lua `Entity` class is the represntation of an ingame object (eg. character, item, trigger, etc.).
+
+*Technical note:* For a somewhat more detailed description of the ECS system see:
+ - [Entities, components and systems](https://medium.com/ingeniouslysimple/entities-components-and-systems-89c31464240d)
+ - [The Entity-Component-System - An awesome game-design pattern in C++ ](https://www.gamasutra.com/blogs/TobiasStein/20171122/310172/The_EntityComponentSystem__An_awesome_gamedesign_pattern_in_C_Part_1.php)
+
+
+### Entity:GetAllComponentNames() : string[]
+
+Returns all engine component types (native C++ class names) that the entity has.
+
+Example:
+```lua
+local char = Ext.Entity.Get(GetHostCharacter())
+_D(char:GetAllComponentNames())
+-- Prints:
+-- {
+--      "eoc::ActionResourcesComponent" : "eoc::ActionResourcesComponent Object (1c4000010000039e)",
+--      "eoc::BackgroundComponent" : "eoc::BackgroundComponent Object (1e000001000003ff)",
+--      "eoc::BackgroundPassivesComponent" : "eoc::BackgroundPassivesComponent Object (66c00001000003ff)",
+-- ...
+```
+
+
+### Entity:GetAllComponents() : Component[]
+
+Returns all components that are attached to the entity.
+
+*Note:* This method only returns components whose structure is known to the Script Extender. Components with unknown structure are not returned.
+
+Example:
+```lua
+local entity = Ext.Entity.Get(GetHostCharacter())
+_D(entity:GetAllComponents())
+-- Prints:
+-- {
+--      "ActionResources" :
+--      {
+--              "Entity" : "Entity (02c0000100000180)",
+--              "GetReplicationFlags" : "function: 00007FFDE482D5E0",
+-- ...
+```
+
+
+### Entity:GetComponent(name) : Component?
+
+Returns the specified component if it is attached to the entity. If the component is not present the method returns `nil`.
+
+*Note:* This method only returns components whose structure is known to the Script Extender. Components with unknown structure are not returned.
+
+*Note:* Although the type (character, item, etc.) of the entity cannot be determined directly, it can be inferred from the components that are attached to the entity.
+Eg. to check if the entity is a character, an `entity:GetComponent("ServerCharacter") ~= nil` check can be used.
+
+Example:
+```lua
+local entity = Ext.Entity.Get(GetHostCharacter())
+_D(entity:GetComponent("DisplayName"))
+-- Prints:
+-- {
+--      "Entity" : "Entity (02c0000100000180)",
+--      "Name" : "Tav",
+--      "NameKey" : "ResStr_669727657",
+-- ...
+```
+
+The `__index` metamethod of the Entity object is a shorthand for `GetComponent`:
+```lua
+local entity = Ext.Entity.Get(GetHostCharacter())
+-- The two below are equivalent
+local displayName = entity:GetComponent("DisplayName")
+local displayName = entity.DisplayName
+```
+
+
+### Entity:CreateComponent(name) : Component
+
+Attaches a new empty copy of the specified component type to the entity, if one does not exist. The function returns the newly created component.
+
+*Note:* This method only works for components whose structure is known to the Script Extender. Components with unknown structure are not returned.
+
+
+### Entity:Replicate(component)
+### Entity:SetReplicationFlags(component, flags, word)
+### Entity:GetReplicationFlags(component, word) : flags
+
+FIXME - DOCUMENT
+
+### Entity:IsAlive() : boolean
+
+Returns whether the entity still exists.
+
+### Entity:GetEntityType() : integer
+
+Returns the numeric type ID of the entity.
+(For development purposes only.)
+
+### Entity:GetSalt() : integer
+
+Returns the salt value of the entity handle.
+(For development purposes only.)
+
+### Entity:GetIndex() : integer
+
+Returns the entity index of the entity handle.
+(For development purposes only.)
+
 
 <a id="custom-variables"></a>
 ## Custom variables
@@ -580,12 +1005,13 @@ Usage notes:
  - Although the variables registered server-side and client-side can differ, it is recommended to register all variables on both sides (even if they're server-only or client-only) for consistency
  - Variable names, much like Osiris DB names are global; it is recommended to prefix them with your mod name to ensure they're unique
  - Variables must be registered with the same settings on both client and server, otherwise various synchronization issues may occur.
+ - Client-only variables cannot be persistent.
 
 
-After registration, custom variables can be read/written through the `UserVars` property on entities:
+After registration, custom variables can be read/written through the `Vars` property on entities:
 ```lua
-_C().UserVars.NRD_Whatever = 123
-Ext.Print(_C().UserVars.NRD_Whatever)
+_C().Vars.NRD_Whatever = 123
+Ext.Print(_C().Vars.NRD_Whatever)
 ```
 
 ### Synchronization
@@ -597,18 +1023,18 @@ A variable is only eligible for synchronization if:
 
 For a variable to be synchronized, it must be *dirtied* first. The most straightforward way to perform this is by doing a direct write to the variable:
 ```lua
-_C().UserVars.NRD_Whatever = "asd"
+_C().Vars.NRD_Whatever = "asd"
 ```
 
 Note: Writes to subproperties of complex types (i.e. tables etc) will not trigger this mechanism! Example:
 ```lua
-_C().UserVars.NRD_Whatever.SomeProperty = 123
+_C().Vars.NRD_Whatever.SomeProperty = 123
 ```
-Since the `__newindex` metamethod of the `UserVars` object is not called, the variable manager does not detect that a change was performed. A simple fix is to reassign the property after modifications were made:
+Since the `__newindex` metamethod of the `Vars` object is not called, the variable manager does not detect that a change was performed. A simple fix is to reassign the property after modifications were made:
 ```lua
-local v = _C().UserVars.NRD_Whatever
+local v = _C().Vars.NRD_Whatever
 v.SomeProperty = 123
-_C().UserVars.NRD_Whatever = v
+_C().Vars.NRD_Whatever = v
 ```
 
 On each tick of the game loop, variables that were changed during the current tick are collected and sent to the client/server in a batch. Unless configured otherwise (i.e. the `SyncOnTick` setting is disabled), this is the default synchronization method.
@@ -624,51 +1050,51 @@ The variable manager keeps a Lua copy of table variables for performance reasons
 
 Example:
 ```lua
-local t1 = _C().UserVars.NRD_Whatever
-local t2 = _C().UserVars.NRD_Whatever
+local t1 = _C().Vars.NRD_Whatever
+local t2 = _C().Vars.NRD_Whatever
 t1.Name = "test"
 _D(t2.Name) -- prints "test"
 ```
 
-Cached variables are serialized to JSON when they are first sent to the client/server or when a savegame is created. This means that all changes to a dirtied variable up to the next synchronization point will be visible to peers despite no explicit write being performed to `UserVars`. Example:
+Cached variables are serialized to JSON when they are first sent to the client/server or when a savegame is created. This means that all changes to a dirtied variable up to the next synchronization point will be visible to peers despite no explicit write being performed to `Vars`. Example:
 ```lua
-local v = _C().UserVars.NRD_Whatever
+local v = _C().Vars.NRD_Whatever
 v.SomeProperty = 123
 -- variable is dirtied here
-_C().UserVars.NRD_Whatever = v
+_C().Vars.NRD_Whatever = v
 v.SomeProperty = 456
 -- client will receive 456
 Ext.Vars.SyncUserVariables()
 
 -- client will NOT receive this change since the NRD_Whatever variable is no longer dirtied after sync;
--- another explicit write to UserVars.NRD_Whatever must be performed
+-- another explicit write to Vars.NRD_Whatever must be performed
 v.SomeProperty = 789
 ```
 
 Variable caching can be disabled by passing the `DontCache` flag to `RegisterUserVariable`. Uncached variables are unserialized from JSON each time the property is accessed, so each access returns a different copy:
 
 ```lua
-local t1 = _C().UserVars.NRD_Whatever
-local t2 = _C().UserVars.NRD_Whatever
+local t1 = _C().Vars.NRD_Whatever
+local t2 = _C().Vars.NRD_Whatever
 t1.Name = "test"
 _D(t2.Name) -- prints nil
 ```
 
-Variables are immediately serialized to JSON when a `UserVars` write occurs; this means that changes to the original reference have no effect after assignment.
+Variables are immediately serialized to JSON when a `Vars` write occurs; this means that changes to the original reference have no effect after assignment.
 
 ```lua
 local t1 = { Name = "t1" }
-_C().UserVars.NRD_Whatever = t1
+_C().Vars.NRD_Whatever = t1
 t1.Name = "t2"
-_D(_C().UserVars.NRD_Whatever.Name) -- prints "t1"
+_D(_C().Vars.NRD_Whatever.Name) -- prints "t1"
 ```
 
-This also means that changing the value returned from a `UserVars` fetch will not affect the stored value:
+This also means that changing the value returned from a `Vars` fetch will not affect the stored value:
 
 ```lua
-local t1 = _C().UserVars.NRD_Whatever
+local t1 = _C().Vars.NRD_Whatever
 t1.Name = "t1"
-_D(_C().UserVars.NRD_Whatever.Name) -- prints "t1"
+_D(_C().Vars.NRD_Whatever.Name) -- prints "t1"
 ```
 
 ### Mod variables
@@ -709,8 +1135,8 @@ Prints the specified value(s) to the debug console. Works similarly to the built
 
 #### Ext.IO.AddPathOverride(originalPath, newPath)
 
-Redirects file access from `originalPath` to `newPath`. This is useful for overriding built-in files or resources that are otherwise not moddable, eg. UI Flash files.
-Make sure that the override is added as early as possible (preferably in `ModuleLoading`), as adding path overrides after the game has already loaded the resource has no effect.
+Redirects file access from `originalPath` to `newPath`. This is useful for overriding built-in files or resources that are otherwise not moddable.
+Make sure that the override is added as early as possible (preferably in `StatsLoaded`), as adding path overrides after the game has already loaded the resource has no effect.
 
 Example:
 ```lua
@@ -1011,10 +1437,6 @@ The purpose of this event is to allow adding filesystem-level hooks using `Ext.I
 ### StatsLoaded
 
 `StatsLoaded` is thrown after stats entries (weapons, skills, etc.) were cleared and subsequently reloaded. Stat modifications that are valid for every game session should be applied here.
-
-### ModuleLoading
-
-`ModuleLoading` is thrown after the stats manager has finished loading; this callback is deprecated and `StatsLoaded` should be used instead.
 
 ### SessionLoading
 
