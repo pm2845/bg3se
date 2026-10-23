@@ -3,21 +3,15 @@
 #include <GameDefinitions/EnumRepository.h>
 
 #include <cstdint>
-#if defined(ENABLE_SDL)
 #include <SDL_scancode.h>
 #include <SDL_keycode.h>
 #include <SDL_gamecontroller.h>
-#endif
 
-#if defined(ENABLE_UI)
 #include <NsGui/Enums.h>
 #include <NsGui/InputEnums.h>
 #include <NsGui/UIElementEvents.h>
-#endif
 
-#if defined(ENABLE_IMGUI)
 #include <imgui.h>
-#endif
 
 BEGIN_SE()
 
@@ -41,15 +35,17 @@ BEGIN_SE()
 
 
 
-#define BEGIN_BITMASK_NS(NS, T, luaName, type, id) template <> struct BitfieldID<NS::T> { static constexpr int32_t ID = id; };
-#define BEGIN_ENUM_NS(NS, T, luaName, type, id) template <> struct EnumID<NS::T> { static constexpr int32_t ID = id; };
-#define BEGIN_BITMASK(T, type, id) template <> struct BitfieldID<T> { static constexpr int32_t ID = id; };
-#define BEGIN_ENUM(T, type, id) template <> struct EnumID<T> { static constexpr int32_t ID = id; };
+#define BEGIN_BITMASK_NS(NS, T, luaName, type, id) template <> constexpr BitfieldTypeId BitfieldID<NS::T> = BitfieldTypeId(id);
+#define BEGIN_ENUM_NS(NS, T, luaName, type, id) template <> constexpr EnumTypeId EnumID<NS::T> = EnumTypeId(id);
+#define BEGIN_BITMASK(T, type, id) template <> constexpr BitfieldTypeId BitfieldID<T> = BitfieldTypeId(id);
+#define BEGIN_ENUM(T, type, id) template <> constexpr EnumTypeId EnumID<T> = EnumTypeId(id);
 #define EV(label, value)
 #define END_ENUM_NS()
 #define END_ENUM()
 #include <GameDefinitions/Generated/Enumerations.inl>
+#if !defined(EXCLUDE_EXTERNALS)
 #include <GameDefinitions/Generated/ExternalEnumerations.inl>
+#endif
 #undef BEGIN_BITMASK_NS
 #undef BEGIN_ENUM_NS
 #undef BEGIN_BITMASK
@@ -60,23 +56,20 @@ BEGIN_SE()
 
 
 void InitializeEnumerations();
+void RegisterEnumerationTypeInformation();
 
 
-#define BEGIN_BITMASK_NS(NS, T, luaName, type, id) \
-    template<> struct IsBitfield<NS::T> { \
-        static const bool value = true; \
-    };
+#define BEGIN_BITMASK_NS(NS, T, luaName, type, id)
 #define BEGIN_ENUM_NS(NS, T, luaName, type, id)
-#define BEGIN_BITMASK(T, type, id) \
-    template<> struct IsBitfield<T> { \
-        static const bool value = true; \
-    };
+#define BEGIN_BITMASK(T, type, id)
 #define BEGIN_ENUM(T, type, id)
 #define EV(label, value)
 #define END_ENUM_NS()
 #define END_ENUM()
 #include <GameDefinitions/Generated/Enumerations.inl>
+#if !defined(EXCLUDE_EXTERNALS)
 #include <GameDefinitions/Generated/ExternalEnumerations.inl>
+#endif
 #undef BEGIN_BITMASK_NS
 #undef BEGIN_ENUM_NS
 #undef BEGIN_BITMASK

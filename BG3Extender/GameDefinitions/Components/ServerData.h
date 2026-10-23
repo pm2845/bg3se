@@ -33,7 +33,39 @@ struct ExperienceGaveOutComponent : public BaseComponent
     int Experience;
 };
 
-DEFINE_TAG_COMPONENT(esv::summon, IsUnsummoningComponent, ServerIsUnsummoning)
+struct ExperienceSystemBase : public BaseSystem
+{
+    static constexpr nullptr_t SystemName = nullptr;
+
+    [[bg3::hidden]] UnknownSignal field_10;
+};
+
+struct EqualizeExperienceData
+{
+    int Experience;
+    EntityHandle Entity;
+};
+
+struct ExperienceSystem : public ExperienceSystemBase
+{
+    DEFINE_SYSTEM(ServerExperience, "esv::exp::ExperienceSystem")
+
+    [[bg3::hidden]] UnknownSignal field_28;
+    [[bg3::hidden]] void* RPGStats;
+    [[bg3::hidden]] void* BackgroundGoals;
+    [[bg3::hidden]] void* ExperienceRewards;
+    [[bg3::hidden]] void* FactionContainer;
+    [[bg3::hidden]] void* GlobalSwitches;
+    [[bg3::hidden]] void* TagManager;
+    [[bg3::hidden]] void* ExperienceSystemEnvironment;
+    HashSet<EntityHandle> ReevaluateCanGainXP;
+    HashMap<EntityHandle, int> IncreaseExperience;
+    HashMap<EntityHandle, int> OverrideLevel;
+    HashSet<EntityHandle> AvailableLevelChanged;
+    HashMap<EntityHandle, EqualizeExperienceData> EqualizeExperience;
+    HashMap<EntityHandle, HashSet<EntityHandle>> ExperienceOnDestroy;
+};
+
 
 struct ActivationGroupData
 {
@@ -114,61 +146,6 @@ struct BreadcrumbComponent : public BaseComponent
     glm::vec3 field_118;
 };
 
-
-struct DelayDeathCauseComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ServerDelayDeathCause, "esv::death::DelayDeathCauseComponent")
-
-    int DelayCount;
-    int Blocked_M;
-    Guid field_8;
-};
-
-struct KillerComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ServerKiller, "esv::death::KillerComponent")
-
-    HashSet<EntityHandle> Killers;
-};
-
-struct StateComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ServerDeathState, "esv::death::StateComponent")
-
-    uint32_t Flags;
-};
-
-DEFINE_TAG_COMPONENT(esv::death, DeathContinueComponent, ServerDeathContinue)
-
-
-
-struct DeathApplyKnockedOutOneFrameComponent : public BaseComponent
-{
-    DEFINE_ONEFRAME_COMPONENT(DeathApplyKnockedOut, "esv::death::ApplyKnockedOutOneFrameComponent")
-
-    EntityHandle field_0;
-    uint8_t field_8;
-    int field_C;
-    char field_10;
-};
-
-struct DeathAssignEntityToUserRequestOneFrameComponent : public BaseComponent
-{
-    DEFINE_ONEFRAME_COMPONENT(DeathAssignEntityToUserRequest, "esv::death::AssignEntityToUserRequestOneFrameComponent")
-
-    int UserID;
-};
-
-struct DeathDeadByDefaultRequestOneFrameComponent : public BaseComponent
-{
-    DEFINE_ONEFRAME_COMPONENT(DeathDeadByDefaultRequest, "esv::death::DeadByDefaultRequestOneFrameComponent")
-
-    EntityHandle field_0;
-    uint8_t field_8;
-    uint8_t field_9;
-};
-
-DEFINE_ONEFRAME_TAG_COMPONENT(esv::death, DiedEventOneFrameComponent, DiedEvent)
 
 DEFINE_ONEFRAME_TAG_COMPONENT(esv::falling, FallToProneOneFrameComponent, FallToProne)
 
@@ -274,14 +251,6 @@ struct PeersInRangeComponent : public BaseComponent
     Array<int32_t> Peers;
 };
 
-struct SurfaceComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ServerSurface, "esv::surface::SurfaceComponent")
-
-    Guid field_0;
-    ComponentHandle field_10;
-};
-
 struct DisarmAttempt
 {
     EntityHandle field_0;
@@ -298,26 +267,10 @@ struct DisarmAttemptComponent : public BaseComponent
     Array<DisarmAttempt> Attempts;
 };
 
-struct UnsheathDefaultComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ServerUnsheath, "esv::unsheath::DefaultComponent")
-
-    int field_0;
-    bool field_4;
-};
-
-struct UnsheathScriptOverrideComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ServerUnsheathScriptOverride, "esv::unsheath::ScriptOverrideComponent")
-
-    Array<int32_t> field_0;
-};
-
 
 DEFINE_TAG_COMPONENT(esv::cover, IsLightBlockerComponent, ServerIsLightBlocker)
 DEFINE_TAG_COMPONENT(esv::cover, IsVisionBlockerComponent, ServerIsVisionBlocker)
 DEFINE_TAG_COMPONENT(esv::darkness, DarknessActiveComponent, ServerDarknessActive)
-DEFINE_TAG_COMPONENT(esv::hotbar, OrderComponent, ServerHotbarOrder)
 DEFINE_TAG_COMPONENT(esv::level, InventoryItemDataPopulatedComponent, ServerInventoryItemDataPopulated)
 
 DEFINE_TAG_COMPONENT(esv, VariableManagerComponent, ServerVariableManager)
@@ -342,11 +295,7 @@ struct JumpFollowComponent : public BaseComponent
     float field_4C;
     SpellId Spell;
     float ProjectileTerrainOffset;
-    [[bg3::hidden]] uint64_t DangerousAuras[4];
-    uint8_t HasSpell;
-    uint32_t field_A4;
-    uint32_t field_A8;
-    uint32_t field_AC;
+    DangerousAuras DangerousAuras;
     [[bg3::hidden]] Array<void*> field_B0_AvoidArea;
     [[bg3::hidden]] Array<void*> field_C0_AvoidArea;
     uint8_t field_D0;
@@ -369,5 +318,170 @@ struct JumpFollowComponent : public BaseComponent
     uint8_t field_13A;
 };
 
+struct GlobalRestStateRequest
+{
+    int RestType;
+    int Remove;
+};
+
+struct StoryShortRestStateRequest
+{
+    bool Enabled;
+    uint8_t Cause;
+};
+
+struct CapabilitiesSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerCapabilities, "esv::CapabilitiesSystem")
+
+    [[bg3::hidden]] void* GameEventManagerVMT;
+    [[bg3::hidden]] void* field_18;
+    [[bg3::hidden]] void* GameStateEventListenerVMT;
+    [[bg3::hidden]] void* field_28;
+    [[bg3::hidden]] void* FlagEventListenerVMT;
+    [[bg3::hidden]] UnknownSignal field_38;
+    [[bg3::hidden]] void* qword50;
+    [[bg3::hidden]] UnknownSignal qword58;
+    [[bg3::hidden]] UnknownSignal qword70;
+    [[bg3::hidden]] UnknownSignal qword88;
+    [[bg3::hidden]] UnknownSignal qwordA0;
+    [[bg3::hidden]] void* AnubisLegacyEvents;
+    [[bg3::hidden]] void* BoostSystem;
+    [[bg3::hidden]] void* CharacterManager;
+    [[bg3::hidden]] void* GameControl;
+    [[bg3::hidden]] void* LootValidationSystem;
+    [[bg3::hidden]] void* ShapeshiftSystem;
+    [[bg3::hidden]] void* TagSystem;
+    [[bg3::hidden]] void* WaypointManager;
+    [[bg3::hidden]] void* FactionContainer;
+    [[bg3::hidden]] void* TagManager;
+    [[bg3::hidden]] void* EoCGlobalSwitches;
+    [[bg3::hidden]] void* ThothMachine;
+    [[bg3::hidden]] void* TransformSystem;
+    [[bg3::hidden]] void* StatusPrototypeManager;
+    [[bg3::hidden]] UnknownFunction SignalConnections;
+    HashSet<EntityHandle> TemplateChanged;
+    HashSet<EntityHandle> CanBeDisarmedChanged;
+    HashSet<EntityHandle> CanBeLootedChanged;
+    HashSet<EntityHandle> CanDeflectProjectilesChanged;
+    HashSet<EntityHandle> CanDoActionsChanged;
+    HashSet<EntityHandle> CanInteractChanged;
+    HashSet<EntityHandle> CanModifyHealthChanged;
+    HashSet<EntityHandle> CanMoveChanged;
+    HashSet<EntityHandle> CanSpeakChanged;
+    HashSet<EntityHandle> CanShortRestChanged;
+    HashSet<EntityHandle> CanTravelChanged;
+    HashSet<EntityHandle> CanTriggerRandomCastChanged;
+    HashSet<EntityHandle> CanDoLongRestChanged;
+    HashSet<EntityHandle> InvulnerableChanged;
+    HashMap<EntityHandle, int> FleeCapability;
+    HashSet<EntityHandle> StatusesChanged;
+    HashSet<EntityHandle> qword478;
+    HashSet<EntityHandle> qword4A8;
+    HashSet<EntityHandle> RestCapabilityChanged;
+    HashSet<EntityHandle> ShortRestPointsUpdated;
+    Array<GlobalRestStateRequest> GlobalRestState;
+    HashMap<EntityHandle, StoryShortRestStateRequest> StoryShortRestState;
+    bool UpdateShortRestState;
+    bool UpdateLongRestState;
+    bool field_58A;
+    bool field_58B;
+    bool IsRunning;
+};
+
+END_NS()
+
+BEGIN_NS(esv::surface)
+
+struct SurfaceComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerSurface, "esv::surface::SurfaceComponent")
+
+    Guid SpellCastUuid;
+    [[bg3::legacy(field_10)]] ComponentHandle SurfaceHandle;
+
+    // Lua call helpers
+    //# P_GETTER(Surface, GetSurface)
+    esv::Surface* GetSurface(lua_State* L) const;
+};
+
+struct LevelLoadedComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerSurfaceLevelLoaded, "esv::surface::LevelLoadedComponent")
+};
+
+struct CreatedEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(ServerSurfaceCreatedEvent, "esv::surface::CreatedEventOneFrameComponent")
+
+    Guid Surface;
+};
+
+struct RemovedEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(ServerSurfaceRemovedEvent, "esv::surface::RemovedEventOneFrameComponent")
+
+    Guid Surface;
+};
+
+END_NS()
+
+BEGIN_NS(esv::surface_action)
+
+struct FinishedEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(ServerSurfaceActionFinishedEvent, "esv::surface_action::FinishedEventOneFrameComponent")
+
+    Guid Surface;
+};
+
+struct GrownEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(ServerSurfaceActionGrownEvent, "esv::surface_action::GrownEventOneFrameComponent")
+
+    EntityHandle field_0;
+    Array<AiTilePos> Cells;
+};
+
+END_NS()
+
+BEGIN_NS(esv::unsheath)
+
+struct SpellAnimationLifetimeComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerUnsheathSpellAnimationLifetime, "esv::unsheath::SpellAnimationLifetimeComponent")
+
+    SpellId Spell;
+    Guid SpellCastGuid;
+    uint8_t field_48;
+    float field_4C;
+};
+
+struct DefaultComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerUnsheath, "esv::unsheath::DefaultComponent")
+
+    int field_0;
+    bool field_4;
+};
+
+struct ScriptOverrideComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerUnsheathScriptOverride, "esv::unsheath::ScriptOverrideComponent")
+
+    Array<int32_t> field_0;
+};
+
+END_NS()
+
+BEGIN_NS(esv::templates)
+
+struct ChangeSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerTemplateChange, "esv::templates::ChangeSystem")
+
+    HashMap<EntityHandle, TemplateInfo> TemplateSwitch;
+    HashMap<EntityHandle, TemplateInfo> TemplateTransformWithScript;
+};
 
 END_NS()

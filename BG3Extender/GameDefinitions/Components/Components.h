@@ -2,6 +2,7 @@
 
 #include <GameDefinitions/Base/Base.h>
 #include <GameDefinitions/EntitySystem.h>
+#include <GameDefinitions/Ai.h>
 
 BEGIN_SE()
 
@@ -12,6 +13,7 @@ struct RulesetComponent : public BaseComponent
     Array<Guid> Rulesets;
     // FIXME: First variant is void
     HashMap<Guid, std::variant<uint8_t, int32_t, float, FixedString, bool>> Modifiers;
+    Guid field_40;
 };
 
 struct RulesetModifiersComponent : public BaseComponent
@@ -22,76 +24,11 @@ struct RulesetModifiersComponent : public BaseComponent
     HashMap<Guid, std::variant<uint8_t, int32_t, float, FixedString, bool>> Modifiers;
 };
 
-struct ActionResourceDiceValue
-{
-    double Amount;
-    double MaxAmount;
-};
-
-struct ActionResourceEntry
-{
-    Guid ResourceUUID;
-    [[bg3::legacy(ResourceId)]] int Level;
-    double Amount;
-    double MaxAmount;
-    [[bg3::legacy(field_28)]] ResourceReplenishType ReplenishType;
-    [[bg3::legacy(SubAmounts)]] std::optional<std::array<ActionResourceDiceValue, 7>> DiceValues;
-    uint8_t field_A8;
-};
-
-struct ActionResourcesComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ActionResources, "eoc::ActionResourcesComponent")
-
-    HashMap<Guid, Array<ActionResourceEntry>> Resources;
-};
-
-struct ActionResourceSpendResult
-{
-    Guid Resource;
-    uint8_t field_10;
-    uint8_t field_11;
-    uint8_t field_12;
-    uint8_t field_13;
-    uint32_t field_14;
-};
-
-struct ActionResourceSpendEventOneFrameComponent : public BaseComponent
-{
-    DEFINE_ONEFRAME_COMPONENT(ActionResourceSpendEvent, "eoc::ActionResourceSpendEventOneFrameComponent")
-
-    Array<ActionResourceSpendResult> Results;
-};
-
-
-struct HearingComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Hearing, "eoc::HearingComponent")
-
-    float Hearing;
-};
-
 struct SurfacePathInfluencesComponent : public BaseComponent
 {
     DEFINE_COMPONENT(SurfacePathInfluences, "eoc::SurfacePathInfluencesComponent")
 
     Array<SurfacePathInfluence> PathInfluences;
-};
-
-struct UseComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Use, "eoc::UseComponent")
-
-    Array<stats::Requirement> Requirements;
-    int Charges;
-    int MaxCharges;
-    ItemUseType ItemUseType;
-    [[bg3::legacy(field_19)]] uint8_t ItemUseBlocked;
-    [[bg3::legacy(field_1A)]] uint8_t CanCombine;
-    [[bg3::legacy(field_1B)]] uint8_t CombineFlag;
-    Array<BoostParameters> Boosts;
-    Array<BoostParameters> BoostsOnEquipMainHand;
-    Array<BoostParameters> BoostsOnEquipOffHand;
 };
 
 struct WieldingComponent : public BaseComponent
@@ -185,27 +122,6 @@ struct ActiveComponent : public BaseComponent
     DEFINE_COMPONENT(Active, "eoc::ActiveComponent")
 };
 
-struct EocLevelComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(EocLevel, "eoc::LevelComponent")
-
-    int Level;
-};
-
-struct ClassInfo
-{
-    Guid ClassUUID;
-    Guid SubClassUUID;
-    int Level;
-};
-
-struct ClassesComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Classes, "eoc::ClassesComponent")
-
-    Array<ClassInfo> Classes;
-};
-
 struct MaterialParameterOverride
 {
     STDString field_0;
@@ -224,14 +140,20 @@ DEFINE_TAG_COMPONENT(eoc, OffStageComponent, OffStage)
 DEFINE_TAG_COMPONENT(eoc, PickingStateComponent, PickingState)
 DEFINE_TAG_COMPONENT(eoc, PlayerComponent, Player)
 DEFINE_TAG_COMPONENT(eoc, SimpleCharacterComponent, SimpleCharacter)
-DEFINE_TAG_COMPONENT(eoc, WeaponSetComponent, WeaponSet)
 DEFINE_TAG_COMPONENT(eoc::character, CharacterComponent, IsCharacter)
+
+struct WeaponSetComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(WeaponSet, "eoc::WeaponSetComponent")
+
+    WeaponSetType WeaponSet;
+};
 
 struct SpeakerComponent : public BaseComponent
 {
     DEFINE_COMPONENT(Speaker, "eoc::SpeakerComponent")
 
-    Array<FixedString> field_0;
+    TrackedCompactSet<FixedString> field_0;
 };
 
 
@@ -242,50 +164,6 @@ struct CanEnterChasmComponent : public BaseComponent
     bool CanEnter;
 };
 
-
-struct DeadByDefaultComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(DeadByDefault, "eoc::death::DeadByDefaultComponent")
-
-    uint8_t DeadByDefault;
-};
-
-
-struct DeathComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Death, "eoc::death::DeathComponent")
-
-    EntityHandle Target;
-    EntityHandle field_8;
-    Guid field_10;
-    uint8_t DeathType;
-    uint8_t field_21;
-    uint8_t field_22;
-    uint8_t field_23;
-    uint8_t field_24;
-    int field_28;
-    uint8_t field_2C;
-    glm::vec3 field_30;
-    glm::vec3 field_3C;
-    uint8_t field_48;
-    int field_4C;
-    Guid Combat;
-    uint8_t field_60;
-    uint8_t field_61;
-    uint8_t field_62;
-    bool LeaveTrace;
-    std::optional<glm::vec3> field_64;
-};
-
-
-struct DeathStateComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(DeathState, "eoc::death::StateComponent")
-
-    uint32_t State;
-};
-
-
 struct DialogStateComponent : public BaseComponent
 {
     DEFINE_COMPONENT(DialogState, "eoc::dialog::StateComponent")
@@ -295,24 +173,6 @@ struct DialogStateComponent : public BaseComponent
     uint8_t field_2;
     [[bg3::legacy(field_4)]] int DialogId;
     uint8_t field_8;
-};
-
-
-struct EncumbranceStateComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(EncumbranceState, "eoc::encumbrance::StateComponent")
-
-    uint32_t State;
-};
-
-
-struct EncumbranceStatsComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(EncumbranceStats, "eoc::encumbrance::StatsComponent")
-
-    [[bg3::legacy(field_0)]] int UnencumberedWeight;
-    [[bg3::legacy(field_4)]] int EncumberedWeight;
-    [[bg3::legacy(field_8)]] int HeavilyEncumberedWeight;
 };
 
 
@@ -364,7 +224,8 @@ struct OriginalTemplateComponent : public BaseComponent
 {
     DEFINE_COMPONENT(OriginalTemplate, "eoc::templates::OriginalTemplateComponent")
 
-    std::optional<FixedString> OriginalTemplate;
+    FixedString OriginalTemplate;
+    TemplateType TemplateType;
 };
 
 
@@ -432,24 +293,22 @@ struct UserReservedForComponent : public BaseComponent
     int UserID;
 };
 
-struct ShapeshiftStateInner
-{
-    FixedString field_0;
-    uint32_t field_4;
-};
-
-struct ShapeshiftStateComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ShapeshiftState, "eoc::shapeshift::StateComponent")
-
-    std::optional<uint8_t> BloodSurfaceType;
-    std::optional<FixedString> BloodType;
-    std::optional<ShapeshiftStateInner> field_C;
-};
-
-
-
 END_SE()
+
+
+BEGIN_NS(multiplayer)
+
+struct UserComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(MultiplayerUser, "eoc::multiplayer::UserComponent")
+
+    UserId UserID;
+};
+
+DEFINE_TAG_COMPONENT(eoc::multiplayer, HostComponent, MultiplayerHost)
+
+END_NS()
+
 
 BEGIN_SE()
 
@@ -467,38 +326,79 @@ struct UuidToHandleMappingComponent : public BaseComponent
     HashMap<Guid, EntityHandle> Mappings;
 };
 
-struct LevelComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Level, "ls::LevelComponent")
-
-    EntityHandle field_0;
-    FixedString LevelName;
-};
-    
 struct TransformComponent : public BaseComponent
 {
     DEFINE_COMPONENT(Transform, "ls::TransformComponent")
 
     Transform Transform;
 };
-    
-struct ClockComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Clock, "ls::ClockComponent")
 
-    double Time{ 0 };
-    float DeltaTime{ 0 };
-};
-    
 struct TimeFactorComponent : public BaseComponent
 {
     DEFINE_COMPONENT(TimeFactor, "ls::TimeFactorComponent")
 
     float Value{ 1.0f };
-    float Value2{ 1.0f };
 };
 
 END_SE()
+
+
+BEGIN_NS(translate)
+
+struct ChangeData
+{
+    EntityHandle Entity;
+    glm::vec3 OldPosition;
+    glm::vec3 NewPosition;
+    int Override{ 0 };
+    bool field_24{ false };
+    bool field_25{ false };
+    bool field_26{ false };
+};
+
+struct ChangedComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(TranslateChanged, "eoc::translate::ChangedComponent")
+
+    HashMap<EntityHandle, Array<ChangeData>> Changes;
+};
+
+struct ChangedEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(TranslateChangedEvent, "eoc::translate::ChangedEventOneFrameComponent")
+
+    Array<ChangeData> Changes;
+};
+
+END_NS()
+
+
+BEGIN_NS(transform)
+
+struct GameplaySetTransformRequestsComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(GameplaySetTransform, "ls::transform::GameplaySetTransformRequestsComponent")
+
+    HashMap<EntityHandle, Transform> SetTransform;
+    HashMap<EntityHandle, Transform> CreateTransform;
+};
+
+struct InventoryMemberSetTransformRequestComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(InventoryMemberSetTransform, "ls::transform::InventoryMemberSetTransformRequestComponent")
+
+    HashMap<EntityHandle, Transform> SetTransform;
+};
+
+struct InventoryMemberSetTranslateRequestComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(InventoryMemberSetTranslate, "ls::transform::InventoryMemberSetTranslateRequestComponent")
+
+    HashMap<EntityHandle, glm::vec3> SetTranslate;
+};
+
+END_NS()
+
 
 BEGIN_NS(sight)
 
@@ -506,10 +406,10 @@ struct SightBaseComponent : public BaseComponent
 {
     DEFINE_COMPONENT(Sight, "eoc::sight::BaseComponent")
 
-    float field_0;
-    float field_4;
-    float field_8;
-    float field_C;
+    [[bg3::legacy(field_0)]] float Sight;
+    [[bg3::legacy(field_4)]] float DarkvisionRange;
+    [[bg3::legacy(field_8)]] float FOV;
+    [[bg3::legacy(field_C)]] float VerticalFOV;
 };
 
 
@@ -517,22 +417,259 @@ struct DataComponent : public BaseComponent
 {
     DEFINE_COMPONENT(SightData, "eoc::sight::DataComponent")
 
-    Guid field_0;
-    float field_10;
-    float field_14;
-    float field_18;
-    float field_1C;
+    [[bg3::legacy(field_0)]] Guid SightUuid;
+    [[bg3::legacy(field_10)]] float DarkvisionRange;
+    [[bg3::legacy(field_14)]] float FOV;
+    [[bg3::legacy(field_18)]] float VerticalFOV;
+    [[bg3::legacy(field_1C)]] float Sight;
     int field_20;
     int field_24;
 };
-
 
 struct EntityViewshedComponent : public BaseComponent
 {
     DEFINE_COMPONENT(SightEntityViewshed, "eoc::sight::EntityViewshedComponent")
 
-    HashSet<Guid> field_0;
+    [[bg3::legacy(field_0)]] HashSet<Guid> Viewshed;
 };
 
+struct IgnoreSurfacesComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(IgnoreSurfaces, "eoc::sight::IgnoreSurfacesComponent")
+
+    HashSet<SurfaceType> SurfaceTypes;
+};
+
+END_NS()
+
+BEGIN_NS(navcloud)
+
+struct ObstacleComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(NavcloudObstacle, "navcloud::ObstacleComponent")
+
+    glm::vec3 Position;
+    glm::vec3 Extents;
+    bool CanShootThrough;
+};
+
+struct ObstacleMetaDataComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(NavcloudObstacleMetaData, "navcloud::ObstacleMetaDataComponent")
+
+    HashSet<TilePos> field_0;
+    HashSet<TilePos> field_30;
+};
+
+DEFINE_TAG_COMPONENT(navcloud, InRangeComponent, NavcloudInRange)
+
+END_NS()
+
+BEGIN_NS(esv::sight)
+
+struct EntityData
+{
+    EntityHandle Entity;
+    bool IsCharacter;
+    Guid EntityUuid;
+};
+
+struct EntityLosCheck
+{
+    EntityHandle Observer;
+    EntityHandle Target;
+    int32_t field_10;
+    std::optional<bool> Result;
+    bool IsCharacter;
+    uint8_t field_17;
+
+    inline bool operator == (EntityLosCheck const& o) const
+    {
+        return Observer == o.Observer
+            && Target == o.Target;
+    }
+};
+
+struct RecomputeEntry
+{
+    HashSet<EntityHandle> Viewshed;
+    int field_30;
+    uint8_t field_34;
+};
+
+struct RemovedSightUuid
+{
+    Guid SightUuid;
+    float DarkvisionRange;
+    float Sight;
+};
+
+struct LightLosCheck
+{
+    EntityHandle Entity;
+    int32_t Time;
+    HashMap<AiTilePos, bool> Tiles;
+    uint8_t field_50;
+    bool field_51;
+};
+
+struct LightLosCheckQueue
+{
+    HashMap<EntityHandle, LightLosCheck> Checks;
+    HashMap<EntityHandle, LightLosCheck> Checks2;
+    HashMap<EntityHandle, int32_t> RemovedEntities;
+};
+
+struct RemovedData
+{
+    Guid Entity;
+    bool IsCharacter;
+};
+
+struct AddedData
+{
+    bool IsCharacter;
+};
+
+END_NS()
+
+BEGIN_SE()
+
+template <>
+inline uint64_t HashMapHash<esv::sight::EntityLosCheck>(esv::sight::EntityLosCheck const& v)
+{
+    return HashMulti(v.Observer, v.Target);
+}
+
+END_SE()
+
+BEGIN_NS(esv::sight)
+
+struct ViewshedParticipantComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerViewshedParticipant, "esv::sight::ViewshedParticipantComponent")
+
+    glm::vec3 Position;
+    HashSet<EntityHandle> CanSee;
+};
+
+struct AggregatedDataComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerSightAggregatedData, "esv::sight::AggregatedDataComponent")
+
+    HashMap<EntityHandle, Guid> EntitySightData;
+    HashMap<EntityHandle, Guid> RemovedEntitySightData;
+    HashMap<Guid, EntityData> Entities;
+    HashMap<Guid, EntityData> RemovedEntities;
+    HashMap<float, int32_t> SightRanges;
+    float MaxSightRange;
+    int field_144;
+    Array<EntityLosCheck> LosChecks;
+    Array<EntityHandle> LosCheckQueues;
+};
+
+struct EntityLosCheckQueueComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerSightEntityLosCheckQueue, "esv::sight::EntityLosCheckQueueComponent")
+
+    HashSet<EntityLosCheck> LosCheck;
+    HashMap<EntityHandle, Array<EntityLosCheck>> Entities;
+};
+
+struct AiGridViewshedComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerAiGridViewshed, "esv::sight::AiGridViewshedComponent")
+
+    HashMap<AiSubgridId, HashMap<int16_t, Array<AiTileCell>>> Viewshed;
+    uint32_t Count;
+};
+
+struct LightLosCheckQueueComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerLightLosCheckQueue, "esv::sight::LightLosCheckQueueComponent")
+
+    Array<LightLosCheck> Checks;
+    Array<LightLosCheck> Checks2;
+};
+
+struct AggregatedGameplayLightDataComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerAggregatedGameplayLightData, "esv::sight::AggregatedGameplayLightDataComponent")
+
+    HashMap<float, int32_t> Ranges;
+    HashMap<EntityHandle, glm::vec3> MovedViewsheds;
+    float MaxRange;
+    LightLosCheckQueue LosCheckQueue;
+    Array<EntityHandle> LightLosCheckQueues;
+};
+
+struct ViewshedSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerSightViewshed, "esv::sight::ViewshedSystem")
+
+    [[bg3::hidden]] void* ViewshedSystemHelper;
+    [[bg3::hidden]] void* LevelManager;
+    [[bg3::hidden]] UnknownFunction SignalCollection;
+    HashMap<EntityHandle, RemovedSightUuid> ViewshedRemovals;
+    HashSet<EntityHandle> ViewshedClears;
+    HashMap<Guid, Array<HashSet<EntityHandle>>> ViewshedParticipantRemovals;
+    HashMap<EntityHandle, HashSet<EntityHandle>> ViewshedParticipantUpdates;
+};
+
+struct EntityViewshedContentsChangedEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(ServerSightEntityViewshedContentsChanged, "esv::sight::EntityViewshedContentsChangedEventOneFrameComponent")
+
+    bool Added;
+    bool Removed;
+    HashMap<EntityHandle, AddedData> Additions;
+    HashMap<EntityHandle, RemovedData> Removals;
+};
+
+struct SightRangeChangedEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(ServerSightRangeChanged, "esv::sight::SightRangeChangedEventOneFrameComponent")
+
+    float SightRange;
+};
+
+struct DarkvisionRangeChangedEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(ServerDarkvisionRangeChanged, "esv::sight::DarkvisionRangeChangedEventOneFrameComponent")
+
+    float DarkvisionRange;
+};
+
+struct StealthRollRequestOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(ServerStealthRollRequest, "esv::sight::StealthRollRequestOneFrameComponent")
+
+    HashSet<EntityHandle> field_0;
+};
+
+
+DEFINE_TAG_COMPONENT(esv::sight, EventsEnabledComponent, ServerSightEventsEnabled)
+DEFINE_ONEFRAME_TAG_COMPONENT(esv::sight, IgnoreSurfacesChangedEventOneFrameComponent, ServerSightIgnoreSurfacesChanged)
+DEFINE_ONEFRAME_TAG_COMPONENT(esv::sight, StealthRollCancelOneFrameComponent, ServerStealthRollCancel)
+
+END_NS()
+
+BEGIN_NS(game)
+
+DEFINE_TAG_COMPONENT(ls::game, PauseExcludedComponent, PauseExcluded)
+DEFINE_TAG_COMPONENT(ls::game, PauseComponent, Pause)
+
+END_NS()
+
+BEGIN_NS(esv::uuid)
+
+struct HistoryMappingComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerUuidHistoryMapping, "esv::uuid::HistoryMappingComponent")
+
+    HashMap<EntityHandle, Guid> Mappings;
+};
+
+DEFINE_TAG_COMPONENT(esv::uuid, HistoryTrackedComponent, UuidHistoryTracked)
 
 END_NS()

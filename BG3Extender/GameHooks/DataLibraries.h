@@ -1,14 +1,9 @@
 #pragma once
 
 #include <GameDefinitions/Character.h>
-/*#include <GameDefinitions/CustomStats.h>
-#include <GameDefinitions/GameAction.h>*/
 #include <GameDefinitions/Item.h>
 #include <GameDefinitions/Misc.h>
 #include <GameDefinitions/Osiris.h>
-/*#include <GameDefinitions/Status.h>
-#include <GameDefinitions/ActionMachine.h>
-#include <GameDefinitions/TurnManager.h>*/
 #include <GameDefinitions/Symbols.h>
 #include <CoreLib/SymbolMapper.h>
 #include <CoreLib/Wrappers.h>
@@ -22,8 +17,8 @@ namespace bg3se {
 
         inline bool IsSupported() const
         {
-            // We need v4.57 or later for game
-            return (Major == 4 && Minor >= 57);
+            // We need v4.69 or later for game
+            return (Major == 4 && ((Minor == 69 && Revision >= 95) || (Minor > 69)));
         }
     };
 
@@ -35,6 +30,7 @@ namespace bg3se {
         bool PostStartupFindLibraries();
         void ApplyCodePatches();
         bool GetGameVersion(GameVersionInfo & version);
+        HMODULE GetAppHandle();
 
         void ShowStartupError(STDString const & msg, bool wait, bool exitGame);
         void ShowStartupError(STDString const & msg, bool exitGame);
@@ -53,6 +49,11 @@ namespace bg3se {
             return InitFailed;
         }
 
+        inline bool IsDX11() const
+        {
+            return DX11;
+        }
+
         inline SymbolMapper& Mapper()
         {
             return symbolMapper_;
@@ -68,7 +69,6 @@ namespace bg3se {
         SymbolMapper::MappingResult BindECSStaticStringConstructor(uint8_t const*);
         SymbolMapper::MappingResult BindECSStaticRegistrant(uint8_t const*);
         SymbolMapper::MappingResult BindComponentReplicationIDRef(uint8_t const*);
-        HMODULE GetAppHandle();
 
         bool CanShowError();
         bool CanShowMessages();
@@ -84,5 +84,6 @@ namespace bg3se {
         bool CriticalInitFailed{ false };
         bool PostLoaded{ false };
         bool EnabledCustomStats{ false };
+        bool DX11{ false };
     };
 }

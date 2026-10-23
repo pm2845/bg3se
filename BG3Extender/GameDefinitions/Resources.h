@@ -1,15 +1,47 @@
 #pragma once
 
 #include <GameDefinitions/Base/Base.h>
-#include <GameDefinitions/EntitySystem.h>
-#include <GameDefinitions/Animation.h>
 #include <GameDefinitions/AllSparkShared.h>
-#include <Lua/LuaHelpers.h>
-#include <d3d11.h>
-#include <synchapi.h>
-#include <variant>
+#include <GameDefinitions/Camera.h>
+#include <GameDefinitions/MaterialParameters.h>
 
 BEGIN_SE()
+
+#define FOR_EACH_NONGUID_RESOURCE_TYPE() \
+    FOR_RESOURCE_TYPE(Visual) \
+    FOR_RESOURCE_TYPE(VisualSet) \
+    FOR_RESOURCE_TYPE(Animation) \
+    FOR_RESOURCE_TYPE(AnimationSet) \
+    FOR_RESOURCE_TYPE(Texture) \
+    FOR_RESOURCE_TYPE(Material) \
+    FOR_RESOURCE_TYPE(Physics) \
+    FOR_RESOURCE_TYPE(Effect) \
+    FOR_RESOURCE_TYPE(Script) \
+    FOR_RESOURCE_TYPE(Sound) \
+    FOR_RESOURCE_TYPE(Lighting) \
+    FOR_RESOURCE_TYPE(Atmosphere) \
+    FOR_RESOURCE_TYPE(AnimationBlueprint) \
+    FOR_RESOURCE_TYPE(MeshProxy) \
+    FOR_RESOURCE_TYPE(MaterialSet) \
+    FOR_RESOURCE_TYPE(BlendSpace) \
+    FOR_RESOURCE_TYPE(FCurve) \
+    FOR_RESOURCE_TYPE(Timeline) \
+    FOR_RESOURCE_TYPE(Dialog) \
+    FOR_RESOURCE_TYPE(VoiceBark) \
+    FOR_RESOURCE_TYPE(TileSet) \
+    FOR_RESOURCE_TYPE(IKRig) \
+    FOR_RESOURCE_TYPE(Skeleton) \
+    FOR_RESOURCE_TYPE(VirtualTexture) \
+    FOR_RESOURCE_TYPE(TerrainBrush) \
+    FOR_RESOURCE_TYPE(ColorList) \
+    FOR_RESOURCE_TYPE(CharacterVisual) \
+    FOR_RESOURCE_TYPE(MaterialPreset) \
+    FOR_RESOURCE_TYPE(SkinPreset) \
+    FOR_RESOURCE_TYPE(ClothCollider) \
+    FOR_RESOURCE_TYPE(DiffusionProfile) \
+    FOR_RESOURCE_TYPE(LightCookie) \
+    FOR_RESOURCE_TYPE(TimelineScene) \
+    FOR_RESOURCE_TYPE(SkeletonMirrorTable)
 
 struct TextureLayerConfigId
 {
@@ -44,30 +76,30 @@ struct [[bg3::hidden]] VirtualTextureManagerBase : public ProtectedGameObject<Vi
     };
 
     virtual ~VirtualTextureManagerBase() = 0;
-    virtual void VMT_08() = 0;
-    virtual void VMT_10() = 0;
-    virtual void VMT_18() = 0;
-    virtual void VMT_20() = 0;
-    virtual void VMT_28() = 0;
+    virtual void MakePackedTilesResident(void*, int, int, int) = 0;
+    virtual void MakePackedTilesResident2(void*, int) = 0;
+    virtual void Update() = 0;
+    virtual void UpdateGraniteDevice() = 0;
+    virtual void BeginFrame() = 0;
     virtual void VMT_30() = 0;
-    virtual bool InitGraphine() = 0;
-    virtual void* LoadTexture(int32_t gtsHandle, FixedString const& gtexFileName, uint8_t r9_0) = 0;
-    virtual bool UnloadTexture(int32_t gtsHandle, void* graphineTexture) = 0;
-    virtual void VMT_50() = 0;
-    virtual void VMT_58() = 0;
+    virtual bool Init() = 0;
+    virtual void* KeepWarm(int32_t gtsHandle, FixedString const& gtexFileName, uint8_t r9_0) = 0;
+    virtual bool Cooldown(int32_t gtsHandle, void* graphineTexture) = 0;
+    virtual void FillTextureMap(void*, void*) = 0;
+    virtual bool IsPartialUpdate() = 0;
     virtual void VMT_60() = 0;
     virtual void VMT_68() = 0;
-    virtual void VMT_70() = 0;
-    virtual void VMT_78() = 0;
-    virtual void VMT_80() = 0;
+    virtual void GetDataLoaderBufferBindingInfo() = 0;
+    virtual void UpdateCacheSizes() = 0;
     virtual void VMT_88() = 0;
-    virtual void VMT_90() = 0;
-    virtual void VMT_98() = 0;
-    virtual void VMT_A0() = 0;
-    virtual void VMT_A8() = 0;
-    virtual void VMT_B0() = 0;
-    virtual int32_t LoadGTS(uint32_t textureLayerConfig, STDString const& path, int textureSetId, Array<LayerConfig>& layerConfigs) = 0;
-    virtual void ReleaseGTS(uint32_t textureLayerConfig, int32_t gtsHandle, bool releaseTexSet0, bool releaseTexSet1) = 0;
+    virtual void PrefetchOneImmediately(void*, uint32_t) = 0;
+    virtual void Prefetch(void*, uint32_t, void*) = 0;
+    virtual void ProcessFeedbackData(void*, void*) = 0;
+    virtual void ResolveFeedbackData(void*, void*) = 0;
+    virtual void SuspendWarmTextures(uint8_t) = 0;
+    virtual void ResumeWarmTextures(uint8_t) = 0;
+    virtual int32_t OpenVirtualTextureFile(uint32_t textureLayerConfig, STDString const& path, uint8_t textureSetId, Array<LayerConfig>& layerConfigs) = 0;
+    virtual void CloseVirtualTextureFile(uint32_t textureLayerConfig, int32_t gtsHandle, bool releaseTexSet0, bool releaseTexSet1) = 0;
 
     bool UseChunkedVirtualTextures;
     SRWLOCK GTSLock;
@@ -76,11 +108,15 @@ struct [[bg3::hidden]] VirtualTextureManagerBase : public ProtectedGameObject<Vi
     HashMap<Guid, STDString> TileSets;
 };
 
-struct [[bg3::hidden]] VirtualTextureSet
+struct [[bg3::hidden]] VirtualTexturePrefetcher
 {
-    BitSet<> Bits;
-    Array<void*> field_10;
+    void* VMT;
+    void* field_8;
+    VirtualTextureManagerBase* ThisPtr;
+    CRITICAL_SECTION CriticalSection;
+    Array<void*> Arr_pGranitePrefetchWorker_BatchedPrefetchJob;
 };
+
 
 struct [[bg3::hidden]] VirtualTextureManager : public VirtualTextureManagerBase
 {
@@ -90,23 +126,20 @@ struct [[bg3::hidden]] VirtualTextureManager : public VirtualTextureManagerBase
         int field_8;
     };
 
-    void* Renderer_M;
+    void* Renderer;
     void* GraphineContext;
     void* GraphineDevice;
     void* GraphineTranscoder;
-    VirtualTextureSet TexSet0;
-    VirtualTextureSet TexSet1;
+    SparseArray<void*> TexSet0;
+    SparseArray<void*> TexSet1;
     SRWLOCK Lock2;
-    uint64_t field_D0[3];
-    SomeVal field_E8[3];
-    int field_118;
-    SRWLOCK Lock3;
-    Array<void*> SomeArrays1[17];
-    Array<void*> SomeArrays2[17];
-    VirtualTextureSet field_348;
-    __int64 TexSet2;
-    __int64 field_370;
-    Array<void*> field_378;
+    void* DataLoaderBuffer;
+    void* DataLoaderBufferBindingInfo[2];
+    SRWLOCK PerThreadLocks[64];
+    Array<void*> PerThreadPrefetches[64]; // GranitePrefetch*
+    Array<void*> PerThreadWStrings[64]; // GranitePrefetch*
+    SparseArray<void*> CpuCaches;
+    SparseArray<void*> GpuCaches;
     int field_388;
     int field_38C;
     int field_390;
@@ -115,24 +148,17 @@ struct [[bg3::hidden]] VirtualTextureManager : public VirtualTextureManagerBase
     int field_39C;
     int field_3A0;
     int field_3A4;
-    __int64 VMT2;
-    __int64 field_3B0;
-    VirtualTextureManagerBase* ThisPtr;
-    CRITICAL_SECTION CriticalSection;
-    __int64 field_3E8;
-    int field_3F0;
-    int field_3F4;
-    int field_3F8;
-    char field_3FC;
-    __declspec(align(4)) BYTE field_400;
-    char field_401;
-    char field_402;
-    char field_403;
+    VirtualTexturePrefetcher Prefetcher;
+    std::optional<int> field_3F8;
+    bool WasShutdown;
+    bool PackedTilesResident;
+    bool UpdateFinished;
+    bool PartialUpdate;
     int field_404;
     int field_408;
     int field_40C;
-    int field_410;
-    char field_414;
+    int GPUCachesSize;
+    bool RequestResizeGPUCaches;
 };
 
 struct [[bg3::hidden]] ViewDescriptor
@@ -199,40 +225,38 @@ union [[bg3::hidden]] TextureDescriptor
     TextureDescriptorVulkan Vulkan;
 };
 
-struct [[bg3::hidden]] TextureData
+struct [[bg3::hidden]] TrackedTexture
 {
     TextureDescriptor* Descriptor;
-    uint32_t LoadRequestCount;
     uint32_t RefCount;
-    uint8_t State[8];
+    uint32_t WaitingForLoadRefCount;
+    uint8_t State;
     STDString Path;
-    uint64_t EventObject;
+    void* EventObject;
     CRITICAL_SECTION CriticalSection;
-    Array<void*> field_60;
+    Array<void*> LoadCallbacks;
     uint8_t field_70;
-    uint8_t Flags[3];
-    uint32_t field_74;
-    uint64_t field_78;
+    uint8_t Flags;
+    uint32_t CriticalSectionRefCount;
+    CRITICAL_SECTION* TextureStreamerCS;
 };
 
 struct [[bg3::hidden]] TextureManager
 {
-    using UnloadTextureProc = bool (TextureManager* self, FixedString const& textureGuid);
-
     SRWLOCK Lock;
     HashMap<TextureDescriptor*, FixedString> Names;
-    HashMap<FixedString, TextureData*> Textures;
+    HashMap<FixedString, TrackedTexture*> Textures;
 };
 
-struct [[bg3::hidden]] UVValues
+struct UVValues
 {
     glm::vec2 UV0;
     glm::vec2 UV1;
 };
 
-struct [[bg3::hidden]] TextureAtlas
+struct TextureAtlas : public ProtectedGameObject<TextureAtlas>
 {
-    void* VMT;
+    [[bg3::hidden]] void* VMT;
     LegacyMap<FixedString, UVValues*> Icons;
     STDString Path;
     STDString TexturePath;
@@ -244,12 +268,12 @@ struct [[bg3::hidden]] TextureAtlas
     resource::TextureResource* Texture;
 };
 
-struct [[bg3::hidden]] TextureAtlasMap
+struct TextureAtlasMap : public ProtectedGameObject<TextureAtlasMap>
 {
-    void* VMT;
+    [[bg3::hidden]] void* VMT;
     LegacyRefMap<STDString, TextureAtlas*> AtlasMap;
     LegacyMap<FixedString, TextureAtlas*> IconMap;
-    uint32_t Unknown;
+    [[bg3::hidden]] uint32_t Unknown;
 };
 
 struct [[bg3::hidden]] Bank : public ProtectedGameObject<Bank>
@@ -275,45 +299,48 @@ struct [[bg3::hidden]] ResourceBank
     LegacyMap<FixedString, ResourcePackage*> Packages;
     void* LoadHelper;
     FixedString ModName;
+
+    resource::Resource* GetResource(ResourceBankType type, FixedString const& resource);
 };
 
 struct [[bg3::hidden]] ResourcePackage
 {
     void* VMT;
+    ResourceContainer Container;
     ResourceBank* Bank;
     FixedString PackageName;
     STDString Path;
-    LegacyRefMap<FixedString, void*> field_38;
+    bool field_38;
 };
 
 struct [[bg3::hidden]] ResourceManager
 {
-    __int64 field_0;
-    LegacyMap<FixedString, resource::Resource*> Resources;
+    void* VMT;
+    LegacyMap<FixedString, resource::Resource*> PreviewResources;
     std::array<ResourceBank*, 2> ResourceBanks;
-    void* MeshProxyFactory;
     void* VisualFactory;
-    Array<FixedString> AnimationPreloadList;
-    __int64 EffectManager;
-    __int64 EffectFactory;
-    __int64 field_60; // Unknown pointer; size 0x50
-    __int64 field_68; // Unknown pointer; size 0x50
-    __int64 field_70; // Unknown pointer; size 0x50
+    void* EffectDependenciesVMT;
+    Array<FixedString> EffectDependencies;
+    void* EffectManager;
+    void* VisualTemplateManager;
+    void* ModelManager;
+    void* ModelProxyManager;
+    void* ModelProxyTemplateManager;
     TextureManager* TextureManager;
-    __int64 field_80; // Unknown pointer; size 0x23e0
+    void* ShaderManager;
     WwiseManager* SoundManager;
-    __int64 VideoManager;
-    __int64 VideoManager2;
-    __int64 GameAnalytics;
+    void* VideoManager;
+    void* VideoManager2;
+    void* GameAnalytics;
     VirtualTextureManager* VirtualTextureManager;
     CRITICAL_SECTION CriticalSection;
     LegacyRefMap<STDString, void*> ResourceDependencies;
     LegacyMap<FixedString, Path*> Sources;
     Array<void*> VisualLoaders;
     LegacyMap<FixedString, void*> GenomeAnimationManagers;
-    void* BlueprintManager;
-    ui::UIManager* UIManager;
-    ui::UIManager* UIManagerSwap;
+    gn::GenomeTypeManager* GenomeTypeManager;
+    ui::GameUI* UI;
+    ui::GameUI* UISwap;
 };
 
 END_SE()
@@ -327,16 +354,14 @@ struct Resource : public ProtectedGameObject<Resource>
     virtual STDString* ToLogString(STDString&) = 0;
     virtual void SetUUID(FixedString const&) = 0;
     virtual void VMT18(FixedString const&) = 0;
-    virtual void Destroy(ResourceManager* mgr) = 0;
-    virtual bool Load(ResourceManager* mgr) = 0;
-    virtual bool Release(ResourceManager* mgr) = 0;
+    virtual void ForceUnload(ResourceManager* mgr) = 0;
+    virtual bool AcquireRef(ResourceManager* mgr) = 0;
+    virtual bool ReleaseRef(ResourceManager* mgr) = 0;
     virtual bool IsLoaded() = 0;
     virtual bool IsLoadFailed() = 0;
     virtual uint32_t GetType() = 0;
     virtual Resource* Clone() = 0;
     virtual bool Visit(ObjectVisitor& visitor) = 0;
-    virtual bool DoLoad(ResourceManager* mgr) = 0;
-    virtual bool DoUnload(ResourceManager* mgr) = 0;
 
     Path SourceFile;
     [[bg3::readonly]] FixedString Guid;
@@ -385,71 +410,6 @@ struct LoadableResource : public Resource
 
 struct PresetData
 {
-    struct ScalarParameter
-    {
-        FixedString Parameter;
-        float Value;
-        bool Enabled;
-        bool Color;
-        bool Custom;
-        [[bg3::hidden]] __int8 field_b;
-    };
-
-    struct Vector2Parameter
-    {
-        FixedString Parameter;
-        glm::fvec2 Value;
-        bool Enabled;
-        bool Color;
-        bool Custom;
-        [[bg3::hidden]] __int8 field_f;
-    };
-
-    struct Vector3Parameter
-    {
-        FixedString Parameter;
-        Vector3 Value;
-        bool Enabled;
-        bool Color;
-        bool Custom;
-        [[bg3::hidden]] __int8 field_13;
-    };
-
-    // alignas(16)
-    struct VectorParameter
-    {
-        FixedString Parameter;
-        [[bg3::hidden]] __int32 field_4;
-        [[bg3::hidden]] __int64 field_8;
-        glm::fvec4 Value; // alignas(16) for some reason, I guess?
-        bool Enabled;
-        bool Color;
-        bool Custom;
-        [[bg3::hidden]] __int8 field_23;
-        [[bg3::hidden]] __int32 field_24;
-        [[bg3::hidden]] __int64 field_28;
-    };
-
-    struct Texture2DParameter
-    {
-        FixedString Parameter;
-        FixedString Value;
-        bool Enabled;
-        bool Color;
-        bool Custom;
-        [[bg3::hidden]] __int8 field_b;
-    };
-
-    struct VirtualTextureParameter
-    {
-        FixedString Parameter;
-        FixedString Value;
-        bool Enabled;
-        bool Color;
-        bool Custom;
-        [[bg3::hidden]] __int8 field_b;
-    };
-
     struct Mapped
     {
         FixedString GroupName;
@@ -459,12 +419,12 @@ struct PresetData
         [[bg3::hidden]] int16_t field_a;
     };
 
-    Array<ScalarParameter> ScalarParameters;
-    Array<Vector2Parameter> Vector2Parameters;
-    Array<Vector3Parameter> Vector3Parameters;
-    Array<VectorParameter> VectorParameters;
-    Array<Texture2DParameter> Texture2DParameters;
-    Array<VirtualTextureParameter> VirtualTextureParameters;
+    Array<material::ScalarParameterPreset> ScalarParameters;
+    Array<material::Vector2ParameterPreset> Vector2Parameters;
+    Array<material::Vector3ParameterPreset> Vector3Parameters;
+    Array<material::VectorParameterPreset> VectorParameters;
+    Array<material::Texture2DParameterPreset> Texture2DParameters;
+    Array<material::VirtualTextureParameterPreset> VirtualTextureParameters;
     FixedString MaterialResource;
     [[bg3::hidden]] __int32 field_64;
 
@@ -501,173 +461,68 @@ struct AnimationResource : public TwoStepLoadableResource
 
 struct AnimationBlueprintResource : public TwoStepLoadableResource
 {
-    [[bg3::hidden]] void* field_48;              // Deleter
-    Array<__int64> field_50; // Vtable pointers??? Why???
+    [[bg3::hidden]] void* VMT3;
+    Array<gn::GenomeBlueprint*> Blueprints;
+    LegacyRefMap<bg3se::Guid, gn::GenomeVariant> Params;
+    // Editor only
+    // Guid PreviewVisualResourceID;
+};
 
-    [[bg3::hidden]] LegacyRefMap<bg3se::Guid, gn::GenomeVariant> Params;
+struct AnimationDesc
+{
+    FixedString ID;
+    AnimationSetAnimationFlags flags;
+};
+
+struct AnimationSubSet
+{
+    LegacyRefMap<FixedString, AnimationDesc> Animation;
+    FixedString FallBackSubSet;
+};
+
+struct AnimationSet
+{
+    LegacyRefMap<FixedString, AnimationSubSet> AnimationSubSets;
 };
 
 struct AnimationSetResource : public LoadableResource
 {
-    struct Subset
-    {
-        struct Animations
-        {
-            FixedString ID;
-            AnimationSetAnimationFlags flags;
-            [[bg3::hidden]] __int8 field_5;
-            [[bg3::hidden]] __int16 field_6;
-            [[bg3::hidden]] __int32 field_8;
-        };
+    AnimationSet* AnimationBank;
+};
 
-        LegacyRefMap<FixedString, Animations> Animation;
-        FixedString FallBackSubSet;
-        [[bg3::hidden]] __int32 field_14;
-    };
-
-    struct Bank
-    {
-        LegacyRefMap<FixedString, Subset> AnimationSubSets;
-        bg3se::Guid ShortNameSetId;
-    };
-
-    Bank* AnimationBank;
+struct Atmosphere
+{
+    [[bg3::hidden]] void* VMT;
+    FixedString GUID;
+    uint32_t InheritanceFlags;
+    PostProcessSetting PostProcess;
+    float WindDirection;
+    float WindSpeed;
+    float ClothWindSpeed;
+    float ClothWindVariance;
+    float ClothMainWindSpeed;
+    float ClothMainWindFrequency;
+    float ClothWindDirectionOffsetFrequency;
+    float ClothMaxWindDirectionOffset;
+    float NearPlane;
+    float FarPlane;
+    bool EnvironmentEffectGlobalEnabled;
+    std::array<bool, 4> EnvironmentEffectEnabled;
+    std::array<bool, 4> EnvironmentEffectEnabledForTimeline;
+    std::array<FixedString, 4> EnvironmentEffect;
+    std::array<float, 4> EnvironmentEffectOffset;
+    bool LocalLightSourceEnabled;
+    bool LocalLightSourceOverrideSettings;
+    glm::fvec3 LocalLightSourceColor;
+    float LocalLightSourceIntensity;
+    Guid TimelineAutomaticLightingDefaultSetup;
+    bool TimelineAutomaticLightingDisableFlip;
+    Guid Atmosphere;
 };
 
 struct AtmosphereResource : public LoadableResource
 {
-    struct AtmosphereData
-    {
-        struct Range
-        {
-            glm::fvec2 XYOffset;
-            float Saturation;
-            float ExposureShift;
-        };
-        struct ExposureSetting
-        {
-            float ExposureMin;
-            float ExposureMax;
-            float ExposureCompensation;
-            float ExposureMinPercentile;
-            float ExposureMaxPercentile;
-            int32_t ExposureMeteringMode;
-            bool Exposure;
-            __int8 field_19;
-            __int16 field_1a;
-            __int32 field_1c;
-            __int32 field_20;
-            __int32 field_24;
-            __int32 field_28;
-        };
-        [[bg3::hidden]] void* VMT;
-        FixedString GUID;
-        uint32_t InheritanceFlags;
-        glm::fmat4x4 field_10;
-        Range GlobalRange;
-        Range DarkRange;
-        Range ShadowRange;
-        Range MidtonesRange;
-        Range HighlightRange;
-        Range SpecularRange;
-        glm::fvec2 LutBlendFactors;
-        int32_t LutApplyMode;
-        float Hue;
-        float Saturation;
-        float Contrast;
-        float Pivot;
-        float Shadows;
-        float Highlights;
-        __int32 field_d4;
-        // void* GradingLutTextureData_butagain?; std::array<__int64, 18> field_e0;
-        std::array<__int64, 19> field_d8;
-        __int32 field_170;
-        float WhiteBalanceTemperature;
-        float WhiteBalanceTint;
-        bool GradingLutEnabled;
-        [[bg3::hidden]] __int8 field_17d;
-        [[bg3::hidden]] __int16 field_17e;
-        FixedString GradingLut;
-        __int32 field_184;
-        // void* GradingLutTextureData?
-        __int64 field_188;
-        __int32 field_190;
-        bool DOF;
-        bool DOFNearOnly;
-        bool DOFFarOnly;
-        [[bg3::hidden]] __int8 field_197;
-        float DOFFocalDistance;
-        float DOFNearSharpDistance;
-        float DOFFarSharpDistance;
-        float DOFAperature;
-        __int64 field_1a8;
-        __int64 field_1b0;
-        __int32 field_1b8;
-        std::array<ExposureSetting, 2> ExposureSettings;
-        float LensFlareTreshold; // Yes, the game misspells it
-        float LensFlareIntensity;
-        float LensFlareGhostDispersal;
-        float LensFlareHaloWidth;
-        float LensFlareChromaticDistortion;
-        bool LensFlareEnabled;
-        [[bg3::hidden]] __int8 field_229;
-        [[bg3::hidden]] __int16 field_22a;
-        float Threshold;
-        float Amount;
-        float GodRaysIntensity;
-        float GodRaysPower;
-        float GodRaysThreshold;
-        float ToneMapHighlightsFixAmount;
-        __int32 field_224;
-        glm::fvec3 VignetteColor;
-        float VignetteIntensity;
-        float VignettePower;
-        bool Bloom;
-        bool GodRays;
-        bool Vignette;
-        [[bg3::hidden]] __int8 field_25f;
-        float WindDirection;
-        float WindSpeed;
-        float ClothWindSpeed;
-        float ClothWindVariance;
-        float ClothMainWindSpeed;
-        float ClothMainWindFrequency;
-        float ClothWindDirectionOffsetFrequency;
-        float ClothMaxWindDirectionOffset;
-        float NearPlane;
-        float FarPlane;
-        bool EnvironmentEffectGlobalEnabled;
-        bool EnvironmentEffectEnabled;
-        bool EnvironmentEffectEnabled1;
-        bool EnvironmentEffectEnabled2;
-        bool EnvironmentEffectEnabled3;
-        bool EnvironmentEffectEnabledForTimeline;
-        bool EnvironmentEffectEnabledForTimeline1;
-        bool EnvironmentEffectEnabledForTimeline2;
-        bool EnvironmentEffectEnabledForTimeline3;
-        [[bg3::hidden]] __int8 field_291;
-        [[bg3::hidden]] __int16 field_292;
-        FixedString EnvironmentEffect;
-        FixedString EnvironmentEffect1;
-        FixedString EnvironmentEffect2;
-        FixedString EnvironmentEffect3;
-        float EnvironmentEffectOffset;
-        float EnvironmentEffectOffset1;
-        float EnvironmentEffectOffset2;
-        float EnvironmentEffectOffset3;
-        bool LocalLightSourceEnabled;
-        bool LocalLightSourceOverrideSettings;
-        [[bg3::hidden]] __int16 field_2b6;
-        glm::fvec3 LocalLightSourceColor;
-        float LocalLightSourceIntensity;
-        bg3se::Guid TimelineAutomaticLightingDefaultSetup;
-        bool TimelineAutomaticLightingDisableFlip;
-        [[bg3::hidden]] __int8 field_2d9;
-        [[bg3::hidden]] __int16 field_2da;
-        [[bg3::hidden]] __int32 field_2dc;
-        bg3se::Guid CharacterLightSetup;
-    };
-    AtmosphereData* Atmosphere;
+    Atmosphere* Atmosphere;
     Array<FixedString> Labels;
 };
 
@@ -758,7 +613,7 @@ struct VisualSet
     PresetData MaterialOverrides;
     LegacyMap<FixedString, PresetData> Materials;
     HashMap<FixedString, FixedString> RealMaterialOverrides;
-    HashMap<FixedString, FixedString> field_158;
+    [[bg3::legacy(field_158)]] HashMap<FixedString, FixedString> MaterialRemaps;
     FixedString ID;
     bool ShowEquipmentVisuals;
 };
@@ -845,8 +700,9 @@ struct EffectResource : public TwoStepLoadableResource
     bool Looping;
     bool UseSoundOcclusion;
     uint32_t InterruptionMode;
-    bool PreRollMode;
-    [[bg3::hidden]] Array<void*> TimelineDependencies;
+    // Editor only
+    // bool PreRollMode;
+    // [[bg3::hidden]] Array<void*> TimelineDependencies;
 };
 
 struct FCurveResource : public TwoStepLoadableResource
@@ -949,262 +805,21 @@ struct LightCookieResource : public TwoStepLoadableResource
 
 struct LightingResource : public LoadableResource
 {
-    struct Details
-    {
-        struct MoonDetails
-        {
-            bool Enabled;
-            bool CastLightEnabled;
-            [[bg3::hidden]] __int16 field_2;
-            float Yaw;
-            float Pitch;
-            glm::fvec3 RotationAsVec3;
-            float Distance;
-            float Radius;
-            glm::fvec3 Color;
-            glm::fvec3 ColorAdjustedForIntensity;
-            bool UseTemperature;
-            [[bg3::hidden]] __int8 field_39;
-            [[bg3::hidden]] __int16 field_3a;
-            float Kelvin;
-            glm::fvec3 ColorTemperatureAdjustment;
-            float Intensity;
-            float Earthshine;
-            float MoonGlare;
-            float TearsScale;
-            float TearsRotate;
-            FixedString AlbedoTexResourceGUID;
-            FixedString NormalTexResourceGUID;
-            FixedString TearsAlbedoTexResourceGUID;
-            FixedString TearsNormalTexResourceGUID;
-        };
-
-        struct DetailsCoverageSettings
-        {
-            float StartHeight;
-            float EndHeight;
-            float HorizonDistance;
-            FixedString TexResourceGUID;
-            glm::fvec2 Offset;
-        };
-
-        struct DetailsVolumetricCloudSettings
-        {
-            bool Enabled;
-            [[bg3::hidden]] __int8 field_1;
-            [[bg3::hidden]] __int16 field_2;
-            float Intensity;
-            float AmbientLightFactor;
-            float SunLightFactor;
-            float ShadowFactor;
-            glm::fvec3 BaseColor;
-            glm::fvec3 TopColor;
-            float BottomFade;
-            float HorizonFade;
-            float SampleScalar;
-            float SampleThreshold;
-            float DetailScale;
-            float ErosionEdgeSize;
-            float Distortion;
-            float DistortionScale;
-            float Density;
-            float ForwardScatteringG;
-            float BackwardScatteringG;
-            float DarkOutline;
-            float SunRayLength;
-            float ConeRadius;
-            float LODDistance;
-            DetailsCoverageSettings CoverageSettings;
-            float CoverageStartDistance;
-            float CoverageEndDistance;
-            float CoverageWindSpeed;
-            float RainCoverageMaxInfluence;
-        };
-
-        struct SkyLightDetails
-        {
-            glm::fvec3 Color;
-            float Intensity;
-            float Kelvin;
-            bool UseTemperature;
-            glm::fvec3 ColorTemperatureAdjustment;
-            glm::fvec3 ColorAdjustedForIntensity;
-            [[bg3::hidden]] __int8 field_2d;
-            [[bg3::hidden]] __int16 field_2e;
-            FixedString SkydomeTex;
-            bool SkydomeEnabled;
-            bool RotateSkydomeEnabled;
-            [[bg3::hidden]] __int16 field_36;
-            int32_t PhysicalModel;
-            float ScatteringIntensity;
-            float ScatteringSunIntensity;
-            glm::fvec3 ScatteringSunColor;
-            bool ScatteringEnabled;
-            [[bg3::hidden]] __int8 field_51;
-            [[bg3::hidden]] __int16 field_52;
-            float ProcStarsIntensity;
-            float ProcStarsAmount;
-            float ProcStarsShimmer;
-            glm::fvec2 ProcStarsSaturation;
-            bool ProcStarsEnabled;
-            [[bg3::hidden]] __int8 field_69;
-            [[bg3::hidden]] __int16 field_6a;
-            float CirrusCloudsIntensity;
-            float CirrusCloudsAmount;
-            glm::fvec3 CirrusCloudsColor;
-            bool CirrusCloudsEnabled_FixedString;
-            [[bg3::hidden]] __int8 field_81;
-            [[bg3::hidden]] __int16 field_82;
-        };
-
-        struct DetailsSSAOSettings
-        {
-            bool Enabled;
-            [[bg3::hidden]] __int8 field_1;
-            [[bg3::hidden]] __int16 field_2;
-            float Radius;
-            float Bias;
-            float Intensity;
-            float DirectLightInfluence;
-        };
-
-        struct FogLayer
-        {
-            glm::fvec3 Albedo;
-            float Density0;
-            float Density1;
-            float Height0;
-            float Height1;
-            float NoiseCoverage;
-            glm::fvec3 NoiseFrequency;
-            glm::fvec3 NoiseRotation;
-            glm::fvec3 NoiseWind;
-            bool Enabled;
-            [[bg3::hidden]] __int8 field_45;
-            [[bg3::hidden]] __int16 field_46;
-        };
-
-        struct FogSettings
-        {
-            float Phase;
-            float RenderDistance;
-            FogLayer FogLayer0;
-            FogLayer FogLayer1;
-        };
-
-        struct SunDetails
-        {
-            glm::fvec3 SunColor;
-            float Kelvin;
-            float SunIntensity;
-            bool UseTemperature;
-            [[bg3::hidden]] __int8 field_15;
-            [[bg3::hidden]] __int16 field_16;
-            glm::fvec3 ColorTemperatureAdjustment;
-            glm::fvec3 ColorAdjustedForIntensity;
-            glm::fvec3 RotationAsVec3;
-            float Yaw;
-            float Pitch;
-            bool ShadowEnabled;
-            [[bg3::hidden]] __int8 field_45;
-            [[bg3::hidden]] __int16 field_46;
-            float ShadowFarPlane;
-            float ShadowNearPlane;
-            float ShadowFade;
-            float ShadowBias;
-            float LightSize;
-            float LightDistance;
-            float CascadeSpeed;
-            uint8_t CascadeCount;
-            uint8_t ShadowObscurity;
-            uint8_t SunlightObscurity;
-            [[bg3::hidden]] __int8 field_67;
-            DetailsCoverageSettings CoverageSettings;
-            float LocalCoverageScalar;
-            bool LocalCoverageEnabled;
-            [[bg3::hidden]] __int8 field_85;
-            [[bg3::hidden]] __int16 field_86;
-            float ScatteringIntensityScale;
-        };
-
-        [[bg3::hidden]] void* VMT;
-        FixedString ParentGUID;
-        SunDetails Sun;
-        MoonDetails Moon;
-        SkyLightDetails SkyLight;
-        DetailsSSAOSettings SSAOSettings;
-        DetailsVolumetricCloudSettings VolumetricCloudSettings;
-        FogSettings Fog;
-        FogSettings TimelineFog;
-        bool TimelineFogOverride;
-        [[bg3::hidden]] __int8 field_361;
-        [[bg3::hidden]] __int16 field_362;
-        [[bg3::hidden]] __int32 field_364;
-        __int64 field_368;
-        __int64 field_370;
-    };
-
-    Details* Lighting;
+    Lighting* Lighting;
 };
 
 struct MaterialResource : public TwoStepLoadableResource
 {
-    struct Parameter
-    {
-        FixedString ParameterName;
-        bool Enabled;
-    };
-    
-    struct ScalarParameter : public Parameter
-    {
-        float Value;
-        float BaseValue;
-    };
-
-    struct Vector2Parameter : public Parameter
-    {
-        glm::fvec2 Value;
-        glm::fvec2 BaseValue;
-    };
-
-    struct Vector3Parameter : public Parameter
-    {
-        glm::fvec3 Value;
-        glm::fvec3 BaseValue;
-        bool IsColor;
-    };
-
-    // alignas(16)
-    struct Vector4Parameter : public Parameter
-    {
-        [[bg3::hidden]] __int64 field_8; // Padding
-        glm::fvec4 Value;
-        glm::fvec4 BaseValue;
-        bool IsColor;
-        [[bg3::hidden]] __int64 field_38; // Padding
-    };
-
-    struct Texture2DParameter : public Parameter
-    {
-        FixedString ID;
-    };
-
-    struct VirtualTextureParameter : public Parameter
-    {
-        int32_t Index;
-        FixedString ID;
-    };
-
     Material* Instance;
-    Array<ScalarParameter> ScalarParameters;
-    Array<Vector2Parameter> Vector2Parameters;
-    Array<Vector3Parameter> Vector3Parameters;
-    Array<Vector4Parameter> VectorParameters;
-    Array<Texture2DParameter> Texture2DParameters;
-    Array<VirtualTextureParameter> VirtualTextureParameters;
+    TrackedCompactSet<material::ScalarResourceParameter> ScalarParameters;
+    TrackedCompactSet<material::Vector2ResourceParameter> Vector2Parameters;
+    TrackedCompactSet<material::Vector3ResourceParameter> Vector3Parameters;
+    TrackedCompactSet<material::Vector4ResourceParameter> VectorParameters;
+    TrackedCompactSet<material::Texture2DResourceParameter> Texture2DParameters;
+    TrackedCompactSet<material::VirtualTextureResourceParameter> VirtualTextureParameters;
     FixedString DiffusionProfileUUID;
-    uint8_t MaterialType;
-    uint8_t RenderChannel;
+    MaterialType MaterialType;
+    RenderChannel RenderChannel;
 };
 
 struct MaterialPresetResource : public LoadableResource
@@ -1327,8 +942,11 @@ struct SkeletonResource : public TwoStepLoadableResource
     FixedString Template;
     FixedString IKRigResourceID;
     FixedString ClothColliderResourceID;
-    FixedString PreviewAnimationResource;
-    __int64 field_98;
+    FixedString MirrorTableResourceID;
+    // Editor build only
+    // uint64_t field_98;
+    // FixedString PreviewVisualResource;
+    // FixedString PreviewAnimationResource;
 };
 
 struct SkeletonMirrorTableResource : public TwoStepLoadableResource
@@ -1347,13 +965,13 @@ struct SkinPresetResource : public LoadableResource
     PresetData Presets;
 };
 
-struct SoundResource : public TwoStepLoadableResource
+struct SoundResource : public Resource
 {
     FixedString SoundEvent;
     uint32_t SoundEventID;
     float Duration;
     float MaxDistance;
-    uint8_t SoundCodec;
+    AudioCodec SoundCodec;
     uint8_t Flags;
 };
 
@@ -1380,17 +998,17 @@ struct TerrainBrushResource : public LoadableResource
     bool UseDetailNormalMap;
     bool UseHeightGradient_maybe;
     bool IsBlackBrush;
-    uint8_t MaterialType;
+    MaterialType MaterialType;
     [[bg3::hidden]] __int32 field_8c;
 };
 
 struct TextureResource : public LoadableResource
 {
-    [[bg3::hidden]] void* field_30;
+    [[bg3::hidden]] void* RfTexture;
     FixedString Template;
     bool Streaming;
     bool SRGB;
-    uint8_t Type;
+    TextureType Type;
     int32_t Width;
     int32_t Height;
     int32_t Depth;
@@ -1440,7 +1058,7 @@ struct TimelineSceneResource : public LoadableResource
 
 struct VirtualTextureResource : public LoadableResource
 {
-    [[bg3::readonly]] uint8_t field_80;
+    [[bg3::readonly]] uint8_t GTSIndex;
     [[bg3::readonly]] uint32_t VirtualTextureLayerConfig;
     [[bg3::readonly]] uint32_t LoadedVirtualTextureLayerConfig;
     STDString RootPath;
@@ -1450,7 +1068,8 @@ struct VirtualTextureResource : public LoadableResource
     [[bg3::hidden]] void* GraphineTextureData;
     bool Prefetch;
     int8_t PrefetchMipLevel;
-    [[bg3::readonly]] uint8_t field_52;
+    [[bg3::readonly]] uint8_t IsEditor;
+    [[bg3::readonly]] uint8_t IsValid;
     uint32_t ReferencedColorSpaces;
 };
 
@@ -1538,21 +1157,21 @@ struct VisualResource : public TwoStepLoadableResource
     struct ClothData
     {
         HashMap<FixedString, Array<ClothHighResInfo>> Mappings;
-        Array<ClothParam> Params;
+        TrackedCompactSet<ClothParam> Params;
         FixedString ClothColliderResourceID;
     };
 
     [[bg3::hidden]] void* field_48; // DynamicArray VMT
-    Array<FixedString> Tags;
+    TrackedCompactSet<FixedString> Tags;
     [[bg3::hidden]] __int64 field_60; // DynamicArray extra data
-    Array<Object> Objects;
-    Array<Attachment> Attachments;
+    TrackedCompactSet<Object> Objects;
+    TrackedCompactSet<Attachment> Attachments;
     ClothData* Cloth;
     Array<AnimationSetOverride> AnimationSetOverrides;
     Array<FixedString> AnimationWaterfall;
     LegacyRefMap<FixedString, Bone> Bones;
     [[bg3::hidden]] void* field_c8; // DynamicArray VMT
-    Array<FixedString> VertexColorMaskSlots;
+    TrackedCompactSet<FixedString> VertexColorMaskSlots;
     [[bg3::hidden]] __int64 field_e0; // DynamicArray extra data
     FixedString SkeletonResource;
     FixedString Template;
@@ -1569,8 +1188,10 @@ struct VisualResource : public TwoStepLoadableResource
     glm::fvec3 BoundsMax;
     bool NeedsSkeletonRemap;
     bool SupportsVertexColorMask;
-    uint8_t MaterialType;
+    MaterialType MaterialType;
     uint8_t HairType;
+    // Editor only
+    // bool ExcludeFromHLOD;
 };
 
 struct VisualSetResource : public LoadableResource

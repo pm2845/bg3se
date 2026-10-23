@@ -4,12 +4,16 @@
 #include <GameDefinitions/Symbols.h>
 #include <Lua/Shared/Proxies/LuaPropertyMapHelpers.h>
 #include <Extender/ScriptExtender.h>
+#include <GameDefinitions/Animation.h>
 #include <GameDefinitions/Resources.h>
 #include <GameDefinitions/Dialog.h>
+#include <GameDefinitions/Level.h>
 #include <GameDefinitions/Stats/UseActions.h>
 #include <GameDefinitions/Stats/Functors.h>
+#include <GameDefinitions/Components/ServerData.h>
 
 #include <GameDefinitions/Ai.inl>
+#include <GameDefinitions/Base/Lock.inl>
 
 namespace bg3se
 {
@@ -19,17 +23,18 @@ namespace bg3se
         return reg;
     }
 
-    void EnumRegistry::Register(EnumInfoStore* ei, int32_t id)
+    void EnumRegistry::Register(EnumInfoStore* ei, EnumTypeId id)
     {
-        assert(EnumsByName.find(ei->EnumName) == EnumsByName.end());
+        se_assert(EnumsByName.find(ei->EnumName) == EnumsByName.end());
         EnumsByName.insert(ei->EnumName, ei);
         ei->RegistryIndex = id;
 
         if (EnumsById.size() < (uint32_t)id + 1) {
-            EnumsById.resize(id + 1);
+            EnumsById.resize((uint32_t)id + 1);
         }
 
-        EnumsById[id] = ei;
+        se_assert(Get(id) == nullptr);
+        EnumsById[(uint32_t)id] = ei;
     }
 
 
@@ -39,17 +44,18 @@ namespace bg3se
         return reg;
     }
     
-    void BitfieldRegistry::Register(BitfieldInfoStore* ei, int32_t id)
+    void BitfieldRegistry::Register(BitfieldInfoStore* ei, BitfieldTypeId id)
     {
-        assert(BitfieldsByName.find(ei->EnumName) == BitfieldsByName.end());
+        se_assert(BitfieldsByName.find(ei->EnumName) == BitfieldsByName.end());
         BitfieldsByName.insert(ei->EnumName, ei);
         ei->RegistryIndex = id;
 
         if (BitfieldsById.size() < (uint32_t)id + 1) {
-            BitfieldsById.resize(id + 1);
+            BitfieldsById.resize((uint32_t)id + 1);
         }
 
-        BitfieldsById[id] = ei;
+        se_assert(Get(id) == nullptr);
+        BitfieldsById[(uint32_t)id] = ei;
     }
 
     StaticSymbols* gStaticSymbols{ nullptr };
@@ -104,9 +110,13 @@ namespace bg3se
         }
 
         auto absolutePath = ToPath(path, root, canonicalize);
+        return MakeFileReaderAbsolute(absolutePath);
+    }
 
+    FileReaderPin StaticSymbols::MakeFileReaderAbsolute(StringView path) const
+    {
         Path lsPath;
-        lsPath.Name = absolutePath;
+        lsPath.Name = path;
 
         auto reader = GameAlloc<FileReader>();
         ls__FileReader__ctor(reader, lsPath, 2, 0);
@@ -183,7 +193,7 @@ namespace bg3se
             return nullptr;
         }
 
-        for (auto const& mod : BaseModule.LoadOrderedModules) {
+        for (auto const& mod : LoadOrderedModules) {
             if (mod.Info.ModuleUUIDString == modUuidFS) {
                 return &mod;
             }
@@ -203,15 +213,9 @@ namespace bg3se
         return nullptr;
     }
 
-    static bool CharacterGetSelfCalled{ false };
-
     RefReturn<esv::Character> esv::Character::LuaGetSelf() const
     {
-        if (!CharacterGetSelfCalled) {
-            CharacterGetSelfCalled = true;
-            WARN("entity.ServerCharacter.Character is deprecated; use entity.ServerCharacter instead");
-        }
-
+        WARN_ONCE("entity.ServerCharacter.Character is deprecated; use entity.ServerCharacter instead");
         return const_cast<esv::Character*>(this);
     }
 
@@ -219,11 +223,7 @@ namespace bg3se
 
     RefReturn<esv::Item> esv::Item::LuaGetSelf() const
     {
-        if (!ItemGetSelfCalled) {
-            ItemGetSelfCalled = true;
-            WARN("entity.ServerItem.Item is deprecated; use entity.ServerItem instead");
-        }
-
+        WARN_ONCE("entity.ServerItem.Item is deprecated; use entity.ServerItem instead");
         return const_cast<esv::Item*>(this);
     }
 
@@ -251,6 +251,119 @@ namespace bg3se
         return nullptr;
     }
 
+    GameObjectTemplate* TryToCacheTemplate(GameObjectTemplate* tmpl)
+    {
+        switch (tmpl->TemplateHandle.GetType()) {
+        case TemplateType::CacheTemplate:
+        case TemplateType::LevelCacheTemplate:
+        {
+            WARN("Cannot cache template '%s' - it is already a cache template!", tmpl->Id.GetString());
+            return tmpl;
+        }
+
+        case TemplateType::RootTemplate:
+        {
+            auto templateMgr = *GetStaticSymbols().esv__CacheTemplateManager;
+            FixedString templateId(Guid::Generate().ToString());
+            return static_cast<CharacterTemplate*>(templateMgr->CacheTemplate(tmpl, tmpl->LevelName, templateId));
+        }
+
+        case TemplateType::GlobalTemplate:
+        {
+            auto templateMgr = *GetStaticSymbols().esv__CacheTemplateManager;
+            auto cached = templateMgr->Templates.get_or_default(tmpl->Id);
+            if (cached) {
+                WARN("Tried to cache global template '%s' multiple times - only a single cached template can exist!", tmpl->Id.GetString());
+                return cached;
+            }
+
+            return static_cast<CharacterTemplate*>(templateMgr->CacheTemplate(tmpl, tmpl->LevelName, tmpl->Id));
+        }
+
+        case TemplateType::LocalTemplate:
+        {
+            auto level = GetStaticSymbols().GetCurrentServerLevel();
+            if (!level) {
+                WARN("Cannot cache local template '%s' - no active level!", tmpl->Id.GetString());
+                return tmpl;
+            }
+
+            auto templateMgr = level->CacheTemplateManager;
+            auto cached = templateMgr->Templates.get_or_default(tmpl->Id);
+            if (cached) {
+                WARN("Tried to cache local template '%s' multiple times - only a single cached template can exist!", tmpl->Id.GetString());
+                return cached;
+            }
+
+            return static_cast<CharacterTemplate*>(templateMgr->CacheTemplate(tmpl, tmpl->LevelName, tmpl->Id));
+        }
+
+        default:
+        {
+            WARN("Trying to cache unsupported handle type %d?", tmpl->TemplateHandle.GetType());
+            return tmpl;
+        }
+        }
+    }
+
+    CharacterTemplate* esv::Character::CreateCacheTemplate()
+    {
+        auto oldTemplate = Template;
+        auto templateMgr = *GetStaticSymbols().esv__CacheTemplateManager;
+        auto newTmpl = static_cast<CharacterTemplate*>(TryToCacheTemplate(Template));
+        if (newTmpl != Template) {
+            DecTemplateRef(Template);
+            IncTemplateRef(newTmpl);
+            Template = newTmpl;
+
+            auto changeSys = gExtender->GetServer().GetEntityHelpers().GetSystem<esv::templates::ChangeSystem>();
+            changeSys->TemplateSwitch.set(field_10, TemplateInfo{
+                .TemplateId = newTmpl->Id,
+                .TemplateType = newTmpl->TemplateHandle.GetType()
+            });
+
+            if (OriginalTemplate == oldTemplate) {
+                DecTemplateRef(OriginalTemplate);
+                IncTemplateRef(newTmpl);
+                OriginalTemplate = newTmpl;
+            }
+
+            if (TemplateUsedForSpells == oldTemplate) {
+                DecTemplateRef(TemplateUsedForSpells);
+                IncTemplateRef(newTmpl);
+                TemplateUsedForSpells = newTmpl;
+            }
+        }
+
+        return newTmpl;
+    }
+
+    ItemTemplate* esv::Item::CreateCacheTemplate()
+    {
+        auto oldTemplate = Template;
+        auto templateMgr = *GetStaticSymbols().esv__CacheTemplateManager;
+        auto newTmpl = static_cast<ItemTemplate*>(TryToCacheTemplate(Template));
+        if (newTmpl != Template) {
+            DecTemplateRef(Template);
+            IncTemplateRef(newTmpl);
+            Template = newTmpl;
+
+            auto changeSys = gExtender->GetServer().GetEntityHelpers().GetSystem<esv::templates::ChangeSystem>();
+            changeSys->TemplateSwitch.set(field_10, TemplateInfo{
+                .TemplateId = newTmpl->Id,
+                .TemplateType = newTmpl->TemplateHandle.GetType()
+            });
+
+            if (OriginalTemplate == oldTemplate) {
+                DecTemplateRef(OriginalTemplate);
+                IncTemplateRef(newTmpl);
+                OriginalTemplate = newTmpl;
+            }
+        }
+
+        return newTmpl;
+    }
+
     char const * TempStrings::Make(STDString const & str)
     {
         auto s = _strdup(str.c_str());
@@ -270,7 +383,7 @@ namespace bg3se
 
 BEGIN_NS(lua)
 
-void LuaPolymorphic<stats::ContextData>::MakeRef(lua_State* L, stats::ContextData* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, stats::ContextData* value, LifetimeHandle lifetime)
 {
 #define V(type) case FunctorContextType::type: \
             MakeDirectObjectRef(L, static_cast<stats::type##ContextData*>(value), lifetime); break;
@@ -294,7 +407,7 @@ void LuaPolymorphic<stats::ContextData>::MakeRef(lua_State* L, stats::ContextDat
 #undef V
 }
 
-void LuaPolymorphic<stats::Functor>::MakeRef(lua_State* L, stats::Functor* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, stats::Functor* value, LifetimeHandle lifetime)
 {
 #define V(type) case stats::FunctorId::type: \
             MakeDirectObjectRef(L, static_cast<stats::type##Functor*>(value), lifetime); break;
@@ -361,6 +474,7 @@ void LuaPolymorphic<stats::Functor>::MakeRef(lua_State* L, stats::Functor* value
         V(SetDisadvantage)
         V(MaximizeRoll)
         V(CameraWait)
+        V(ModifySpellCameraFocus)
         V(Extender)
 
     default:
@@ -371,7 +485,7 @@ void LuaPolymorphic<stats::Functor>::MakeRef(lua_State* L, stats::Functor* value
 #undef V
 }
 
-void LuaPolymorphic<IActionData>::MakeRef(lua_State* L, IActionData* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, IActionData* value, LifetimeHandle lifetime)
 {
 #define V(type) case ActionDataType::type: \
             MakeDirectObjectRef(L, static_cast<type##ActionData*>(value), lifetime); break;
@@ -418,7 +532,7 @@ void LuaPolymorphic<IActionData>::MakeRef(lua_State* L, IActionData* value, Life
 #undef V
 }
 
-void LuaPolymorphic<TextKeyTypeProperties>::MakeRef(lua_State* L, TextKeyTypeProperties* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, TextKeyTypeProperties* value, LifetimeHandle lifetime)
 {
 #define V(type) case TextKeyType::type: \
             MakeDirectObjectRef(L, static_cast<TextKey##type##TypeProperties*>(value), lifetime); break;
@@ -447,7 +561,7 @@ void LuaPolymorphic<TextKeyTypeProperties>::MakeRef(lua_State* L, TextKeyTypePro
 #undef V
 }
 
-void LuaPolymorphic<aspk::Property>::MakeRef(lua_State* L, aspk::Property* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, aspk::Property* value, LifetimeHandle lifetime)
 {
 #define V(type) case aspk::PropertyType::type: \
             MakeDirectObjectRef(L, static_cast<aspk::type##Property*>(value), lifetime); break;
@@ -475,7 +589,7 @@ void LuaPolymorphic<aspk::Property>::MakeRef(lua_State* L, aspk::Property* value
 #undef V
 }
 
-void LuaPolymorphic<aspk::KeyFrameData>::MakeRef(lua_State* L, aspk::KeyFrameData* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, aspk::KeyFrameData* value, LifetimeHandle lifetime)
 {
     switch (value->GetType()) {
     case 0:
@@ -495,7 +609,7 @@ void LuaPolymorphic<aspk::KeyFrameData>::MakeRef(lua_State* L, aspk::KeyFrameDat
 #undef V
 }
 
-void LuaPolymorphic<resource::PhysicsResource::ObjectTemplate::PhysicsObject>::MakeRef(lua_State* L, resource::PhysicsResource::ObjectTemplate::PhysicsObject* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, resource::PhysicsResource::ObjectTemplate::PhysicsObject* value, LifetimeHandle lifetime)
 {
     if (value->GetType().GetStringView() == "box")
     {
@@ -511,7 +625,7 @@ void LuaPolymorphic<resource::PhysicsResource::ObjectTemplate::PhysicsObject>::M
     }
 }
 
-void LuaPolymorphic<dlg::DialogNode>::MakeRef(lua_State* L, dlg::DialogNode* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, dlg::DialogNode* value, LifetimeHandle lifetime)
 {
 #define V(type) if (value->ConstructorID == GFS.str##type) { MakeDirectObjectRef(L, static_cast<dlg::type##Node*>(value), lifetime); return; }
 
@@ -545,23 +659,21 @@ void LuaPolymorphic<dlg::DialogNode>::MakeRef(lua_State* L, dlg::DialogNode* val
     MakeDirectObjectRef(L, value, lifetime);
 }
 
-void LuaPolymorphic<aspk::Component>::MakeRef(lua_State* L, aspk::Component* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, aspk::Component* value, LifetimeHandle lifetime)
 {
-    auto componentType = value->GetTypeName().GetStringView();
-#define V(type) else if (componentType == #type) \
+    auto const& componentType = value->GetTypeName();
+#define V(type) else if (componentType == GFS.str##type) \
                     MakeDirectObjectRef(L, static_cast<aspk::type##Component*>(value), lifetime);
-#define V_timeline(type) else if (componentType == #type) \
-                    MakeDirectObjectRef(L, static_cast<aspk::type##Component*>(value), lifetime);
-#define V_tlkeybase(type) else if (componentType == #type) \
+#define V_tlkeybase(type) else if (componentType == GFS.str##type) \
                     MakeDirectObjectRef(L, static_cast<aspk::type##Component<aspk::keys::KeyBase>*>(value), lifetime);
-#define V_tlchannel(type) else if (componentType == #type) \
+#define V_tlchannel(type) else if (componentType == GFS.str##type) \
                     MakeDirectObjectRef(L, static_cast<aspk::channels::type##Component*>(value), lifetime);
-    if (componentType == "BaseComponent")
+    if (componentType == GFS.strBaseComponent)
     {
         MakeDirectObjectRef(L, static_cast<aspk::Component*>(value), lifetime);
     }
     // Special case for this one because it can't be its own V
-    else if (componentType == "Ribbon 2.0")
+    else if (componentType == GFS.strRibbon20)
     {
         MakeDirectObjectRef(L, static_cast<aspk::Ribbon2Component*>(value), lifetime);
     }
@@ -588,44 +700,44 @@ void LuaPolymorphic<aspk::Component>::MakeRef(lua_State* L, aspk::Component* val
     V(VortexForce)
     V(WindForce)
     V(TLBase)
-    V_timeline(TimelineActorPropertiesReflection)
-    V_timeline(TLAdditiveAnimation)
-    V_timeline(TLAnimation)
-    V_timeline(TLAtmosphereAndLighting)
-    V_timeline(TLAttachToEvent)
-    V_timeline(TLAttitudeEvent)
-    V_timeline(TLCameraDoF)
-    V_timeline(TLCameraExposure)
-    V_timeline(TLCameraFoV)
-    V_timeline(TLCameraLookAt)
-    V_timeline(TLEffectPhaseEvent)
-    V_timeline(TLEmotionEvent)
-    V_timeline(TLFloatRTPC)
-    V_timeline(TLGenomeTextEvent)
-    V_timeline(TLHandsIK)
-    V_timeline(TLLayeredAnimation)
-    V_timeline(TLLookAtEvent)
-    V_timeline(TLMaterial)
-    V_timeline(TLPhysics)
-    V_timeline(TLPlayEffectEvent)
-    V_timeline(TLPlayRate)
-    V_timeline(TLShapeShift)
-    V_timeline(TLShot)
-    V_timeline(TLShotHoldPrevious)
-    V_timeline(TLShotZoom)
-    V_timeline(TLShowArmor)
-    V_timeline(TLShowHUD)
-    V_timeline(TLShowPeanuts)
-    V_timeline(TLShowVisual)
-    V_timeline(TLShowWeapon)
-    V_timeline(TLSoundEvent)
-    V_timeline(TLSplatter)
-    V_timeline(TLSprings)
-    V_timeline(TLSteppingFade)
-    V_timeline(TLSwitchLocationEvent)
-    V_timeline(TLSwitchStageEvent)
-    V_timeline(TLTransform)
-    V_timeline(TLVoice)
+    V(TimelineActorPropertiesReflection)
+    V(TLAdditiveAnimation)
+    V(TLAnimation)
+    V(TLAtmosphereAndLighting)
+    V(TLAttachToEvent)
+    V(TLAttitudeEvent)
+    V(TLCameraDoF)
+    V(TLCameraExposure)
+    V(TLCameraFoV)
+    V(TLCameraLookAt)
+    V(TLEffectPhaseEvent)
+    V(TLEmotionEvent)
+    V(TLFloatRTPC)
+    V(TLGenomeTextEvent)
+    V(TLHandsIK)
+    V(TLLayeredAnimation)
+    V(TLLookAtEvent)
+    V(TLMaterial)
+    V(TLPhysics)
+    V(TLPlayEffectEvent)
+    V(TLPlayRate)
+    V(TLShapeShift)
+    V(TLShot)
+    V(TLShotHoldPrevious)
+    V(TLShotZoom)
+    V(TLShowArmor)
+    V(TLShowHUD)
+    V(TLShowPeanuts)
+    V(TLShowVisual)
+    V(TLShowWeapon)
+    V(TLSoundEvent)
+    V(TLSplatter)
+    V(TLSprings)
+    V(TLSteppingFade)
+    V(TLSwitchLocationEvent)
+    V(TLSwitchStageEvent)
+    V(TLTransform)
+    V(TLVoice)
     V_tlkeybase(TLEventKey)
     V_tlkeybase(TLInterpolationKey)
     V_tlkeybase(TLKeyBase)
@@ -640,7 +752,7 @@ void LuaPolymorphic<aspk::Component>::MakeRef(lua_State* L, aspk::Component* val
     // Theoretically there are a lot of other EffectComponents that could get output here; haven't finished researching them
     else
     {
-        WARN("Fetching unknown AllSpark component type: '%s'", componentType.data());
+        WARN("Fetching unknown AllSpark component type: '%s'", componentType.GetString());
         MakeDirectObjectRef(L, value, lifetime);
     }
 
@@ -650,7 +762,7 @@ void LuaPolymorphic<aspk::Component>::MakeRef(lua_State* L, aspk::Component* val
 #undef V
 }
 
-void LuaPolymorphic<aspk::TLMaterialComponent::Parameter>::MakeRef(lua_State* L, aspk::TLMaterialComponent::Parameter* value, LifetimeHandle const& lifetime)
+void MakePolymorphicRef(lua_State* L, aspk::TLMaterialComponent::Parameter* value, LifetimeHandle lifetime)
 {
     aspk::TLMaterialComponent::Parameter::Range range;
     value->getRange(range);
@@ -680,7 +792,7 @@ END_NS()
 BEGIN_SE()
 
 template <class T>
-void Material::SetUniformParam(Material::UniformBindingData const& binding, T value)
+void Material::SetUniformParam(UniformBindingData const& binding, T value)
 {
     for (unsigned i = 0; i < std::size(ShaderDescriptions); i++) {
         if (binding.PerShaderCBOffsets[i] != -1 && ShaderDescriptions[i].MaterialCBSize > 0 && MaterialCBs[i].MaterialCB != nullptr) {
@@ -747,11 +859,24 @@ bool Material::SetVector4(FixedString const& paramName, glm::vec4 value)
 
 void* Material::GetOrCreateConstantBuffer(uint8_t shaderIndex)
 {
-    assert(shaderIndex < std::size(ShaderDescriptions));
+    se_assert(shaderIndex < std::size(ShaderDescriptions));
 
+    // Fast-path for already allocated CB
     if (MaterialCBs[shaderIndex].MaterialCB != nullptr) {
         return MaterialCBs[shaderIndex].MaterialCB;
     }
+
+    AcquireSRWLockShared(&MaterialCBLock);
+    // Re-check when we have a reader lock
+    if (MaterialCBs[shaderIndex].MaterialCB != nullptr) {
+        // Concurrent thread allocated the CB
+        ReleaseSRWLockShared(&MaterialCBLock);
+        return MaterialCBs[shaderIndex].MaterialCB;
+    }
+
+    // No CB, we need to build it ourself
+    ReleaseSRWLockShared(&MaterialCBLock);
+    AcquireSRWLockExclusive(&MaterialCBLock);
 
     auto size = ShaderDescriptions[shaderIndex].MaterialCBSize;
     auto cb = (uint8_t *)GameAllocRaw(size);
@@ -783,23 +908,35 @@ void* Material::GetOrCreateConstantBuffer(uint8_t shaderIndex)
 
     MaterialCBs[shaderIndex].MaterialCB = cb;
     MaterialCBs[shaderIndex].MaterialCBSize = size;
+
+    ReleaseSRWLockExclusive(&MaterialCBLock);
     return cb;
 }
 
 bool MaterialRenderingData::CheckConstantBuffer(Material& instance)
 {
-    if (MaterialCB == nullptr && MaterialCBSize > 0 && MaterialVkDescriptorSet != -1) {
+    if (MaterialCB == nullptr && MaterialCBSize > 0 && MaterialBinding.VkDescriptorSet != -1) {
         auto cb = instance.GetOrCreateConstantBuffer(ShaderIndex);
         MaterialCB = GameAllocRaw(MaterialCBSize);
+        MaterialCBBufferSize = MaterialCBSize;
         memcpy(MaterialCB, cb, MaterialCBSize);
     }
 
     return MaterialCB != nullptr;
-
 }
 
 template <class T>
-void MaterialRenderingData::SetUniformParam(Material& instance, Material::UniformBindingData const& binding, T value)
+std::optional<T> MaterialRenderingData::GetUniformParam(Material& instance, UniformBindingData const& binding)
+{
+    if (MaterialCB != nullptr && binding.PerShaderCBOffsets[ShaderIndex] != -1) {
+        return *(T*)((uint8_t*)MaterialCB + binding.PerShaderCBOffsets[ShaderIndex]);
+    } else {
+        return {};
+    }
+}
+
+template <class T>
+void MaterialRenderingData::SetUniformParam(Material& instance, UniformBindingData const& binding, T value)
 {
     if (!CheckConstantBuffer(instance)) return;
 
@@ -811,8 +948,36 @@ void MaterialRenderingData::SetUniformParam(Material& instance, Material::Unifor
 }
 
 template <class T>
-void ActiveMaterial::SetUniformParam(Material::UniformBindingData const& binding, T value)
+std::optional<T> AppliedMaterial::GetUniformParam(UniformBindingData const& binding)
 {
+    if ((bool)(Flags & AppliedMaterialFlags::Queued)) {
+        return {};
+    }
+
+    if (PrimaryRenderingData != nullptr) {
+        auto val = PrimaryRenderingData->GetUniformParam<T>(*Material, binding);
+        if (val) {
+            return val;
+        }
+    }
+
+    for (auto i = 0; i < std::size(RenderingData); i++) {
+        auto val = RenderingData[i].GetUniformParam<T>(*Material, binding);
+        if (val) {
+            return val;
+        }
+    }
+
+    return {};
+}
+
+template <class T>
+void AppliedMaterial::SetUniformParam(UniformBindingData const& binding, T value)
+{
+    if ((bool)(Flags & AppliedMaterialFlags::Queued)) {
+        return;
+    }
+
     if (PrimaryRenderingData != nullptr) {
         PrimaryRenderingData->SetUniformParam(*Material, binding, value);
     }
@@ -822,56 +987,191 @@ void ActiveMaterial::SetUniformParam(Material::UniformBindingData const& binding
     }
 }
 
-bool ActiveMaterial::SetScalar(FixedString const& paramName, float value)
+std::optional<float> AppliedMaterial::GetScalar(FixedString const& paramName)
 {
     for (auto const& param : Material->Parameters.ScalarParameters) {
         if (param.ParameterName == paramName) {
-            SetUniformParam(param.Binding, value);
-            return true;
+            auto value = GetUniformParam<float>(param.Binding);
+            if (value) {
+                return value;
+            } else {
+                return param.Value;
+            }
         }
     }
 
-    ERR("Material binding has no float parameter named '%s'", paramName.GetString());
-    return false;
+    ERR("Material has no float parameter named '%s'", paramName.GetString());
+    return {};
 }
 
-bool ActiveMaterial::SetVector2(FixedString const& paramName, glm::vec2 value)
+std::optional<glm::vec2> AppliedMaterial::GetVector2(FixedString const& paramName)
 {
     for (auto const& param : Material->Parameters.Vector2Parameters) {
         if (param.ParameterName == paramName) {
-            SetUniformParam(param.Binding, value);
-            return true;
+            auto value = GetUniformParam<glm::vec2>(param.Binding);
+            if (value) {
+                return value;
+            } else {
+                return param.Value;
+            }
         }
     }
 
-    ERR("Material binding has no vec2 parameter named '%s'", paramName.GetString());
-    return false;
+    ERR("Material has no vec2 parameter named '%s'", paramName.GetString());
+    return {};
 }
 
-bool ActiveMaterial::SetVector3(FixedString const& paramName, glm::vec3 value)
+std::optional<glm::vec3> AppliedMaterial::GetVector3(FixedString const& paramName)
 {
     for (auto const& param : Material->Parameters.Vector3Parameters) {
         if (param.ParameterName == paramName) {
-            SetUniformParam(param.Binding, value);
-            return true;
+            auto value = GetUniformParam<glm::vec3>(param.Binding);
+            if (value) {
+                return value;
+            } else {
+                return param.Value;
+            }
         }
     }
 
-    ERR("Material binding has no vec3 parameter named '%s'", paramName.GetString());
-    return false;
+    ERR("Material has no vec3 parameter named '%s'", paramName.GetString());
+    return {};
 }
 
-bool ActiveMaterial::SetVector4(FixedString const& paramName, glm::vec4 value)
+std::optional<glm::vec4> AppliedMaterial::GetVector4(FixedString const& paramName)
 {
     for (auto const& param : Material->Parameters.VectorParameters) {
         if (param.ParameterName == paramName) {
-            SetUniformParam(param.Binding, value);
-            return true;
+            auto value = GetUniformParam<glm::vec4>(param.Binding);
+            if (value) {
+                return value;
+            } else {
+                return param.Value;
+            }
         }
     }
 
-    ERR("Material binding has no vec4 parameter named '%s'", paramName.GetString());
-    return false;
+    ERR("Material has no vec4 parameter named '%s'", paramName.GetString());
+    return {};
+}
+
+bool AppliedMaterial::SetScalar(FixedString const& paramName, float value)
+{
+    if ((bool)(Flags & AppliedMaterialFlags::Queued)) {
+        ScalarParameterInstance param;
+        param.ParameterName = paramName;
+        param.Value = value;
+        QueuedParameters->ScalarParameters.push_back(param);
+        return true;
+    } else {
+        for (auto const& param : Material->Parameters.ScalarParameters) {
+            if (param.ParameterName == paramName) {
+                SetUniformParam(param.Binding, value);
+                return true;
+            }
+        }
+
+        ERR("Material has no float parameter named '%s'", paramName.GetString());
+        return false;
+    }
+}
+
+bool AppliedMaterial::SetVector2(FixedString const& paramName, glm::vec2 value)
+{
+    if ((bool)(Flags & AppliedMaterialFlags::Queued)) {
+        Vector2ParameterInstance param;
+        param.ParameterName = paramName;
+        param.Value = value;
+        QueuedParameters->Vector2Parameters.push_back(param);
+        return true;
+    } else {
+        for (auto const& param : Material->Parameters.Vector2Parameters) {
+            if (param.ParameterName == paramName) {
+                SetUniformParam(param.Binding, value);
+                return true;
+            }
+        }
+
+        ERR("Material has no vec2 parameter named '%s'", paramName.GetString());
+        return false;
+    }
+}
+
+bool AppliedMaterial::SetVector3(FixedString const& paramName, glm::vec3 value)
+{
+    if ((bool)(Flags & AppliedMaterialFlags::Queued)) {
+        Vector3ParameterInstance param;
+        param.ParameterName = paramName;
+        param.Value = value;
+        QueuedParameters->Vector3Parameters.push_back(param);
+        return true;
+    } else {
+        for (auto const& param : Material->Parameters.Vector3Parameters) {
+            if (param.ParameterName == paramName) {
+                SetUniformParam(param.Binding, value);
+                return true;
+            }
+        }
+
+        ERR("Material has no vec3 parameter named '%s'", paramName.GetString());
+        return false;
+    }
+}
+
+bool AppliedMaterial::SetVector4(FixedString const& paramName, glm::vec4 value)
+{
+    if ((bool)(Flags & AppliedMaterialFlags::Queued)) {
+        Vector4ParameterInstance param;
+        param.ParameterName = paramName;
+        param.Value = value;
+        QueuedParameters->VectorParameters.push_back(param);
+        return true;
+    } else {
+        for (auto const& param : Material->Parameters.VectorParameters) {
+            if (param.ParameterName == paramName) {
+                SetUniformParam(param.Binding, value);
+                return true;
+            }
+        }
+
+        ERR("Material has no vec4 parameter named '%s'", paramName.GetString());
+        return false;
+    }
+}
+
+bool AppliedMaterial::SetTexture2D(FixedString const& param, FixedString const& texture)
+{
+    auto setter = GetStaticSymbols().ls__AppliedMaterial__TryOverrideTexture2DParameter;
+    return setter(this, param, texture);
+}
+
+bool AppliedMaterial::SetVirtualTexture(FixedString const& paramName, FixedString const& texture)
+{
+    if ((bool)(Flags & AppliedMaterialFlags::Queued)) {
+        VirtualTextureParameterInstance param;
+        param.ParameterName = paramName;
+        param.ID = texture;
+        QueuedParameters->VirtualTextureParameters.push_back(param);
+        return true;
+    } else {
+        for (auto& param : VirtualTextureParams) {
+            if (param.ParameterName == paramName) {
+                auto loader = GetStaticSymbols().ls__AppliedMaterial__LoadVirtualTexture;
+                auto vt = loader(this, texture);
+                if (vt == nullptr) {
+                    ERR("Failed to load virtual texture '%s' when binding material parameter '%s'", texture.GetString(), paramName.GetString());
+                    return false;
+                }
+
+                param.ID = texture;
+                param.VirtualTextureResource = vt;
+                return true;
+            }
+        }
+
+        ERR("Material has no VT parameter named '%s'", paramName.GetString());
+        return false;
+    }
 }
 
 END_SE()

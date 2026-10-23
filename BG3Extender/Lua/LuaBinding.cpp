@@ -6,6 +6,7 @@
 #include <fstream>
 #include <lstate.h>
 #include <Lua/Shared/EntityComponentEvents.inl>
+#include <Lua/Shared/SystemEvents.inl>
 #include <Lua/Shared/EntityEventHelpers.inl>
 
 // Callback from the Lua runtime when a handled (i.e. pcall/xpcall'd) error was thrown.
@@ -23,7 +24,6 @@
 //
 void nse_lua_report_handled_error(lua_State* L)
 {
-#if !defined(OSI_NO_DEBUGGER)
     char const* err = "(Unknown)";
     if (lua_type(L, -1) == LUA_TSTRING) {
         err = lua_tostring(L, -1);
@@ -33,7 +33,6 @@ void nse_lua_report_handled_error(lua_State* L)
     if (debugger) {
         debugger->OnLuaError(L, err);
     }
-#endif
 }
 
 BEGIN_NS(lua)
@@ -50,7 +49,7 @@ void push(lua_State* L, EntityHandle const& h)
 void push(lua_State* L, ComponentHandle const& h)
 {
     if (h) {
-        lua_pushlightuserdata(L, (void*)h.Handle);
+        lua_pushinteger(L, (int64_t)h.Handle);
     } else {
         push(L, nullptr);
     }
@@ -61,7 +60,7 @@ ComponentHandle do_get(lua_State* L, int index, Overload<ComponentHandle>)
     if (lua_type(L, index) == LUA_TNIL) {
         return ComponentHandle{ ComponentHandle::NullHandle };
     } else {
-        return ComponentHandle{ (uint64_t)lua_touserdata(L, index) };
+        return ComponentHandle{ (uint64_t)lua_tointeger(L, index) };
     }
 }
 
@@ -93,13 +92,26 @@ void push(lua_State* L, stats::ConditionId const& h)
     }
 }
 
-#if defined(ENABLE_IMGUI)
+void push(lua_State* L, StatsExpressionRef const& c)
+{
+    MakeObjectRef(L, c.Get());
+}
+
 void push(lua_State* L, ImguiHandle const& h)
 {
     if (h) {
         ImguiObjectProxyMetatable::Make(L, h);
     } else {
         push(L, nullptr);
+    }
+}
+
+void push(lua_State* L, EntityOrVec3Variant const& v)
+{
+    if (v.Type) {
+        push(L, v.Position);
+    } else {
+        push(L, v.Entity);
     }
 }
 
@@ -111,7 +123,6 @@ void push(lua_State* L, extui::Renderable* o)
         push(L, nullptr);
     }
 }
-#endif
 
 int TracebackHandler(lua_State * L)
 {
@@ -128,23 +139,39 @@ int TracebackHandler(lua_State * L)
     return 1;  /* return the traceback */
 }
 
+#if !defined(NDEBUG) || defined(SE_RELEASE_ASSERTS)
+ExtensionStateBase* DebugServerState{ nullptr };
+global_State* DebugServerVM{ nullptr };
+ExtensionStateBase* DebugClientState{ nullptr };
+global_State* DebugClientVM{ nullptr };
+
+
 void EnterVMCheck(lua_State* L)
 {
-#if !defined(NDEBUG)
-    auto state = GetCurrentExtensionState();
-    assert(state->GetLua() == State::FromLua(L));
-    assert(state->GetEnterCount() > 0);
-#endif
+    auto ctx = GetCurrentContextType();
+    se_assert(ctx != ContextType::None);
+
+    if (ctx == ContextType::Server) {
+        if (gExtender->GetServer().HasExtensionState()) gExtender->GetServer().GetExtensionState().EnteredCheck();
+        se_assert(DebugServerVM != nullptr && DebugServerVM == L->l_G);
+    } else {
+        if (gExtender->GetClient().HasExtensionState()) gExtender->GetClient().GetExtensionState().EnteredCheck();
+        se_assert(DebugClientVM != nullptr && DebugClientVM == L->l_G);
+    }
 }
+
+#endif
 
 int CallWithTraceback(lua_State * L, int narg, int nres)
 {
     EnterVMCheck(L);
 
+    OPTICK_SCRIPT_CALL_EVENT("", L, -narg - 1);
+
     int base = lua_gettop(L) - narg;  /* function index */
     lua_pushcfunction(L, &TracebackHandler);  /* push message handler */
     lua_insert(L, base);  /* put it under function and args */
-    int status = lua_pcall(L, narg, nres, base);
+    int status = lua_enter_pcallk(L, narg, nres, base);
     lua_remove(L, base);  /* remove message handler from the stack */
     return status;
 }
@@ -247,7 +274,7 @@ char const* GetDebugName(lua_State* L, int idx)
     auto type = lua_type(L, idx);
     if (type == LUA_TCPPOBJECT || type == LUA_TLIGHTCPPOBJECT) {
         auto meta = lua_get_lightcppany(L, idx);
-        return GetDebugName(meta.MetatableTag);
+        return GetDebugName(meta);
     }
 
     return lua_typename(L, type);
@@ -265,20 +292,30 @@ char const* GetDebugName(MetatableTag tag)
     case MetatableTag::UserVariableHolder: return "UserVariableHolder";
     case MetatableTag::ModVariableHolder: return "ModVariableHolder";
     case MetatableTag::Entity: return "Entity";
-#if defined(ENABLE_IMGUI)
     case MetatableTag::ImguiObject: return "ImguiObject";
-#endif
     case MetatableTag::OsiFunctionName: return "OsiFunction";
+    case MetatableTag::SystemMap: return "SystemMap";
 
     default: return "(Unknown C++ type)";
     }
+}
+
+char const* GetDebugBaseName(lua_State* L, int idx)
+{
+    auto type = lua_type(L, idx);
+    if (type == LUA_TCPPOBJECT || type == LUA_TLIGHTCPPOBJECT) {
+        auto meta = lua_get_lightcppany(L, idx);
+        return GetDebugName(meta.MetatableTag);
+    }
+
+    return lua_typename(L, type);
 }
 
 char const* GetDebugName(MetatableTag tag, int propertyMapIdx)
 {
     switch (tag) {
     case MetatableTag::ObjectRef:
-        return gStructRegistry.Get(propertyMapIdx)->Name.GetString();
+        return gStructRegistry.Get(StructTypeId(propertyMapIdx))->Name.GetString();
 
     case MetatableTag::Array:
         return gExtender->GetPropertyMapManager().GetArrayProxy(propertyMapIdx)->GetContainerType().TypeName.GetString();
@@ -312,19 +349,19 @@ int LuaPanic(lua_State * L)
         err = lua_tostring(L, -1);
     }
 
-#if !defined(OSI_NO_DEBUGGER)
     auto debugger = gExtender->GetLuaDebugger();
     if (debugger) {
         debugger->OnLuaError(L, err);
     }
-#endif
 
     throw Exception(err);
 }
 
 void* LuaAlloc(void* ud, void* ptr, size_t osize, size_t nsize)
 {
-    (void)ud; (void)osize;  /* not used */
+    auto state = static_cast<LuaStateWrapper*>(ud);
+    state->AllocatedMemory += (int64_t)nsize - (int64_t)osize;
+
     if (nsize == 0) {
         GameFree(ptr);
         return NULL;
@@ -341,49 +378,148 @@ void* LuaAlloc(void* ud, void* ptr, size_t osize, size_t nsize)
 
 LifetimeHandle GetCurrentLifetime(lua_State* L)
 {
-    return State::FromLua(L)->GetCurrentLifetime();
+    return State::GetExtra(L)->CurrentLifetime;
 }
 
-LuaStateWrapper::LuaStateWrapper()
+LuaStateWrapper::LuaStateWrapper(ExtensionStateBase& state)
 {
-    L = lua_newstate(LuaAlloc, nullptr);
+    L = lua_newstate(LuaAlloc, this);
     Internal = lua_new_internal_state();
-    lua_setup_cppobjects(L, &LuaCppAlloc, &LuaCppFree, &LuaCppGetLightMetatable, &LuaCppGetMetatable, &LuaCppCanonicalize);
+    lua_setup_cppobjects(L, &LuaCppAlloc, &LuaCppFree, &LuaCppGetLightMetatable, &LuaCppGetMetatable, &LuaCppFinalize, &LuaCppCanonicalize);
     lua_setup_strcache(L, &LuaCacheString, &LuaReleaseString);
 #if LUA_VERSION_NUM <= 501
     luaJIT_setmode(L, 0, LUAJIT_MODE_ENGINE | LUAJIT_MODE_ON);
 #endif
     lua_atpanic(L, &LuaPanic);
+
+#if !defined(NDEBUG) || defined(SE_RELEASE_ASSERTS)
+    auto ctx = GetCurrentContextType();
+    se_assert(ctx != ContextType::None);
+
+    if (ctx == ContextType::Server) {
+        DebugServerState = &state;
+        DebugServerVM = L->l_G;
+    } else {
+        DebugClientState = &state;
+        DebugClientVM = L->l_G;
+    }
+#endif
 }
 
 LuaStateWrapper::~LuaStateWrapper()
 {
+#if !defined(NDEBUG) || defined(SE_RELEASE_ASSERTS)
+    auto ctx = GetCurrentContextType();
+    se_assert(ctx != ContextType::None);
+
+    if (ctx == ContextType::Server) {
+        se_assert(DebugServerVM == L->l_G);
+        DebugServerState = nullptr;
+        DebugServerVM = nullptr;
+    } else {
+        se_assert(DebugClientVM == L->l_G);
+        DebugClientState = nullptr;
+        DebugClientVM = nullptr;
+    }
+#endif
+
     lua_close(L);
 }
 
+#if USE_OPTICK
+void ProfilerStack::Begin(Optick::EventDescription const* desc)
+{
+    auto evt = Optick::Event::Start(*desc);
+    stack_.push_back(evt);
+}
+
+void ProfilerStack::Begin(StringView msg)
+{
+    auto desc = Optick::CreateDescription(msg.data(), "", 0, nullptr, Optick::Category::Script,
+        (Optick::EventDescription::COPY_NAME_STRING | Optick::EventDescription::IS_CUSTOM_NAME));
+    auto evt = Optick::Event::Start(*desc);
+    stack_.push_back(evt);
+}
+
+void ProfilerStack::End()
+{
+    if (stack_.empty()) {
+        WARN("No frame to end; mismatched ProfilerStart()/ProfilerEnd() calls? Profiler output might be incorrect");
+        return;
+    }
+
+    auto evt = stack_.pop_last();
+    Optick::Event::Stop(*evt);
+}
+
+void ProfilerStack::EnterVM()
+{
+    stackAtEntry_.push_back(stack_.size());
+}
+
+void ProfilerStack::ExitVM()
+{
+    if (stackAtEntry_.empty()) {
+        se_assert(false && "Enter/exit counts don't match?");
+        return;
+    }
+
+    auto size = stackAtEntry_.pop_last();
+    if (stack_.size() > size) {
+        WARN("%d frames not properly finished using ProfilerEnd(); profiler output might be incorrect", stack_.size() - size);
+    }
+
+    while (stack_.size() > size) {
+        End();
+    }
+}
+
+ProfilerStackGuard::ProfilerStackGuard(State* state)
+    : state_(state)
+{
+    state_->GetProfiler().EnterVM();
+}
+
+ProfilerStackGuard::~ProfilerStackGuard()
+{
+    state_->GetProfiler().ExitVM();
+}
+#endif
+
+VMCallEntry::VMCallEntry(State* state, int stackDelta)
+    : check_(state->GetState(), stackDelta),
+    lifetime_(state->GetState(), state->GetStack()),
+    profiler_(state)
+{}
+
+VMCallEntry::~VMCallEntry()
+{}
+
 State::State(ExtensionStateBase& state, uint32_t generationId, bool isServer)
-    : generationId_(generationId),
+    : L(state),
+    generationId_(generationId),
     state_(state),
     lifetimeStack_(lifetimePool_),
-    globalLifetime_(lifetimePool_.Allocate()),
+    globals_(L.L),
     variableManager_(isServer ? gExtender->GetServer().GetExtensionState().GetUserVariables() : gExtender->GetClient().GetExtensionState().GetUserVariables(), isServer),
     modVariableManager_(isServer ? gExtender->GetServer().GetExtensionState().GetModVariables() : gExtender->GetClient().GetExtensionState().GetModVariables(), isServer),
     entityHooks_(*this),
+    systemHooks_(*this),
     timers_(*this, isServer),
     pathfinding_(*state_.GetLevelManager())
 {
-    *reinterpret_cast<State**>(lua_getextraspace(L.L)) = this;
+    GetExtra(L.L)->State = this;
+    GetExtra(L.L)->CurrentLifetime = LifetimeHandle{};
     OpenLibs();
 }
 
 State::~State()
-{
-    lifetimePool_.Release(globalLifetime_);
-}
+{}
 
 void State::Initialize()
 {
     entityHooks_.BindECS();
+    systemHooks_.BindECS();
 }
 
 void State::Shutdown()
@@ -391,41 +527,37 @@ void State::Shutdown()
     variableManager_.Invalidate();
     modVariableManager_.Invalidate();
 
-    GetEntitySystemHelpers()->EnableLogging(false);
-    GetEntitySystemHelpers()->GetLog().Clear();
-}
-
-State* State::FromLua(lua_State* L)
-{
-    return *reinterpret_cast<State**>(lua_getextraspace(L));
+    GetEntitySystemHelpers()->GetTracer().StopTracing();
+    GetEntitySystemHelpers()->GetTracer().GetLog().Clear();
 }
 
 LifetimeHandle State::GetCurrentLifetime()
 {
+#if defined(_DEBUG)
     if (lifetimeStack_.IsEmpty()) {
         OsiErrorS("Attempted to construct Lua object proxy while lifetime stack is empty");
         return LifetimeHandle{};
-    } else {
-        return lifetimeStack_.GetCurrent();
     }
+#endif
+
+    return GetExtra(L.L)->CurrentLifetime;
 }
 
 void State::LoadBootstrap(STDString const& path, STDString const& modTable)
 {
+    OPTICK_EVENT(Optick::Category::IO);
     CallExt("_LoadBootstrap", RestrictAll, path, modTable);
 }
 
 void State::FinishStartup()
 {
-    assert(!startupDone_);
+    se_assert(!startupDone_);
     startupDone_ = true;
 
-#if !defined(OSI_NO_DEBUGGER)
     auto debugger = gExtender->GetLuaDebugMessageHandler();
     if (debugger && debugger->IsDebuggerReady()) {
         debugger->SendModInfo();
     }
-#endif
 }
         
 void State::OpenLibs()
@@ -474,7 +606,8 @@ std::optional<int> State::LoadScript(STDString const & script, STDString const &
 #endif
 
     /* Ask Lua to run our little script */
-    LifetimeStackPin _(lifetimeStack_);
+    LifetimeStackPin _(L, lifetimeStack_);
+    ProfilerStackGuard _p(this);
     status = CallWithTraceback(L, 0, LUA_MULTRET);
     if (status != LUA_OK) {
         LuaError("Failed to execute script: " << lua_tostring(L, -1));
@@ -542,9 +675,16 @@ void State::OnUpdate(GameTime const& time)
     TickEvent params{ .Time = time };
     ThrowEvent("Tick", params, false, 0);
 
-    lua_gc(L, LUA_GCSTEP, 10);
-    variableManager_.Flush();
-    modVariableManager_.Flush();
+    {
+        OPTICK_EVENT("GC");
+        lua_gc(L, LUA_GCSTEP, 10);
+    }
+
+    {
+        OPTICK_EVENT("Flush variable managers");
+        variableManager_.Flush();
+        modVariableManager_.Flush();
+    }
 }
 
 void State::OnStatsStructureLoaded()
@@ -553,19 +693,21 @@ void State::OnStatsStructureLoaded()
     ThrowEvent("StatsStructureLoaded", params, false, 0);
 }
 
-void State::OnNetMessageReceived(char const* channel, char const* payload, char const* moduleUuid, int32_t requestId, int32_t replyId, UserId userId)
+void State::OnNetMessageReceived(StringView channel, StringView payload, StringView moduleUuid, int32_t requestId,
+    int32_t replyId, UserId userId, bool binary)
 {
     if (replyId != 0) {
-        networkRequests_.HandleReply(replyId, payload);
+        networkRequests_.HandleReply(replyId, payload, binary);
         return;
     }
 
     NetMessageEvent params {
         .Channel = channel,
         .Payload = payload,
-        .Module = (moduleUuid && *moduleUuid) ? Guid::Parse(moduleUuid) : std::optional<Guid>{},
+        .Module = !moduleUuid.empty() ? Guid::Parse(moduleUuid) : std::optional<Guid>{},
         .RequestId = (requestId != 0) ? requestId : std::optional<net::RequestId>{},
-        .UserID = userId
+        .UserID = userId,
+        .Binary = binary
     };
     if (!params.RequestId && !params.Module) {
         // Only dispatch legacy network messages through the old NetMessage event
@@ -577,7 +719,7 @@ void State::OnNetMessageReceived(char const* channel, char const* payload, char 
 
 void State::OnFindPath(AiGrid* self, AiPathId pathId)
 {
-    auto path = self->PathMap.try_get(pathId);
+    auto path = self->PathMap.get_or_default(pathId);
     if (!path || path->SearchStarted) return;
 
     FindPathEvent params;
@@ -585,18 +727,9 @@ void State::OnFindPath(AiGrid* self, AiPathId pathId)
     ThrowEvent("FindPath", params);
 }
 
-STDString State::GetBuiltinLibrary(int resourceId)
-{
-    auto resource = GetExeResource(resourceId);
-    if (resource) {
-        return STDString(resource->c_str());
-    } else {
-        return STDString();
-    }
-}
-
 EventResult State::DispatchEvent(EventBase& evt, char const* eventName, bool canPreventAction, uint32_t restrictions)
 {
+    OPTICK_SCRIPT_EVENT(eventName, "", 0);
     auto stackSize = lua_gettop(L) - 2;
 
     try {

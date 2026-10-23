@@ -7,20 +7,16 @@
 namespace bg3se
 {
 
-#if !defined(OSI_NO_DEBUGGER)
 void OsirisDebugThreadRunner(OsirisDebugInterface & intf)
 {
     intf.Run();
 }
-#endif
 
 OsirisExtender::OsirisExtender(ExtenderConfig & config)
     : config_(config), 
     injector_(wrappers_, customFunctions_),
     functionLibrary_(*this)
-{
-    functionLibrary_.Startup();
-}
+{}
 
 
 OsirisExtender::~OsirisExtender()
@@ -43,9 +39,7 @@ void OsirisExtender::Initialize()
     wrappers_.Load.SetPostHook(&OsirisExtender::OnAfterOsirisLoad, this);
     wrappers_.Merge.SetWrapper(&OsirisExtender::MergeWrapper, this);
     wrappers_.Event.SetWrapper(&OsirisExtender::OnEvent, this);
-#if !defined(OSI_NO_DEBUGGER)
     wrappers_.RuleActionCall.SetWrapper(&OsirisExtender::RuleActionCall, this);
-#endif
 
     injector_.Initialize();
     functionLibrary_.Register();
@@ -143,34 +137,6 @@ void OsirisExtender::OnRegisterDIVFunctions(void * Osiris, DivFunctions * Functi
     uint8_t * interfaceLoadPtr = nullptr;
     auto errorMessageFunc = ResolveRealFunctionAddress((uint8_t *)wrappers_.ErrorOriginal);
 
-    // Look for TypedValue::VMT
-    uint8_t const copyCtor1[] = {
-        0x48, 0x83, 0xec, 0x20, // sub     rsp, 20h
-        0x48, 0x8b, 0xd9, // mov     rbx, rcx
-        0x48, 0x8d, 0x05 // lea     rax, TypedValue__VMT
-    };
-
-    uint8_t const copyCtor2[] = {
-        0x48, 0x89, 0x01, // mov     [rcx], rax
-        0x0f, 0xb7, 0x41, 0x10 // movzx   eax, word ptr [rcx+10h]
-    };
-
-    auto start = reinterpret_cast<uint8_t *>(wrappers_.OsirisDllStart);
-    auto end = start + wrappers_.OsirisDllSize - sizeof(copyCtor1);
-
-    for (auto p = start; p < end; p++) {
-        if (*p == 0x48
-            && memcmp(copyCtor1, p, sizeof(copyCtor1)) == 0
-            && memcmp(copyCtor2, p + 14, sizeof(copyCtor2)) == 0) {
-            wrappers_.Globals.TypedValueVMT = (void *)AsmResolveInstructionRef(p + 7);
-            break;
-        }
-    }
-
-    if (wrappers_.Globals.TypedValueVMT == nullptr) {
-        ERR("Could not find TypedValue vtable");
-    }
-
     if (config_.EnableLogging) {
         RestartLogging(L"Osiris Runtime");
     }
@@ -182,7 +148,6 @@ void OsirisExtender::OnRegisterDIVFunctions(void * Osiris, DivFunctions * Functi
     DEBUG("\tOsirisInterface = %p", osirisInterface);
 #endif
 
-#if !defined(OSI_NO_DEBUGGER)
     // FIXME - move to DebuggerHooks
     if (config_.EnableDebugger) {
         if (!debuggerThread_) {
@@ -198,29 +163,24 @@ void OsirisExtender::OnRegisterDIVFunctions(void * Osiris, DivFunctions * Functi
             }
         }
     }
-#endif
 }
 
 void OsirisExtender::OnInitGame(void * Osiris)
 {
     DEBUG("OsirisExtender::OnInitGame()");
-#if !defined(OSI_NO_DEBUGGER)
     if (debugger_) {
         debugger_->GameInitHook();
     }
-#endif
     DEBUG("OnRegisterDIVFunctions END");
 }
 
 void OsirisExtender::OnDeleteAllData(void * Osiris, bool DeleteTypes)
 {
-#if !defined(OSI_NO_DEBUGGER)
     if (debugger_) {
         DEBUG("OsirisExtender::OnDeleteAllData()");
         debugger_->DeleteAllDataHook();
         debugger_.reset();
     }
-#endif
 }
 
 void OsirisExtender::OnError(char const * Message)
@@ -288,22 +248,18 @@ void OsirisExtender::OnAfterOsirisLoad(void * Osiris, void * Buf, int retval)
 {
     std::lock_guard _(storyLoadLock_);
 
-#if !defined(OSI_NO_DEBUGGER)
     if (debuggerThread_) {
         HookNodeVMTs();
     }
-#endif
 
     storyLoaded_ = true; 
     DEBUG("ScriptExtender::OnAfterOsirisLoad: %d nodes", (*wrappers_.Globals.Nodes)->Db.Size);
 
-#if !defined(OSI_NO_DEBUGGER)
     if (debuggerThread_ && nodeVmtWrappers_) {
         debugger_.reset();
         debugger_ = std::make_unique<osidbg::Debugger>(wrappers_.Globals, std::ref(*debugMsgHandler_));
         debugger_->StoryLoaded();
     }
-#endif
 
     if (gExtender->GetServer().HasExtensionState()) {
         gExtender->GetServer().GetExtensionState().StoryLoaded();
@@ -321,19 +277,15 @@ bool OsirisExtender::MergeWrapper(bool (*next)(void*, wchar_t*), void * Osiris, 
         gExtender->GetServer().GetExtensionState().StorySetMerging(true);
     }
 
-#if !defined(OSI_NO_DEBUGGER)
     if (debugger_ != nullptr) {
         debugger_->MergeStarted();
     }
-#endif
 
     bool retval = next(Osiris, Src);
 
-#if !defined(OSI_NO_DEBUGGER)
     if (debugger_ != nullptr) {
         debugger_->MergeFinished();
     }
-#endif
 
     if (gExtender->GetServer().HasExtensionState()) {
         gExtender->GetServer().GetExtensionState().StorySetMerging(false);
@@ -362,19 +314,15 @@ ReturnCode OsirisExtender::OnEvent(ReturnCode(*next)(void*, uint32_t, OsiArgumen
 
 void OsirisExtender::RuleActionCall(void (*next)(RuleActionNode*, void*, void*, void*, void*), RuleActionNode * Action, void * a1, void * a2, void * a3, void * a4)
 {
-#if !defined(OSI_NO_DEBUGGER)
     if (debugger_ != nullptr) {
         debugger_->RuleActionPreHook(Action);
     }
-#endif
 
     next(Action, a1, a2, a3, a4);
 
-#if !defined(OSI_NO_DEBUGGER)
     if (debugger_ != nullptr) {
         debugger_->RuleActionPostHook(Action);
     }
-#endif
 }
 
 void OsirisExtender::InitRuntimeLogging()

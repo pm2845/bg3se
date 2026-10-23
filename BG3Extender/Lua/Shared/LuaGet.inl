@@ -9,7 +9,7 @@ Table* lua_get_array(lua_State* L, int idx)
     }
 
     auto tab = hvalue(val);
-    if (tab->lsizenode > 0) {
+    if (!tab->sizearray && tab->lastfree) {
         luaL_error(L, "Param %d must be an array-like table, not a hashtable", idx);
         return nullptr;
     }
@@ -34,6 +34,39 @@ Table* lua_get_array_n(lua_State* L, int idx, int size)
     }
 
     return arr;
+}
+
+bool lua_typecheck_array_n(lua_State* L, int idx, int size)
+{
+    auto val = lua_index2addr(L, idx);
+    if (!ttistable(val)) return false;
+
+    auto tab = hvalue(val);
+    if (!tab->sizearray && tab->lastfree) return false;
+
+    return lua_get_array_size(tab) == size;
+}
+
+bool lua_is_linear_array(lua_State* L, int idx)
+{
+    auto val = lua_index2addr(L, idx);
+    if (!ttistable(val)) return false;
+
+    auto tab = hvalue(val);
+    if (tab->lastfree) return false;
+
+    // Skip trailing nil-s
+    unsigned int sz;
+    for (sz = tab->sizearray; sz > 0 && ttisnil(&tab->array[sz - 1]); sz--) {}
+
+    // Check if every real entry is non-nil
+    for (unsigned i = 0; i < sz; i++) {
+        if (ttisnil(&tab->array[i])) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 float lua_val_get_float(lua_State* L, TValue* val)
@@ -242,7 +275,7 @@ MathParam do_get(lua_State* L, int index, Overload<MathParam>)
         val.Arity = 1;
     } else if (ttistable(arg)) {
         auto tab = hvalue(arg);
-        if (tab->lsizenode > 0) {
+        if (!tab->sizearray && tab->lastfree) {
             luaL_error(L, "Param %d must be an array-like table, not a hashtable", index);
         }
 
@@ -255,7 +288,7 @@ MathParam do_get(lua_State* L, int index, Overload<MathParam>)
         default: luaL_error(L, "Param %d: Unsupported vector or matrix size (%d)", index, val.Arity); break;
         }
     } else {
-        luaL_error(L, "Param %d: expected a table, got %s", GetDebugName(L, index));
+        luaL_error(L, "Param %d: expected a table, got %s", index, GetDebugName(L, index));
         val.Arity = 0;
     }
 
@@ -264,8 +297,42 @@ MathParam do_get(lua_State* L, int index, Overload<MathParam>)
 
 stats::ConditionId do_get(lua_State* L, int index, Overload<stats::ConditionId>)
 {
-    luaL_error(L, "Setting ConditionId values is not supported");
-    return {};
+    auto conditions = get<std::optional<StringView>>(L, index);
+    if (!conditions) {
+        return {};
+    }
+
+    auto id = GetStaticSymbols().GetStats()->GetOrCreateConditions(STDString(*conditions));
+    return stats::ConditionId{ id };
+}
+
+StatsExpressionRef do_get(lua_State* L, int index, Overload<StatsExpressionRef>)
+{
+    // If it's a string, parse through the dynamic expression manager
+    auto str = get<std::optional<StringView>>(L, index);
+    if (str) {
+        auto manager = GetStaticSymbols().eoc__DynamicStatsExpressionManager;
+        Guid hash = StatsExpressionInternal::Hash(*str);
+        return (*manager)->CreateStatsExpression(hash, *str);
+    }
+
+    // If it's a refcounted stats expression, reference it directly
+    auto expr = get<StatsExpressionPooled*>(L, index);
+    return StatsExpressionRef(expr);
+}
+
+EntityOrVec3Variant do_get(lua_State* L, int index, Overload<EntityOrVec3Variant>)
+{
+    EntityOrVec3Variant v;
+    if (lua_type(L, index) == LUA_TTABLE) {
+        v.Position = do_get(L, index, Overload<glm::vec3>{});
+        v.Type = 1;
+    } else {
+        v.Entity = do_get(L, index, Overload<EntityHandle>{});
+        v.Type = 0;
+    }
+
+    return v;
 }
 
 Ref do_get(lua_State* L, int index, Overload<Ref>)
@@ -276,11 +343,6 @@ Ref do_get(lua_State* L, int index, Overload<Ref>)
 RegistryEntry do_get(lua_State* L, int index, Overload<RegistryEntry>)
 {
     return RegistryEntry(L, index);
-}
-
-PersistentRef do_get(lua_State* L, int index, Overload<PersistentRef>)
-{
-    return PersistentRef(L, index);
 }
 
 PersistentRegistryEntry do_get(lua_State* L, int index, Overload<PersistentRegistryEntry>)

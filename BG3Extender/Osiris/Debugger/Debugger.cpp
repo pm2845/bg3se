@@ -4,7 +4,6 @@
 #include <Extender/ScriptExtender.h>
 #include <sstream>
 
-#if !defined(OSI_NO_DEBUGGER)
 #undef DUMP_TRACEPOINTS
 
 namespace bg3se::osidbg
@@ -45,9 +44,9 @@ namespace bg3se::osidbg
 
         auto const & goalDb = (*globals_.Goals);
         for (unsigned i = 0; i < goalDb->NumItems; i++) {
-            auto goal = goalDb->Goals.Find(i + 1);
-            AddRuleActionMappings(nullptr, *goal, true, (*goal)->InitCalls);
-            AddRuleActionMappings(nullptr, *goal, false, (*goal)->ExitCalls);
+            auto goal = goalDb->Goals[i + 1];
+            AddRuleActionMappings(nullptr, goal, true, goal->InitCalls);
+            AddRuleActionMappings(nullptr, goal, false, goal->ExitCalls);
         }
     }
 
@@ -55,7 +54,7 @@ namespace bg3se::osidbg
     {
         auto mapping = ruleActionMappings_.find(action);
         if (mapping == ruleActionMappings_.end()) {
-            WARN("Debugger::FindActionMapping(%016x): Could not find action mapping for rule action", action);
+            WARN("Debugger::FindActionMapping(%p): Could not find action mapping for rule action", action);
             return nullptr;
         }
 
@@ -107,7 +106,7 @@ namespace bg3se::osidbg
         uint64_t breakpointId;
         if (actionIndex == -1) {
             if (nodeId == 0) {
-                WARN("Debugger::AddBreakpoint(): Node ID must be nonzero for node actions", nodeId);
+                WARN("Debugger::AddBreakpoint(): Node ID (%d) must be nonzero for node actions", nodeId);
                 return ResultCode::InvalidNodeId;
             }
 
@@ -131,7 +130,7 @@ namespace bg3se::osidbg
             }
         }
 
-        DEBUG("Debugger::AddBreakpoint(): Set on key %016x to %08x", breakpointId, type);
+        DEBUG("Debugger::AddBreakpoint(): Set on key %016llx to %08x", breakpointId, type);
         Breakpoint bp;
         bp.nodeId = nodeId;
         bp.goalId = goalId;
@@ -486,8 +485,8 @@ namespace bg3se::osidbg
     {
         auto const & goalDb = (*globals_.Goals);
         for (unsigned i = 0; i < goalDb->NumItems; i++) {
-            auto goal = goalDb->Goals.Find(i + 1);
-            messageHandler_.SendSyncStory(*goal);
+            auto goal = goalDb->Goals[i + 1];
+            messageHandler_.SendSyncStory(goal);
         }
 
         auto const & databaseDb = (*globals_.Databases)->Db;
@@ -514,58 +513,45 @@ namespace bg3se::osidbg
         breakpointCv_.notify_one();
     }
 
-    void MsgToValue(MsgTypedValue const & msg, TypedValue & tv, void * tvVmt)
+    void MsgToValue(MsgTypedValue const & msg, TypedValue & tv)
     {
-        tv.VMT = tvVmt;
-        tv.TypeId = msg.type_id();
+        auto type = (ValueType)msg.type_id();
         switch ((ValueType)msg.type_id()) {
         case ValueType::None:
             break;
 
         case ValueType::Integer:
-            tv.Value.Int32 = (int32_t)msg.intval();
+            tv.SetValue(type, (int32_t)msg.intval());
             break;
 
         case ValueType::Integer64:
-            tv.Value.Int64 = msg.intval();
+            tv.SetValue(type, (int64_t)msg.intval());
             break;
 
         case ValueType::Real:
-            tv.Value.Float = msg.floatval();
+            tv.SetValue(type, msg.floatval());
             break;
 
         case ValueType::String:
         case ValueType::GuidString:
         default:
-            tv.Value.String = _strdup(msg.stringval().c_str());
+            tv.SetValue(type, msg.stringval().c_str());
             break;
         }
     }
 
-    void MsgToTuple(MsgTuple const & msg, VirtTupleLL & tuple, void * tvVmt)
+    void MsgToTuple(MsgTuple const & msg, SmallTuple& tuple)
     {
-        tuple.Data.Items.Size = msg.column_size();
-        auto head = new ListNode<TupleLL::Item>();
-        tuple.Data.Items.Head = head;
-        head->Head = head;
-        head->Next = head;
+        tuple.Reserve(msg.column_size());
 
-        auto prev = head;
         for (int i = 0; i < msg.column_size(); i++) {
-            auto item = new ListNode<TupleLL::Item>();
-            item->Head = head;
-            item->Next = head;
-            prev->Next = item;
-
+            auto& tv = tuple.Add();
             auto & param = msg.column()[i];
-            item->Item.Index = i;
-            MsgToValue(param, item->Item.Value, tvVmt);
-
-            prev = item;
+            MsgToValue(param, tv);
         }
     }
 
-    void MsgToTuple(MsgTuple const & msg, TuplePtrLL & tuple, void * tvVmt)
+    void MsgToTuple(MsgTuple const & msg, TuplePtrLL & tuple)
     {
         auto & items = tuple.Items;
         items.Init();
@@ -575,20 +561,16 @@ namespace bg3se::osidbg
             auto & param = msg.column()[i];
             prev = items.Insert(prev);
             prev->Item = new TypedValue();
-            MsgToValue(param, *prev->Item, tvVmt);
+            MsgToValue(param, *prev->Item);
         }
     }
 
-    void TupClearOutParams(VirtTupleLL & tuple, FunctionSignature const & signature)
+    void TupClearOutParams(SmallTuple& tuple, FunctionSignature const & signature)
     {
-        auto head = tuple.Data.Items.Head;
-        auto cur = head->Next;
-        for (unsigned i = 0; i < tuple.Data.Items.Size; i++) {
+        for (unsigned i = 0; i < tuple.Size(); i++) {
             if (signature.OutParamList.isOutParam(i)) {
-                cur->Item.Value.TypeId = (uint32_t)ValueType::None;
+                tuple[i].ClearValue();
             }
-
-            cur = cur->Next;
         }
     }
 
@@ -626,7 +608,7 @@ namespace bg3se::osidbg
         auto const & sig = node->Function->Signature;
         if (params.column_size() != sig->Params->Params.Size) {
             WARN("Debugger::EvaluateInServerThread(): Got %d params, but node %d has %d!",
-                params.column_size(), nodeId, sig->Params->Params.Size);
+                params.column_size(), nodeId, (unsigned)sig->Params->Params.Size);
             return ResultCode::InvalidParamTupleArity;
         }
 
@@ -655,19 +637,14 @@ namespace bg3se::osidbg
             return ResultCode::NoAdapter;
         }
 
-        if (globals_.TypedValueVMT == nullptr) {
-            WARN("Debugger::EvaluateInServerThread(): TypedValue VMT not available");
-            return ResultCode::EvalEngineNotReady;
-        }
-
         breakpoints_.SetDebuggingDisabled(true);
 
         switch (type)
         {
         case EvalType::IsValid:
         {
-            VirtTupleLL tuple;
-            MsgToTuple(params, tuple, globals_.TypedValueVMT);
+            SmallTuple tuple;
+            MsgToTuple(params, tuple);
             // Evaluate whether the query succeeds
             querySucceeded = node->IsValid(&tuple, adapter->Id);
             // Fetch output values
@@ -683,7 +660,7 @@ namespace bg3se::osidbg
         case EvalType::Insert:
         {
             TuplePtrLL tuple;
-            MsgToTuple(params, tuple, globals_.TypedValueVMT);
+            MsgToTuple(params, tuple);
             node->InsertTuple(&tuple);
             break;
         }
@@ -691,7 +668,7 @@ namespace bg3se::osidbg
         case EvalType::Delete:
         {
             TuplePtrLL tuple;
-            MsgToTuple(params, tuple, globals_.TypedValueVMT);
+            MsgToTuple(params, tuple);
             node->DeleteTuple(&tuple);
             break;
         }
@@ -806,7 +783,7 @@ namespace bg3se::osidbg
         if (lastFrame.frameType != frame.frameType
             || lastFrame.node != frame.node
             || lastFrame.goal != frame.goal
-            || lastFrame.tupleLL != frame.tupleLL
+            || lastFrame.tuple != frame.tuple
             || lastFrame.tuplePtrLL != frame.tuplePtrLL
             || lastFrame.actionIndex != frame.actionIndex) {
             Fail("Call stack frame mismatch");
@@ -815,10 +792,10 @@ namespace bg3se::osidbg
         callStack_.pop_back();
     }
 
-    void Debugger::IsValidPreHook(Node * node, VirtTupleLL * tuple, uint32_t adapter)
+    void Debugger::IsValidPreHook(Node * node, SmallTuple* tuple, uint32_t adapter)
     {
         ServerThreadReentry();
-        PushFrame({ BreakpointReason::NodeIsValid, node, nullptr, 0, &tuple->Data, nullptr });
+        PushFrame({ BreakpointReason::NodeIsValid, node, nullptr, 0, tuple, nullptr });
 
 #if defined(DUMP_TRACEPOINTS)
         DEBUG("IsValid(Node %d)", node->Id);
@@ -830,7 +807,7 @@ namespace bg3se::osidbg
             GlobalBreakOnValid);
     }
 
-    void Debugger::IsValidPostHook(Node * node, VirtTupleLL * tuple, uint32_t adapter, bool succeeded)
+    void Debugger::IsValidPostHook(Node * node, SmallTuple* tuple, uint32_t adapter, bool succeeded)
     {
         hasLastQueryInfo_ = true;
         lastQueryDepth_ = (uint32_t)callStack_.size();
@@ -843,14 +820,14 @@ namespace bg3se::osidbg
         }
 
         ServerThreadReentry();
-        PopFrame({ BreakpointReason::NodeIsValid, node, nullptr, 0, &tuple->Data, nullptr });
+        PopFrame({ BreakpointReason::NodeIsValid, node, nullptr, 0, tuple, nullptr });
     }
 
-    void Debugger::PushDownPreHook(Node * node, VirtTupleLL * tuple, uint32_t adapter, EntryPoint entry, bool deleted)
+    void Debugger::PushDownPreHook(Node * node, SmallTuple* tuple, uint32_t adapter, EntryPoint entry, bool deleted)
     {
         ServerThreadReentry();
         auto reason = deleted ? BreakpointReason::NodePushDownTupleDelete : BreakpointReason::NodePushDownTuple;
-        PushFrame({ reason, node, nullptr, 0, &tuple->Data, nullptr });
+        PushFrame({ reason, node, nullptr, 0, tuple, nullptr });
 
 #if defined(DUMP_TRACEPOINTS)
         DEBUG("PushDown(Node %d)", node->Id);
@@ -864,7 +841,7 @@ namespace bg3se::osidbg
         hasLastQueryInfo_ = false;
     }
 
-    void Debugger::PushDownPostHook(Node * node, VirtTupleLL * tuple, uint32_t adapter, EntryPoint entry, bool deleted)
+    void Debugger::PushDownPostHook(Node * node, SmallTuple* tuple, uint32_t adapter, EntryPoint entry, bool deleted)
     {
         // Trigger a failed query breakpoint if the last query didn't succeed
         if (hasLastQueryInfo_
@@ -879,7 +856,7 @@ namespace bg3se::osidbg
 
         ServerThreadReentry();
         auto reason = deleted ? BreakpointReason::NodePushDownTupleDelete : BreakpointReason::NodePushDownTuple;
-        PopFrame({ reason, node, nullptr, 0, &tuple->Data, nullptr });
+        PopFrame({ reason, node, nullptr, 0, tuple, nullptr });
     }
 
     void Debugger::InsertPreHook(Node * node, TuplePtrLL * tuple, bool deleted)
@@ -981,9 +958,9 @@ namespace bg3se::osidbg
             && action->Arguments->Args.Size == 1
             && strcmp(action->FunctionName, "DebugBreak") == 0) {
             TypedValue * message = action->Arguments->Args.Head->Next->Item;
-            if (message->TypeId == (uint32_t)ValueType::String
-                && message->Value.String != nullptr) {
-                messageHandler_.SendDebugOutput(message->Value.String);
+            if (message->TypeId == ValueType::String
+                && *message->GetString()) {
+                messageHandler_.SendDebugOutput(message->GetString());
             }
             else {
                 WARN("Invalid message parameter type for DebugBreak(): %d", message->TypeId);
@@ -1018,5 +995,3 @@ namespace bg3se::osidbg
         PopFrame({ reason, mapping->rule, mapping->goal, mapping->actionIndex, nullptr, nullptr });
     }
 }
-
-#endif

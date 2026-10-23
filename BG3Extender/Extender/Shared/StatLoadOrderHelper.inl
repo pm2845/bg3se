@@ -24,8 +24,8 @@ void StatLoadOrderHelper::UpdateModDirectoryMap()
 
     auto modManager = gExtender->GetCurrentExtensionState()->GetModManager();
     if (modManager) {
-        for (auto const& mod : modManager->BaseModule.LoadOrderedModules) {
-            modDirectoryToModMap_.insert(std::make_pair(mod.Info.Directory, mod.Info.ModuleUUIDString));
+        for (auto const& mod : modManager->LoadOrderedModules) {
+           modDirectoryToModMap_.insert(std::make_pair(mod.Info.Directory, mod.Info.ModuleUUIDString));
         }
     }
 }
@@ -87,7 +87,7 @@ std::vector<Object*> StatLoadOrderHelper::GetStatsLoadedBefore(FixedString modId
     if (!state) return {};
 
     bool modIdFound{ false };
-    for (auto const& mod : state->GetModManager()->BaseModule.LoadOrderedModules) {
+    for (auto const& mod : state->GetModManager()->LoadOrderedModules) {
         modsLoadedBefore.insert(mod.Info.ModuleUUIDString);
         if (mod.Info.ModuleUUIDString == modId) {
             modIdFound = true;
@@ -102,7 +102,7 @@ std::vector<Object*> StatLoadOrderHelper::GetStatsLoadedBefore(FixedString modId
 
     std::vector<Object*> statsLoadedBefore;
     auto stats = GetStaticSymbols().GetStats();
-    for (auto const& object : stats->Objects.Primitives) {
+    for (auto object : stats->Objects.Values) {
         auto statEntryMod = GetStatsEntryMod(object->Name);
         if (statEntryMod && modsLoadedBefore.find(statEntryMod->LastMod) != modsLoadedBefore.end()) {
             statsLoadedBefore.push_back(object);

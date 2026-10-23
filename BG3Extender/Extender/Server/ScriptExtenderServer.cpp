@@ -34,7 +34,8 @@ char const * GameStateNames[] =
 };
 
 ScriptExtender::ScriptExtender(ExtenderConfig& config)
-    : osiris_(config)
+    : ThreadedExtenderState(ContextType::Server), 
+    osiris_(config)
 {
 }
 
@@ -57,7 +58,7 @@ void ScriptExtender::Initialize()
         DetourTransactionCommit();
 
         gameStateWorkerStart_.SetWrapper(&ScriptExtender::GameStateWorkerWrapper, this);
-        gameStateMachineUpdate_.SetPostHook(&ScriptExtender::OnUpdate, this);
+        gameStateMachineUpdate_.SetPrePostHook(&ScriptExtender::PreUpdate, &ScriptExtender::PostUpdate, this);
 
         gExtender->GetEngineHooks().esv__OsirisVariableHelper__SavegameVisit.SetPreHook(&ScriptExtender::OnSavegameVisit, this);
     }
@@ -65,6 +66,7 @@ void ScriptExtender::Initialize()
 
 void ScriptExtender::Shutdown()
 {
+    ContextGuardAnyThread _(ContextType::Server);
     ResetExtensionState();
     osiris_.Shutdown();
 }
@@ -101,11 +103,12 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
 {
 #if defined(DEBUG_SERVER_CLIENT)
         DEBUG("esv::ScriptExtender::OnGameStateChanged(): %s -> %s", 
-            ServerGameStateNames[(unsigned)fromState], ServerGameStateNames[(unsigned)toState]);
+            GameStateNames[(unsigned)fromState], GameStateNames[(unsigned)toState]);
 #endif
 
     if (fromState != GameState::Unknown) {
-        AddThread(GetCurrentThreadId());
+        BindToThreadPersistent();
+        OPTICK_START_THREAD("Server");
     }
 
     switch (fromState) {
@@ -123,6 +126,7 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
 
     switch (toState) {
     case GameState::Init:
+        entityHelpers_.Bind();
         network_.ExtendNetworking();
         break;
         
@@ -132,6 +136,7 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
 
     case GameState::UnloadSession:
         INFO("esv::ScriptExtender::OnGameStateChanged(): Unloading session");
+        entityHelpers_.OnDestroy();
         ResetExtensionState();
         break;
 
@@ -141,6 +146,7 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
 
     case GameState::LoadSession:
         INFO("esv::ScriptExtender::OnGameStateChanged(): Loading game session");
+        entityHelpers_.OnInit();
         LoadExtensionState(ExtensionStateContext::Game);
         network_.ExtendNetworking();
         if (extensionState_) {
@@ -149,8 +155,11 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
         break;
 
     case GameState::LoadLevel:
-        if (extensionState_ && extensionState_->GetLua()) {
-            extensionState_->GetLua()->OnLevelLoading();
+        if (extensionState_) {
+            LuaServerPin lua(*extensionState_);
+            if (lua) {
+                lua->OnLevelLoading();
+            }
         }
         break;
     }
@@ -174,13 +183,13 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
 
 void ScriptExtender::GameStateWorkerWrapper(void (* wrapped)(void *), void* self)
 {
-    AddThread(GetCurrentThreadId());
+    ContextGuard _(ContextType::Server);
     wrapped(self);
-    RemoveThread(GetCurrentThreadId());
 }
 
-void ScriptExtender::OnUpdate(void* self, GameTime* time)
+void ScriptExtender::PreUpdate(void* self, GameTime* time)
 {
+    network_.Update();
     RunPendingTasks();
     if (extensionState_) {
         extensionState_->OnUpdate(*time);
@@ -190,16 +199,15 @@ void ScriptExtender::OnUpdate(void* self, GameTime* time)
     }
 }
 
-bool ScriptExtender::IsInServerThread() const
+void ScriptExtender::PostUpdate(void* self, GameTime* time)
 {
-    return IsInThread();
+    network_.Update();
+    RunPendingTasks();
 }
 
 void ScriptExtender::ResetLuaState()
 {
     if (extensionState_ && extensionState_->GetLua()) {
-        bool serverThread = IsInServerThread();
-
         auto ext = extensionState_.get();
         ext->AddPostResetCallback([ext]() {
             ext->OnModuleResume();
@@ -208,10 +216,10 @@ void ScriptExtender::ResetLuaState()
                 ext->OnGameSessionLoading();
                 ext->OnGameSessionLoaded();
                 ext->StoryLoaded();
-                ext->OnResetCompleted();
             }
+            ext->OnResetCompleted();
         });
-        ext->LuaReset(true);
+        ext->RequestLuaReset(true);
     }
 }
 
@@ -234,6 +242,8 @@ bool ScriptExtender::RequestResetClientLuaState()
 
 void ScriptExtender::ResetExtensionState()
 {
+    network_.OnResetExtensionState();
+    extensionState_.reset();
     extensionState_ = std::make_unique<ExtensionState>();
     extensionState_->Reset();
     extensionLoaded_ = false;
@@ -258,7 +268,7 @@ void ScriptExtender::LoadExtensionState(ExtensionStateContext ctx)
         gExtender->GetLibraryManager().ApplyCodePatches();
         network_.ExtendNetworking();
         osiris_.GetCustomFunctionManager().ClearDynamicEntries();
-        extensionState_->LuaReset(ctx, true);
+        extensionState_->RequestLuaReset(ctx, true);
     }
 
     extensionLoaded_ = true;

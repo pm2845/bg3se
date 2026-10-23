@@ -34,7 +34,7 @@ public:
         : ref_(o.ref_)
     {}
 
-    inline LuaDelegate(LuaDelegate && o)
+    inline LuaDelegate(LuaDelegate && o) noexcept
     {
         ref_ = std::move(o.ref_);
     }
@@ -45,7 +45,7 @@ public:
         return *this;
     }
     
-    inline LuaDelegate& operator = (LuaDelegate && o)
+    inline LuaDelegate& operator = (LuaDelegate && o) noexcept
     {
         ref_ = std::move(o.ref_);
         return *this;
@@ -56,26 +56,26 @@ public:
         return (bool)ref_;
     }
 
-    inline void Push() const
+    inline void Push(lua_State* L) const
     {
-        ref_.Push();
+        ref_.Push(L);
     }
 
-    TRet Call(TArgs... args)
+    TRet Call(lua_State* L, TArgs... args)
     {
         if constexpr (std::is_same_v<TRet, void>) {
-            Call(std::tuple(args...));
+            Call(L, std::tuple(args...));
         } else {
-            return Call(std::tuple(args...));
+            return Call(L, std::tuple(args...));
         }
     }
 
-    TRet Call(ArgumentTuple const& args)
+    TRet Call(lua_State* L, ArgumentTuple const& args)
     {
-        auto L = ref_.GetState();
+        EnterVMCheck(L);
         StackCheck _(L);
 
-        ref_.Push();
+        ref_.Push(L);
         Ref func(L, lua_absindex(L, -1));
 
         ProtectedFunctionCaller<ArgumentTuple, TRet> caller{ func, args };
@@ -105,12 +105,12 @@ public:
         : delegate_(delegate), args_(std::tuple(args...))
     {}
 
-    TRet Call()
+    TRet Call(lua_State* L)
     {
         if constexpr (std::is_same_v<TRet, void>) {
-            delegate_.Call(args_);
+            delegate_.Call(L, args_);
         } else {
-            return delegate_.Call(args_);
+            return delegate_.Call(L, args_);
         }
     }
 
@@ -123,7 +123,7 @@ class GenericDeferredLuaDelegateCall
 {
 public:
     virtual ~GenericDeferredLuaDelegateCall() {}
-    virtual void Call() = 0;
+    virtual void Call(lua_State* L) = 0;
 };
 
 template <class TRet, class... TArgs>
@@ -136,9 +136,9 @@ public:
 
     ~DeferredLuaDelegateCallImpl() override {}
 
-    void Call() override
+    void Call(lua_State* L) override
     {
-        call_.Call();
+        call_.Call(L);
     }
 
 private:
@@ -148,6 +148,12 @@ private:
 class DeferredLuaDelegateQueue
 {
 public:
+    inline DeferredLuaDelegateQueue(char const* name)
+#if USE_OPTICK
+        : description_(OPTICK_DESC(name, "", 0, IO))
+#endif
+    {}
+
     template <class TRet, class... TArgs>
     void Call(LuaDelegate<TRet(TArgs...)> const& delegate, TArgs... args)
     {
@@ -166,10 +172,14 @@ public:
         queue_.push_back(call);
     }
 
+    void Flush(lua_State* L);
     void Flush();
 
 private:
     Array<GenericDeferredLuaDelegateCall*> queue_;
+#if USE_OPTICK
+    ::Optick::EventDescription* description_;
+#endif
 };
 
 END_NS()

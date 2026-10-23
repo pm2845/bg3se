@@ -16,10 +16,11 @@ bool CustomLuaCall::Call(OsiArgumentDesc const & params)
         return false;
     }
 
+    VMCallEntry _(&*lua);
+
     auto L = lua->GetState();
-    lua_checkstack(L, params.Count() + 1);
-    LifetimeStackPin _(lua->GetStack());
-    handler_.Push();
+    lua_checkstack(L, params.Count() + 2);
+    handler_.Push(L);
 
     auto param = &params;
     int numParams{ 0 };
@@ -51,16 +52,16 @@ bool ServerState::Query(char const* mod, char const* name, RegistryEntry * func,
         auto stackRemaining = lua_gettop(L) - stackSize;
         if (stackRemaining > 0) {
             if (mod != nullptr) {
-                LuaError("Call to mod query '" << mod << "'.'" << func << "' failed: " << lua_tostring(L, -1));
+                LuaError("Call to mod query '" << mod << "'.'" << name << "' failed: " << lua_tostring(L, -1));
             } else {
-                LuaError("Call to mod query '" << func << "' failed: " << lua_tostring(L, -1));
+                LuaError("Call to mod query '" << name << "' failed: " << lua_tostring(L, -1));
             }
             lua_pop(L, stackRemaining);
         } else {
             if (mod != nullptr) {
-                LuaError("Internal error during call to mod query '" << mod << "'.'" << func << "'");
+                LuaError("Internal error during call to mod query '" << mod << "'.'" << name << "'");
             } else {
-                LuaError("Internal error during call to mod query '" << func << "'");
+                LuaError("Internal error during call to mod query '" << name << "'");
             }
         }
 
@@ -72,13 +73,13 @@ bool ServerState::Query(char const* mod, char const* name, RegistryEntry * func,
 bool ServerState::QueryInternal(char const* mod, char const* name, RegistryEntry * func,
     std::vector<CustomFunctionParam> const & signature, OsiArgumentDesc & params)
 {
-    auto L = GetState();
-    lua_checkstack(L, params.Count() + 1);
-    LifetimeStackPin _(GetStack());
+    VMCallEntry _(this);
 
+    auto L = GetState();
+    lua_checkstack(L, params.Count() + 2);
     auto stackSize = lua_gettop(L);
     if (func) {
-        func->Push();
+        func->Push(L);
     } else if (mod != nullptr) {
         PushModFunction(L, mod, name);
     } else {
@@ -117,6 +118,7 @@ bool ServerState::QueryInternal(char const* mod, char const* name, RegistryEntry
         if (numReturnValues == 1) {
             auto retType = lua_type(L, -1);
             if (retType != LUA_TBOOLEAN) {
+                lua_pop(L, numReturnValues);
                 OsiError("Handler for '" << name << "' returned type " << retType << "; expected boolean");
                 return false;
             }

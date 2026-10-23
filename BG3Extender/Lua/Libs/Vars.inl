@@ -15,30 +15,24 @@ UserVariableFlags ParseUserVariableFlags(lua_State* L, int index)
         flags |= UserVariableFlags::IsOnClient;
     }
 
-    if ((flags & UserVariableFlags::IsOnServer) == UserVariableFlags::IsOnServer) {
-        if (try_gettable<bool>(L, "WriteableOnServer", index, true)) {
-            flags |= UserVariableFlags::WriteableOnServer;
-        }
-
-        if (try_gettable<bool>(L, "Persistent", index, true)) {
-            flags |= UserVariableFlags::Persistent;
-        }
+    if (try_gettable<bool>(L, "WriteableOnServer", index, true)) {
+        flags |= UserVariableFlags::WriteableOnServer;
     }
 
-    if ((flags & UserVariableFlags::IsOnClient) == UserVariableFlags::IsOnClient) {
-        if (try_gettable<bool>(L, "WriteableOnClient", index, false)) {
-            flags |= UserVariableFlags::WriteableOnClient;
-        }
+    if (try_gettable<bool>(L, "Persistent", index, true)) {
+        flags |= UserVariableFlags::Persistent;
     }
 
-    if ((flags & (UserVariableFlags::IsOnClient|UserVariableFlags::IsOnServer)) == (UserVariableFlags::IsOnClient | UserVariableFlags::IsOnServer)) {
-        if (try_gettable<bool>(L, "SyncToClient", index, false)) {
-            flags |= UserVariableFlags::SyncServerToClient;
-        }
+    if (try_gettable<bool>(L, "WriteableOnClient", index, false)) {
+        flags |= UserVariableFlags::WriteableOnClient;
+    }
 
-        if (try_gettable<bool>(L, "SyncToServer", index, false)) {
-            flags |= UserVariableFlags::SyncClientToServer;
-        }
+    if (try_gettable<bool>(L, "SyncToClient", index, false)) {
+        flags |= UserVariableFlags::SyncServerToClient;
+    }
+
+    if (try_gettable<bool>(L, "SyncToServer", index, false)) {
+        flags |= UserVariableFlags::SyncClientToServer;
     }
 
     if (try_gettable<bool>(L, "SyncOnWrite", index, false)) {
@@ -63,18 +57,21 @@ void RegisterUserVariable(lua_State* L, FixedString name)
 
     luaL_checktype(L, 2, LUA_TTABLE);
     proto.Flags = ParseUserVariableFlags(L, 2);
+    proto.SanityCheckFlags(name);
 
     vars.RegisterPrototype(name, proto);
 }
 
 void SyncUserVariables(lua_State* L)
 {
+    State::FromLua(L)->GetVariableManager().Flush();
     auto& vars = ExtensionStateBase::FromLua(L).GetUserVariables();
     vars.Flush(true);
 }
 
 void DirtyUserVariables(lua_State* L, std::optional<Guid> entityGuid, std::optional<FixedString> key)
 {
+    State::FromLua(L)->GetVariableManager().Flush();
     auto& vars = ExtensionStateBase::FromLua(L).GetUserVariables();
     if (!entityGuid) {
         for (auto& entity : vars.GetAll()) {
@@ -141,12 +138,14 @@ UserReturn GetModVariables(lua_State* L, Guid moduleUuid)
 
 void SyncModVariables(lua_State* L)
 {
+    State::FromLua(L)->GetModVariableManager().Flush();
     auto& vars = ExtensionStateBase::FromLua(L).GetModVariables();
     vars.Flush(true);
 }
 
 void DirtyModVariables(lua_State* L, std::optional<Guid> moduleUuid, std::optional<FixedString> key)
 {
+    State::FromLua(L)->GetModVariableManager().Flush();
     auto& vars = ExtensionStateBase::FromLua(L).GetModVariables();
     if (!moduleUuid) {
         for (auto& mod : vars.GetAll()) {

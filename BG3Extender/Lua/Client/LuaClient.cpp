@@ -5,13 +5,9 @@
 #include <Extender/ScriptExtender.h>
 #include <Extender/Client/ExtensionStateClient.h>
 #include "resource.h"
-#if defined(ENABLE_UI)
 #include <Lua/Client/UIEvents.inl>
-#endif
-#if defined(ENABLE_IMGUI)
 #include <Extender/Client/IMGUI/IMGUI.h>
 #include <Extender/Client/IMGUI/Objects.h>
-#endif
 #include <SDL_events.h>
 
 #include <Lua/Client/ClientEntityReplicationEvents.inl>
@@ -22,13 +18,13 @@ using namespace bg3se::lua;
 
 LifetimeHandle GetClientLifetime()
 {
-    assert(gExtender->GetClient().IsInClientThread());
+    se_assert(gExtender->GetClient().IsInContext());
     return ExtensionState::Get().GetLua()->GetCurrentLifetime();
 }
 
 LifetimePool& GetClientLifetimePool()
 {
-    assert(gExtender->GetClient().IsInClientThread());
+    se_assert(gExtender->GetClient().IsInContext());
     return ExtensionState::Get().GetLua()->GetLifetimePool();
 }
 
@@ -53,37 +49,34 @@ void ExtensionLibraryClient::RegisterLib(lua_State * L)
 
 ClientState* ClientState::FromLua(lua_State* L)
 {
-    assert(gExtender->GetClient().IsInClientThread());
+    se_assert(GetCurrentContextType() == ContextType::Client);
     return static_cast<ClientState*>(State::FromLua(L));
 }
 
 ClientState::ClientState(ExtensionState& state, uint32_t generationId)
     : State(state, generationId, false),
-    replicationHooks_(*this)
-#if defined(ENABLE_UI)
-    , uiEvents_(*this)
-#endif
+    replicationHooks_(*this),
+    uiEvents_(*this),
+    deferredUIEvents_(*this)
 {}
 
 ClientState::~ClientState()
 {
     auto & sym = GetStaticSymbols();
 
-#if defined(ENABLE_IMGUI)
+    ecl::lua::ui::ReleasePropertyChangeHandlers(L);
+
     if (imgui_) {
         gExtender->IMGUI().SetObjects(nullptr);
         delete imgui_;
     }
-#endif
 
-#if !defined(OSI_NO_DEBUGGER)
     if (gExtender) {
         auto debugger = gExtender->GetLuaDebugger();
         if (debugger) {
             debugger->ClientStateDeleted();
         }
     }
-#endif
 }
 
 void ClientState::Initialize()
@@ -97,12 +90,10 @@ void ClientState::Initialize()
     // Ext is not writeable after loading SandboxStartup!
     gExtender->GetClient().GetExtensionState().LuaLoadBuiltinFile("SandboxStartup.lua");
 
-#if !defined(OSI_NO_DEBUGGER)
     auto debugger = gExtender->GetLuaDebugger();
     if (debugger) {
         debugger->ClientStateCreated(this);
     }
-#endif
 }
 
 bool ClientState::IsClient()
@@ -114,12 +105,13 @@ void ClientState::OnUpdate(GameTime const& time)
 {
     State::OnUpdate(time);
     replicationHooks_.PostUpdate();
+    deferredUIEvents_.PostUpdate();
 }
 
 
 ecs::EntityWorld* ClientState::GetEntityWorld()
 {
-    return GetStaticSymbols().GetClientEntityWorld();
+    return gExtender->GetClient().GetEntityHelpers().GetEntityWorld();
 }
 
 
@@ -217,7 +209,6 @@ void ClientState::OnInputEvent(SDL_Event* event, int* result)
     }
 }
 
-#if defined(ENABLE_IMGUI)
 extui::IMGUIObjectManager& ClientState::IMGUI()
 {
     if (imgui_ == nullptr) {
@@ -227,6 +218,5 @@ extui::IMGUIObjectManager& ClientState::IMGUI()
 
     return *imgui_;
 }
-#endif
 
 END_NS()

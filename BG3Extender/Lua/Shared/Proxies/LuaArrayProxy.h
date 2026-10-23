@@ -2,54 +2,6 @@
 
 BEGIN_SE()
 
-BY_VAL(uint8_t);
-BY_VAL(int16_t);
-BY_VAL(uint16_t);
-BY_VAL(int32_t);
-BY_VAL(uint32_t);
-BY_VAL(int64_t);
-BY_VAL(uint64_t);
-BY_VAL(float);
-BY_VAL(double);
-BY_VAL(bool);
-BY_VAL(ComponentHandle);
-BY_VAL(EntityHandle);
-BY_VAL(ecs::EntityRef);
-BY_VAL(FixedString);
-BY_VAL(STDString);
-BY_VAL(STDWString);
-#if defined(ENABLE_UI)
-BY_VAL(Noesis::String);
-BY_VAL(Noesis::Symbol);
-#endif
-BY_VAL(Guid);
-BY_VAL(Path);
-BY_VAL(NetId);
-BY_VAL(UserId);
-BY_VAL(Version);
-BY_VAL(glm::ivec2);
-BY_VAL(glm::ivec4);
-BY_VAL(glm::vec2);
-BY_VAL(glm::vec3);
-BY_VAL(glm::vec4);
-BY_VAL(glm::aligned_highp_vec4);
-BY_VAL(glm::quat);
-BY_VAL(glm::mat3);
-BY_VAL(glm::mat3x4);
-BY_VAL(glm::mat4x3);
-BY_VAL(glm::mat4);
-BY_VAL(TypeInformationRef);
-BY_VAL(lua::Ref);
-BY_VAL(lua::PersistentRef);
-BY_VAL(lua::RegistryEntry);
-BY_VAL(lua::PersistentRegistryEntry);
-
-template <class T> 
-struct ByVal<lua::LuaDelegate<T>> { static constexpr bool Value = true; };
-
-template <class T> 
-struct ByVal<OverrideableProperty<T>> { static constexpr bool Value = IsByVal<T>; };
-
 END_SE()
 
 BEGIN_NS(lua)
@@ -117,7 +69,15 @@ public:
             auto size = obj->size();
             if (arrayIndex > 0 && arrayIndex <= size) {
                 if (lua_type(L, luaIndex) == LUA_TNIL) {
-                    obj->erase(obj->begin() + arrayIndex - 1);
+                    if constexpr (std::is_same_v<TContainer, Queue<T>>) {
+                        if (arrayIndex == 1) {
+                            obj->pop();
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        obj->erase(obj->begin() + arrayIndex - 1);
+                    }
                 } else {
                     (*obj)[arrayIndex - 1] = get<T>(L, luaIndex);
                 }
@@ -160,8 +120,8 @@ public:
     {
         auto obj = reinterpret_cast<TContainer*>(self.Ptr);
         if (key >= 0 && key < (int)obj->size()) {
-            push(L, ++key);
-            push(L, &(*obj)[key - 1], self.Lifetime);
+            push(L, key + 1);
+            push(L, &(*obj)[key], self.Lifetime);
             return 2;
         } else {
             return 0;
@@ -170,7 +130,6 @@ public:
 };
 
 
-#if defined(ENABLE_UI)
 template <class TContainer, class T, unsigned TContainerClassId>
 class DynamicNoesisArrayProxyImpl : public ArrayProxyImplBase
 {
@@ -256,8 +215,8 @@ public:
     {
         auto obj = reinterpret_cast<TContainer*>(self.Ptr);
         if (key >= 0 && key < (int)obj->Size()) {
-            push(L, ++key);
-            push(L, &(*obj)[key - 1], self.Lifetime);
+            push(L, key + 1);
+            push(L, &(*obj)[key], self.Lifetime);
             return 2;
         } else {
             return 0;
@@ -293,7 +252,7 @@ public:
 
     bool GetElement(lua_State* L, CppObjectMetadata& self, unsigned arrayIndex) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         if (arrayIndex > 0 && arrayIndex <= (unsigned)obj->Count()) {
             auto ref = obj->GetComponent(arrayIndex - 1);
             push(L, ref.GetPtr(), self.Lifetime);
@@ -305,18 +264,20 @@ public:
 
     bool SetElement(lua_State* L, CppObjectMetadata& self, unsigned arrayIndex, int luaIndex) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         if constexpr (std::is_default_constructible_v<T>) {
             auto size = (unsigned)obj->Count();
             if (arrayIndex > 0 && arrayIndex <= size) {
                 if (lua_type(L, luaIndex) == LUA_TNIL) {
                     obj->RemoveItem(arrayIndex - 1);
                 } else {
-                    obj->SetComponent(arrayIndex - 1, get<T>(L, luaIndex));
+                    obj->SetItem(arrayIndex - 1, get<T>(L, luaIndex));
                 }
                 return true;
             } else if (arrayIndex == size + 1) {
-                obj->AddComponent(get<T>(L, luaIndex));
+                if (lua_type(L, luaIndex) != LUA_TNIL) {
+                    obj->InsertItem(size, get<T>(L, luaIndex));
+                }
                 return true;
             } else {
                 return false;
@@ -328,13 +289,13 @@ public:
 
     unsigned Length(CppObjectMetadata& self) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         return (unsigned)obj->Count();
     }
 
     bool Unserialize(lua_State* L, CppObjectMetadata& self, int index) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         if constexpr (std::is_default_constructible_v<T>) {
             lua::Unserialize(L, index, obj);
             return true;
@@ -345,16 +306,16 @@ public:
 
     void Serialize(lua_State* L, CppObjectMetadata& self) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         lua::Serialize(L, obj);
     }
 
     int Next(lua_State* L, CppObjectMetadata& self, int key) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         if (key >= 0 && key < obj->Count()) {
-            push(L, ++key);
-            auto ref = obj->GetComponent(key - 1);
+            push(L, key + 1);
+            auto ref = obj->GetComponent(key);
             push(L, ref.GetPtr(), self.Lifetime);
             return 2;
         } else {
@@ -362,7 +323,6 @@ public:
         }
     }
 };
-#endif
 
 
 template <class TContainer, class T, unsigned TContainerClassId>
@@ -391,7 +351,7 @@ public:
 
     bool GetElement(lua_State* L, CppObjectMetadata& self, unsigned arrayIndex) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         if (arrayIndex > 0 && arrayIndex <= obj->size()) {
             push(L, &(*obj)[arrayIndex - 1], self.Lifetime);
             return true;
@@ -402,7 +362,7 @@ public:
 
     bool SetElement(lua_State* L, CppObjectMetadata& self, unsigned arrayIndex, int luaIndex) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         if constexpr (std::is_default_constructible_v<T>) {
             if (arrayIndex > 0 && arrayIndex <= obj->size()) {
                 lua::Unserialize(L, luaIndex, &(*obj)[arrayIndex - 1]);
@@ -417,13 +377,13 @@ public:
 
     unsigned Length(CppObjectMetadata& self) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         return (unsigned)obj->size();
     }
 
     bool Unserialize(lua_State* L, CppObjectMetadata& self, int index) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         if constexpr (std::is_default_constructible_v<T>) {
             lua::Unserialize(L, index, obj);
             return true;
@@ -434,16 +394,16 @@ public:
 
     void Serialize(lua_State* L, CppObjectMetadata& self) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         lua::Serialize(L, obj);
     }
 
     int Next(lua_State* L, CppObjectMetadata& self, int key) override
     {
-        auto obj = reinterpret_cast<TContainer*>(self.Ptr);
+        auto obj = static_cast<TContainer*>(self.Ptr);
         if (key >= 0 && (decltype(obj->size()))key < obj->size()) {
-            push(L, ++key);
-            push(L, &(*obj)[key - 1], self.Lifetime);
+            push(L, key + 1);
+            push(L, &(*obj)[key], self.Lifetime);
             return 2;
         } else {
             return 0;
@@ -476,7 +436,7 @@ public:
 
     bool GetElement(lua_State* L, CppObjectMetadata& self, unsigned arrayIndex) override
     {
-        auto obj = reinterpret_cast<ContainerType*>(self.Ptr);
+        auto obj = static_cast<ContainerType*>(self.Ptr);
         if (arrayIndex > 0 && arrayIndex <= obj->size()) {
             bool isSet = obj->IsSet(arrayIndex - 1);
             push(L, &isSet, self.Lifetime);
@@ -488,7 +448,7 @@ public:
 
     bool SetElement(lua_State* L, CppObjectMetadata& self, unsigned arrayIndex, int luaIndex) override
     {
-        auto obj = reinterpret_cast<ContainerType*>(self.Ptr);
+        auto obj = static_cast<ContainerType*>(self.Ptr);
         if (arrayIndex > 0 && arrayIndex <= obj->size()) {
             if (get<bool>(L, luaIndex)) {
                 obj->Set(arrayIndex - 1);
@@ -503,29 +463,29 @@ public:
 
     unsigned Length(CppObjectMetadata& self) override
     {
-        auto obj = reinterpret_cast<ContainerType*>(self.Ptr);
+        auto obj = static_cast<ContainerType*>(self.Ptr);
         return (unsigned)obj->size();
     }
 
     bool Unserialize(lua_State* L, CppObjectMetadata& self, int index) override
     {
-        auto obj = reinterpret_cast<ContainerType*>(self.Ptr);
+        auto obj = static_cast<ContainerType*>(self.Ptr);
         lua::Unserialize(L, index, obj);
         return true;
     }
 
     void Serialize(lua_State* L, CppObjectMetadata& self) override
     {
-        auto obj = reinterpret_cast<ContainerType*>(self.Ptr);
+        auto obj = static_cast<ContainerType*>(self.Ptr);
         lua::Serialize(L, obj);
     }
 
     int Next(lua_State* L, CppObjectMetadata& self, int key) override
     {
-        auto obj = reinterpret_cast<ContainerType*>(self.Ptr);
+        auto obj = static_cast<ContainerType*>(self.Ptr);
         if (key >= 0 && (decltype(obj->size()))key < obj->size()) {
-            push(L, ++key);
-            bool isSet = obj->IsSet(key - 1);
+            push(L, key + 1);
+            bool isSet = obj->IsSet(key);
             push(L, &isSet, self.Lifetime);
             return 2;
         } else {
@@ -548,134 +508,168 @@ public:
         return impl;
     }
 
-    inline static void MakeImpl(lua_State* L, void* object, LifetimeHandle const& lifetime, ArrayProxyImplBase* impl)
+    inline static void MakeImpl(lua_State* L, void* object, LifetimeHandle lifetime, ArrayProxyImplBase* impl)
     {
         lua_push_lightcppobject(L, MetatableTag::Array, impl->GetRegistryIndex(), object, lifetime);
     }
 
-    inline static void MakeImpl(lua_State* L, void const* object, LifetimeHandle const& lifetime, ArrayProxyImplBase* impl)
+    inline static void MakeImpl(lua_State* L, void const* object, LifetimeHandle lifetime, ArrayProxyImplBase* impl)
     {
         lua_push_lightcppobject(L, MetatableTag::Array, impl->GetRegistryIndex(), object, lifetime);
     }
 
     template <class T>
-    static inline void Make(lua_State* L, StaticArray<T>* object, const LifetimeHandle& lifetime)
+    static inline void Make(lua_State* L, StaticArray<T>* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<ConstSizeArrayProxyImpl<StaticArray<T>, T, 2>>());
     }
 
     template <class T>
-    static inline void Make(lua_State* L, StaticArray<T> const* object, const LifetimeHandle& lifetime)
+    static inline void Make(lua_State* L, StaticArray<T> const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<ConstSizeArrayProxyImpl<StaticArray<T>, T, 2>>());
     }
 
     template <class T>
-    inline static void Make(lua_State* L, Array<T>* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, Array<T>* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<Array<T>, T, 2>>());
     }
 
     template <class T>
-    inline static void Make(lua_State* L, Array<T> const* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, Array<T> const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<Array<T>, T, 2>>());
     }
 
     template <class T>
-    inline static void Make(lua_State* L, LegacyArray<T>* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, LegacyArray<T>* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, static_cast<Array<T>*>(object), lifetime, GetImplementation<DynamicArrayProxyImpl<Array<T>, T, 2>>());
     }
 
     template <class T>
-    inline static void Make(lua_State* L, LegacyArray<T> const* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, LegacyArray<T> const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, static_cast<Array<T> const*>(object), lifetime, GetImplementation<DynamicArrayProxyImpl<Array<T>, T, 2>>());
     }
 
-#if defined(ENABLE_UI)
     template <class T, unsigned N>
-    inline static void Make(lua_State* L, Noesis::Vector<T, N>* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, Noesis::Vector<T, N>* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicNoesisArrayProxyImpl<Noesis::Vector<T, N>, T, 7>>());
     }
     
     template <class T, unsigned N>
-    inline static void Make(lua_State* L, Noesis::Vector<T, N> const* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, Noesis::Vector<T, N> const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicNoesisArrayProxyImpl<Noesis::Vector<T, N>, T, 7>>());
     }
 
-    inline static void Make(lua_State* L, Noesis::BaseCollection* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, Noesis::BaseCollection* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicNoesisCollectionProxyImpl<Noesis::BaseCollection, Noesis::BaseComponent*, 8>>());
     }
 
-    inline static void Make(lua_State* L, Noesis::BaseCollection const* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, Noesis::BaseCollection const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicNoesisCollectionProxyImpl<Noesis::BaseCollection, Noesis::BaseComponent*, 8>>());
     }
-#endif
 
     template <class TWord, unsigned Words>
     inline static void Make(
-        lua_State* L, BitArray<TWord, Words>* object, const LifetimeHandle& lifetime)
+        lua_State* L, BitArray<TWord, Words>* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<ConstSizeArrayProxyImpl<BitArray<TWord, Words>, bool, 5>>());
     }
 
     template <class TWord, unsigned Words>
     inline static void Make(
-        lua_State* L, BitArray<TWord, Words> const* object, const LifetimeHandle& lifetime)
+        lua_State* L, BitArray<TWord, Words> const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<ConstSizeArrayProxyImpl<BitArray<TWord, Words>, bool, 5>>());
     }
 
     template <class T>
-    inline static void Make(lua_State* L, ObjectSet<T>* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, ObjectSet<T>* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<ObjectSet<T>, T, 3>>());
     }
 
     template <class T>
-    inline static void Make(lua_State* L, ObjectSet<T> const* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, ObjectSet<T> const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<ObjectSet<T>, T, 3>>());
+    }
+
+    template <class T>
+    inline static void Make(lua_State* L, TrackedCompactSet<T>* object, LifetimeHandle lifetime)
+    {
+        MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<TrackedCompactSet<T>, T, 8>>());
+    }
+
+    template <class T>
+    inline static void Make(lua_State* L, TrackedCompactSet<T> const* object, LifetimeHandle lifetime)
+    {
+        MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<TrackedCompactSet<T>, T, 8>>());
+    }
+
+    template <class T>
+    inline static void Make(lua_State* L, MiniCompactSet<T>* object, LifetimeHandle lifetime)
+    {
+        MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<MiniCompactSet<T>, T, 9>>());
+    }
+
+    template <class T>
+    inline static void Make(lua_State* L, MiniCompactSet<T> const* object, LifetimeHandle lifetime)
+    {
+        MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<MiniCompactSet<T>, T, 9>>());
+    }
+
+    template <class T>
+    inline static void Make(lua_State* L, Queue<T>* object, LifetimeHandle lifetime)
+    {
+        MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<Queue<T>, T, 7>>());
+    }
+
+    template <class T>
+    inline static void Make(lua_State* L, Queue<T> const* object, LifetimeHandle lifetime)
+    {
+        MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<Queue<T>, T, 7>>());
     }
 
     template <class T, int Size>
-    inline static void Make(lua_State* L, std::array<T, Size>* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, std::array<T, Size>* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<ConstSizeArrayProxyImpl<std::array<T, Size>, T, 1>>());
     }
 
     template <class T, int Size>
-    inline static void Make(lua_State* L, std::array<T, Size> const* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, std::array<T, Size> const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<ConstSizeArrayProxyImpl<std::array<T, Size>, T, 1>>());
     }
 
     template <class T, class TAllocator>
-    inline static void Make(lua_State* L, std::vector<T, TAllocator>* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, std::vector<T, TAllocator>* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<std::vector<T, TAllocator>, T, 4>>());
     }
 
     template <class T, class TAllocator>
-    inline static void Make(lua_State* L, std::vector<T, TAllocator> const* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, std::vector<T, TAllocator> const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<DynamicArrayProxyImpl<std::vector<T, TAllocator>, T, 4>>());
     }
 
     template <class T, size_t Extent>
-    inline static void Make(lua_State* L, std::span<T, Extent>* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, std::span<T, Extent>* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<ConstSizeArrayProxyImpl<std::span<T, Extent>, T, 6>>());
     }
 
     template <class T, size_t Extent>
-    inline static void Make(lua_State* L, std::span<T, Extent> const* object, LifetimeHandle const& lifetime)
+    inline static void Make(lua_State* L, std::span<T, Extent> const* object, LifetimeHandle lifetime)
     {
         MakeImpl(L, object, lifetime, GetImplementation<ConstSizeArrayProxyImpl<std::span<T, Extent>, T, 6>>());
     }
@@ -684,12 +678,12 @@ public:
     inline static typename T::ContainerType* Get(lua_State* L, int index)
     {
         auto ptr = GetRaw(L, index, GetImplementation<T>()->GetRegistryIndex());
-        return reinterpret_cast<T::ContainerType*>(ptr);
+        return static_cast<T::ContainerType*>(ptr);
     }
 
     inline static ArrayProxyImplBase* GetImpl(CppObjectMetadata const& meta)
     {
-        assert(meta.MetatableTag == MetatableTag::Array);
+        se_assert(meta.MetatableTag == MetatableTag::Array);
         return GetImpl(meta.PropertyMapTag);
     }
 

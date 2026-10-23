@@ -7,26 +7,47 @@
 
 BEGIN_SE()
 
+ContextType GetCurrentContextType();
+
+class ContextGuard
+{
+public:
+    ContextGuard(ContextType ctx);
+    ~ContextGuard();
+
+private:
+    ContextType context_;
+    ContextType previousContext_;
+};
+
+// Same as ContextGuard, but allows temporarily "conversion" of 
+// a client thread into server context and vice versa
+class ContextGuardAnyThread
+{
+public:
+    ContextGuardAnyThread(ContextType ctx);
+    ~ContextGuardAnyThread();
+
+private:
+    ContextType context_;
+    ContextType previousContext_;
+};
+
 class ThreadedExtenderState
 {
 public:
-    void AddThread(DWORD threadId);
-    void RemoveThread(DWORD threadId);
-    bool IsInThread() const;
-    bool IsInThread(DWORD threadId) const;
-    std::unordered_set<DWORD> const& GetThreadIds() const
-    {
-        return threadIds_;
-    }
+    ThreadedExtenderState(ContextType ctx);
 
+    bool IsInContext() const;
     void EnqueueTask(std::function<void()> fun);
     void SubmitTaskAndWait(std::function<void()> fun);
 
 protected:
     void RunPendingTasks();
+    void BindToThreadPersistent();
 
 private:
-    std::unordered_set<DWORD> threadIds_;
+    ContextType context_;
     concurrency::concurrent_queue<std::function<void()>> threadTasks_;
 };
 

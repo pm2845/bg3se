@@ -2,14 +2,15 @@ import os, re
 
 ns_start_re = r'^BEGIN(_BARE)?_NS\(\s*(.*)\s*\)$'
 ns_end_re = r'^END(_BARE)?_NS\(\s*\)$'
-struct_re = r'^(struct|union|class)\s+(?P<attributes>\[\[(\s*[a-zA-Z0-9:_]+\s*(\([^)]*\))?\s*,?\s*)+\]\])?\s*(?P<class>[a-zA-Z0-9_]+)(\s*:(\s*public)?\s+(?P<baseclass>[a-zA-Z0-9_<>:]+))?$'
-struct_start_re = r'^{$'
+struct_re = r'^(struct|union|class)\s+(?P<attributes>\[\[(\s*[a-zA-Z0-9:_]+\s*(\([^)]*\))?\s*,?\s*)+\]\])?\s*(?P<class>[a-zA-Z0-9_]+)(\s*:(\s*public)?\s*(?P<baseclass>[a-zA-Z0-9_<>:]+))?\s*(?P<start>{\s*(?P<end>\s*(};|}\)))?)?$'
+enum_re = r'^(enum|enum class)\s+(?P<enum>[a-zA-Z0-9_]+)(\s*:\s*(?P<base>[a-zA-Z0-9_<>:]+))?$'
+struct_start_re = r'^{(?P<end>\s*(};|}\)))?$'
 struct_end_re = r'^(};|}\))$'
 static_property_re = r'^static\s+constexpr\s+(?P<type>.+)\s+(?P<name>.+)\s*=\s*(?P<value>.+)\s*;?$'
 typedef_re = r'^using\s+.*=.*;?$'
 attributes_re = r'^(\[\[(\s*[a-zA-Z0-9:_]+\s*(\([^)]*\))?\s*,?\s*)+\]\])$'
 attribute_re = r'(?P<name>[a-zA-Z0-9:_]+)\s*(\(\s*(?P<args>[^)]*)\s*\))?'
-property_re = r'^(?P<attributes>\[\[(\s*[a-zA-Z0-9:_]+\s*(\([^)]*\))?\s*,?\s*)+\]\])?\s*(?P<type>[a-zA-Z0-9_<>*:, ]+)\s+(?P<name>[a-zA-Z0-9_]+)\s*(?P<initval>{.*})?\s*;\s*(?P<comment>//.*)?$'
+property_re = r'^(?P<attributes>\[\[(\s*[a-zA-Z0-9:_]+\s*(\([^)]*\))?\s*,?\s*)+\]\])?\s*(?P<type>[a-zA-Z0-9_<>*:, ]+)\s+(?P<name>[a-zA-Z0-9_]+)\s*(?P<initval>{.*})?\s*;\s*$'
 tag_component_re = r'^(DEFINE_TAG_COMPONENT|DEFINE_ONEFRAME_TAG_COMPONENT)\((?P<ns>[^,]+), (?P<name>[^,]+), (?P<type>[^,]+)\)$'
 boost_re = r'^DEFN_BOOST\(\s*(?P<name>[^,]+),\s*(?P<boostType>[^,]+),\s*{$'
 ignore_re = r'^(BEGIN_SE|END_SE).*$'
@@ -61,7 +62,7 @@ def make_struct_forward_decl(name: str, id: int):
             parent_ns = ns
 
         if parent_ns == "Noesis":
-            if name.endswith("Args") or name == "Noesis::Point":
+            if name.endswith("Args") or name == "Noesis::Point" or name == "Noesis::Thickness" or name == "Noesis::GridLengthHelper" or name == "Noesis::ICommand" or name == "Noesis::CornerRadius":
                 return 'DECLARE_STRUCT_BARE_NS_FWD(' + str(id) + ', ' + name[0:pos] + ', ' + name[pos+2:] + ')'
             else:
                 return 'DECLARE_CLS_BARE_NS_FWD(' + str(id) + ', ' + name[0:pos] + ', ' + name[pos+2:] + ')'
@@ -98,6 +99,9 @@ class Structure:
         
     def is_hidden(self) -> bool:
         return get_attr(self.attributes, 'bg3::hidden') is not None
+        
+    def is_component(self) -> bool:
+        return self.base == 'BaseComponent' or self.base == 'BaseProxyComponent' or get_attr(self.attributes, 'bg3::component') is not None
         
     def generate_property_map_header(self) -> str:
         return make_struct_forward_decl(self.name(), self.id)
@@ -286,7 +290,7 @@ class DefinitionLoader:
                 line = line.strip()
                 loader.parse_line(line)
         if len(self.ns_stack) > 0 or len(self.struct_stack) > 0 or len(self.next_attributes) > 0 or self.cur_struct is not None:
-            raise Exception("Partially parsed namespace or struct after EOF")
+            raise Exception("Partially parsed namespace or struct after EOF in file: " + path)
 
     def parse_attributes(self, line):
         if line is not None:
@@ -467,6 +471,18 @@ class DefinitionLoader:
         
         if line == '' or line[0] == '/' or line[0] == '#' or re.match(ignore_re, line) is not None:
             return
+
+        comment = line.find('//')
+        if comment != -1:
+            line = line[:comment]
+
+        comment = line.find('/*')
+        if comment != -1:
+            comment_end = line.find('*/', comment+1)
+            if comment_end == -1:
+                line = line[:comment]
+            else:
+                line = line[:comment] + line[comment_end+2:]
         
         match = re.match(ns_start_re, line)
         if match is not None:
@@ -496,10 +512,26 @@ class DefinitionLoader:
             self.parse_attributes(match.group('attributes'))
             self.next_struct = match.group('class')
             self.next_struct_base = match.group('baseclass')
+
+            if match.group('start'):
+                self.enter_struct(self.next_struct, self.next_struct_base, self.next_attributes)
+                if match.group('end'):
+                    self.exit_struct()
             return
         
-        if self.next_struct is not None and re.match(struct_start_re, line) is not None:
-            self.enter_struct(self.next_struct, self.next_struct_base, self.next_attributes)
+        match = re.match(enum_re, line)
+        if match is not None:
+            self.parse_attributes('bg3::hidden')
+            self.next_struct = match.group('enum')
+            self.next_struct_base = match.group('base')
+            return
+        
+        if self.next_struct is not None:
+            match = re.match(struct_start_re, line)
+            if match is not None:
+                self.enter_struct(self.next_struct, self.next_struct_base, self.next_attributes)
+                if match.group('end'):
+                    self.exit_struct()
             return
         
         if re.match(struct_end_re, line) is not None:
@@ -564,17 +596,21 @@ def generate_member(name, member):
     if get_attr(member['attributes'], 'bg3::readonly') is not None:
         return 'P_RO(' + name + ')\n'
 
+    code = ''
+    if get_attr(member['attributes'], 'bg3::flags') is not None:
+        code += 'P_BITMASK(' + name + ')\n'
+
     if get_attr(member['attributes'], 'bg3::deprecated') is not None:
-        return 'P_NOTIFY(' + name + ', Deprecated)\n'
+        return code + 'P_NOTIFY(' + name + ', Deprecated)\n'
 
     legacy_tag = get_attr(member['attributes'], 'bg3::legacy')
     if legacy_tag is not None:
-        return 'P_RENAMED(' + name + ', ' + legacy_tag.args + ')\n'
+        return code + 'P_RENAMED(' + name + ', ' + legacy_tag.args + ')\n'
 
     if name.startswith('field_'):
-        return 'P_NOTIFY(' + name + ', TemporaryName)\n'
+        return code + 'P_NOTIFY(' + name + ', TemporaryName)\n'
     
-    return 'P(' + name + ')\n'
+    return code + 'P(' + name + ')\n'
 
 
 pm_cls_start_re = r'^BEGIN_CLS\((?P<args>[^)]+)\).*$'
@@ -612,10 +648,17 @@ sources = [
     'GameDefinitions/Animation.h',
     'GameDefinitions/AllSparkShared.h',
     'GameDefinitions/AllSpark.h',
+    'GameDefinitions/Camera.h',
     'GameDefinitions/Cursor.h',
     'GameDefinitions/Dialog.h',
+    'GameDefinitions/DragDrop.h',
     'GameDefinitions/Effect.h',
+    'GameDefinitions/Input.h',
+    'GameDefinitions/Level.h',
+    'GameDefinitions/Lighting.h',
+    'GameDefinitions/MaterialParameters.h',
     'GameDefinitions/RootTemplates.h',
+    'GameDefinitions/Components/ActionResources.h',
     'GameDefinitions/Components/Boosts.h',
     'GameDefinitions/Components/Camera.h',
     'GameDefinitions/Components/Camp.h',
@@ -623,35 +666,92 @@ sources = [
     'GameDefinitions/Components/Combat.h',
     'GameDefinitions/Components/Components.h',
     'GameDefinitions/Components/Spell.h',
+    'GameDefinitions/Components/SpellCastShared.h',
+    'GameDefinitions/Components/SpellCast.h',
     'GameDefinitions/Components/Interrupt.h',
     'GameDefinitions/Components/Data.h',
+    'GameDefinitions/Components/Death.h',
+    'GameDefinitions/Components/Dummy.h',
+    'GameDefinitions/Components/Effect.h',
     'GameDefinitions/Components/Events.h',
+    'GameDefinitions/Components/Fade.h',
     'GameDefinitions/Components/Hit.h',
+    'GameDefinitions/Components/Hotbar.h',
     'GameDefinitions/Components/Item.h',
+    'GameDefinitions/Components/Instancing.h',
     'GameDefinitions/Components/Inventory.h',
+    'GameDefinitions/Components/Level.h',
     'GameDefinitions/Components/Visual.h',
     'GameDefinitions/Components/Passives.h',
     'GameDefinitions/Components/Party.h',
+    'GameDefinitions/Components/Physics.h',
     'GameDefinitions/Components/Progression.h',
     'GameDefinitions/Components/Projectile.h',
     'GameDefinitions/Components/Roll.h',
     'GameDefinitions/Components/Runtime.h',
+    'GameDefinitions/Components/Script.h',
     'GameDefinitions/Components/ServerData.h',
     'GameDefinitions/Components/Shapeshift.h',
+    'GameDefinitions/Components/Sound.h',
+    'GameDefinitions/Components/Stats.h',
     'GameDefinitions/Components/Status.h',
+    'GameDefinitions/Components/Summon.h',
     'GameDefinitions/Components/Tadpole.h',
     'GameDefinitions/Components/Timeline.h',
+    'GameDefinitions/Components/Trigger.h',
     'GameDefinitions/Stats/Functors.h',
     'GameDefinitions/Stats/Prototype.h',
     'GameDefinitions/Stats/UseActions.h',
+    'GameDefinitions/Stats/Entries.h',
+    'GameDefinitions/Physics.h',
     'GameDefinitions/Picking.h',
+    'GameDefinitions/RenderFramework.h',
     'GameDefinitions/Render.h',
     'GameDefinitions/Resources.h',
+    'GameDefinitions/Skeleton.h',
     'GameDefinitions/Status.h',
+    'GameDefinitions/Surface.h',
     'GameDefinitions/Ai.h',
+    'GameDefinitions/AiHelpers.h',
+    'GameDefinitions/Controllers/Action.h',
+    'GameDefinitions/Controllers/Behaviour.h',
+    'GameDefinitions/Controllers/CharacterTask.h',
+    'GameDefinitions/Controllers/Input.h',
+    'GameDefinitions/Controllers/Movement.h',
+    'GameDefinitions/Controllers/Steering.h',
+    'GameDefinitions/Controllers/Controller.h',
+    'GameDefinitions/Controllers/OsirisTask.h',
+    'Lua/Shared/ExposedTypes.h',
     'Lua/Client/ClientEvents.h',
     'Lua/Server/ServerEvents.h',
 ]
+
+
+def get_most_recent_change():
+    mtime = 0
+    
+    for file in os.listdir('GameDefinitions/PropertyMaps'):
+        if file.endswith('.inl'):
+            fmtime = os.path.getmtime('GameDefinitions/PropertyMaps/' + file)
+            mtime = fmtime if fmtime > mtime else mtime
+
+    for source in sources:
+        fmtime = os.path.getmtime(source)
+        mtime = fmtime if fmtime > mtime else mtime
+    return mtime
+
+
+def get_definitions_generation_date():
+    defs_path = 'GameDefinitions/Generated/PropertyMaps.inl'
+    if os.path.exists(defs_path):
+        return os.path.getmtime(defs_path)
+    else:
+        return 0
+
+if get_most_recent_change() < get_definitions_generation_date():
+    print("No property map definition changes detected (based on file modification time); skipping generation step")
+    exit(0)
+
 
 structs : dict[str, Structure] = {}
 shared = SharedData()
@@ -665,7 +765,7 @@ propmap_names = ''
 component_names = ''
 for n,struct in structs.items():
     if not struct.is_hidden():
-        if struct.base == 'BaseComponent' or struct.base == 'BaseProxyComponent':
+        if struct.is_component():
             component_names += 'T(' + n + ')\n'
         if struct.base is not None:
             struct.base = expand_namespaces(struct.name_ns, structs, struct.base)
@@ -703,6 +803,13 @@ try:
         cur_components = f.read()
 except FileNotFoundError:
     pass
+    
+cur_meta = ''
+try:
+    with open('GameDefinitions/Generated/PropertyMapMeta.h', 'r') as f:
+        cur_meta = f.read()
+except FileNotFoundError:
+    pass
 
 if cur_names != propmap_names + preprocessor.names:
     with open('GameDefinitions/Generated/PropertyMapNames.inl', 'w') as f:
@@ -721,3 +828,13 @@ if cur_components != component_names:
         f.write(component_names)
 else:
     print("No component changes detected")
+
+property_meta = '#pragma once\n'
+property_meta += 'BEGIN_SE()\n'
+property_meta += 'static constexpr int StructRegistrySize = ' + str(shared.next_struct_id) + ';\n'
+property_meta += 'END_SE()\n'
+if cur_meta != property_meta:
+    with open('GameDefinitions/Generated/PropertyMapMeta.h', 'w') as f:
+        f.write(property_meta)
+else:
+    print("No meta changes detected")

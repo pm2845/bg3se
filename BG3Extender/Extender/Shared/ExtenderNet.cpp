@@ -21,10 +21,8 @@ void MessageFactory::Grow(uint32_t lastMessageId)
     if (MessagePools.size() <= lastMessageId) {
         EnterCriticalSection(&CriticalSection);
         unsigned size = MessagePools.size();
-        MessagePools.Reallocate(lastMessageId + 1);
         while (MessagePools.size() <= lastMessageId) {
             MessagePools.push_back(nullptr);
-            UsedPoolSlots++;
         }
         LeaveCriticalSection(&CriticalSection);
     }
@@ -57,6 +55,19 @@ Message* MessagePool::GetFreeMessage()
     return msg;
 }
 
+std::optional<UserId> GameServer::GetLocalUserId() const
+{
+    if (!LocalPeerId) return {};
+
+    auto peerInfo = PeerInfo.find(LocalPeerId);
+    if (peerInfo) {
+        for (auto const& it : peerInfo.Value().Players) {
+            return UserId(LocalPeerId, it.Key);
+        }
+    }
+
+    return {};
+}
 
 ExtenderProtocolBase::~ExtenderProtocolBase() {}
 
@@ -108,7 +119,7 @@ void ExtenderMessage::Serialize(BitstreamSerializer & serializer)
     auto& msg = GetMessage();
     if (serializer.IsWriting) {
         uint32_t size = (uint32_t)msg.ByteSizeLong();
-        if (size <= MaxPayloadLength) {
+        if (size <= MaxTotalMessageLength) {
             serializer.WriteBytes(&size, sizeof(size));
             void * buf = GameAllocRaw(size);
             msg.SerializeToArray(buf, size);
@@ -118,19 +129,23 @@ void ExtenderMessage::Serialize(BitstreamSerializer & serializer)
             // Zero length indicates that a packet failed to serialize
             uint32_t dummy = 0;
             serializer.WriteBytes(&dummy, sizeof(dummy));
-            OsiError("Tried to write packet of size " << size << ", max size is " << MaxPayloadLength);
+            OsiError("Tried to write packet of size " << size << ", max size is " << MaxTotalMessageLength);
         }
     } else {
         uint32_t size = 0;
         valid_ = false;
         serializer.ReadBytes(&size, sizeof(size));
-        if (size > MaxPayloadLength) {
-            OsiError("Tried to read packet of size " << size << ", max size is " << MaxPayloadLength);
+        if (size > MaxTotalMessageLength) {
+            OsiError("Tried to read packet of size " << size << ", max size is " << MaxTotalMessageLength);
         } else if (size > 0) {
             void * buf = GameAllocRaw(size);
             serializer.ReadBytes(buf, size);
             valid_ = msg.ParseFromArray(buf, size);
             GameFree(buf);
+
+            if (!valid_) {
+                OsiError("Failed to decode extender message");
+            }
         }
     }
 }
@@ -150,6 +165,25 @@ void ExtenderMessage::Reset()
     GetMessage().Clear();
 #endif
     valid_ = false;
+}
+
+void BaseNetworkManager::Update()
+{
+    ProcessLocalMessages();
+}
+
+void BaseNetworkManager::OnResetExtensionState()
+{
+    localMessages_.clear();
+}
+
+void BaseNetworkManager::ProcessLocalMessages()
+{
+    OPTICK_EVENT(Optick::Category::Network);
+    LocalMessage msg;
+    while (localMessages_.try_pop(msg)) {
+        HandleLocalMessage(msg);
+    }
 }
 
 END_NS()

@@ -1,7 +1,9 @@
 #include <stdafx.h>
 #include <Extender/Client/ScriptExtenderClient.h>
+#include <GameDefinitions/Stats/Cache.h>
 #include <Extender/ScriptExtender.h>
 #include <Extender/Version.h>
+#include <shlwapi.h>
 
 #define STATIC_HOOK(name) decltype(bg3se::ecl::ScriptExtender::name) * decltype(bg3se::ecl::ScriptExtender::name)::gHook;
 STATIC_HOOK(gameStateWorkerStart_)
@@ -57,7 +59,8 @@ char const * GameStateNames[] =
 };
 
 ScriptExtender::ScriptExtender(ExtenderConfig& config)
-    : config_(config)
+    : ThreadedExtenderState(ContextType::Client),
+    config_(config)
 {
 }
 
@@ -82,7 +85,8 @@ void ScriptExtender::Initialize()
     DetourTransactionCommit();
 
     gameStateWorkerStart_.SetWrapper(&ScriptExtender::GameStateWorkerWrapper, this);
-    gameStateMachineUpdate_.SetPostHook(&ScriptExtender::OnUpdate, this);
+    gameStateMachineUpdate_.SetPrePostHook(&ScriptExtender::OnPreUpdate, &ScriptExtender::OnUpdate, this);
+    gExtender->GetEngineHooks().ui__deferred__PredicatesManager__UpdateFromUI.SetPreHook(&ScriptExtender::OnUiPredicatesManagerUpdate, this);
 
     sdl_.EnableHooks();
 }
@@ -91,6 +95,7 @@ void ScriptExtender::Shutdown()
 {
     DEBUG("ecl::ScriptExtender::Shutdown: Exiting");
     sdl_.DisableHooks();
+    ContextGuardAnyThread _(ContextType::Client);
     ResetExtensionState();
 }
 
@@ -98,7 +103,9 @@ void ScriptExtender::PostStartup()
 {
     if (postStartupDone_) return;
 
+    OPTICK_EVENT();
     entityHelpers_.Setup();
+    visualHelpers_.Setup();
     gExtender->GetPropertyMapManager().RegisterComponents(entityHelpers_);
     postStartupDone_ = true;
 }
@@ -120,6 +127,17 @@ bool IsLoadingState(GameState state)
         || state == GameState::PrepareRunning
         || state == GameState::Installation
         || state == GameState::ModReceiving;
+}
+
+// Undo "ModCrashSanityCheck" mechanism that disables mods on an unclean exit
+void CleanupSanityCheck()
+{
+    auto path = GetStaticSymbols().ToPath("ModCrashSanityCheck", PathRootType::UserProfile);
+    auto pathw = FromUTF8(path);
+    if (PathIsDirectoryW(pathw.c_str())) {
+        RemoveDirectoryW(pathw.c_str());
+        INFO("Removed ModCrashSanityCheck");
+    }
 }
 
 void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
@@ -144,23 +162,19 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
         gExtender->PostStartup();
     }
 
-    // FIXME - EnableModuleHashing flag not currently mapped
-    /*if (toState == GameState::LoadModule && config_.DisableModValidation) {
-        if (GetStaticSymbols().GetGlobalSwitches()) {
-            GetStaticSymbols().GetGlobalSwitches()->EnableModuleHashing = false;
-            INFO("Disabled module hashing");
-        } else {
-            WARN("Could not disable mod hashing - GlobalSwitches not mapped");
-        }
-    }*/
+    if ((toState == GameState::InitMenu || toState == GameState::StartLoading)
+        && !gExtender->GetLibraryManager().CriticalInitializationFailed()
+        && gExtender->GetConfig().InsanityCheck) {
+        CleanupSanityCheck();
+    }
 
 #if defined(DEBUG_SERVER_CLIENT)
     DEBUG("ecl::ScriptExtender::OnGameStateChanged(): %s -> %s", 
-        GameStateNames[(unsigned)fromState], ClientGameStateNames[(unsigned)toState]);
+        GameStateNames[(unsigned)fromState], GameStateNames[(unsigned)toState]);
 #endif
 
     if (fromState != GameState::Unknown) {
-        AddThread(GetCurrentThreadId());
+        BindToThreadPersistent();
     }
 
     if (gExtender->WasInitialized() && !gExtender->GetLibraryManager().CriticalInitializationFailed()) {
@@ -197,6 +211,7 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
 
     switch (toState) {
     case GameState::Init:
+        entityHelpers_.Bind();
         ResetExtensionState();
         break;
 
@@ -207,16 +222,24 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
 
     case GameState::UnloadSession:
         INFO("ecl::ScriptExtender::OnGameStateChanged(): Unloading session");
+        entityHelpers_.OnDestroy();
         ResetExtensionState();
         break;
 
     case GameState::Menu:
-        #if defined(SE_IS_DEVELOPER_BUILD) && defined(NDEBUG)
-        if (!gExtender->GetConfig().DeveloperMode) {
-            gExtender->GetLibraryManager().ShowStartupError("This is an experimental version of the Script Extender meant for development use; things may frequently break here. It is recommended to switch back to the Release version unless you know what you are doing!", false, false);
+    {
+        auto error = gExtender->GetUpdaterAPI().GetDisplayError();
+        if (error) {
+            gExtender->GetLibraryManager().ShowStartupError(STDString(*error), false, false);
+        } else {
+            #if defined(SE_IS_DEVELOPER_BUILD) && defined(NDEBUG)
+            if (!gExtender->GetConfig().DeveloperMode) {
+                gExtender->GetLibraryManager().ShowStartupError("This is an experimental version of the Script Extender meant for development use; things may frequently break here. It is recommended to switch back to the Release version unless you know what you are doing!", false, false);
+            }
+            #endif
         }
-        #endif
         break;
+    }
 
     case GameState::LoadModule:
         gExtender->InitRuntimeLogging();
@@ -226,15 +249,24 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
         INFO("ecl::ScriptExtender::OnClientGameStateChanged(): Loading game session");
         LoadExtensionState(ExtensionStateContext::Game);
         network_.ExtendNetworking();
+        entityHelpers_.OnInit();
         if (extensionState_) {
             extensionState_->OnGameSessionLoading();
         }
         break;
 
     case GameState::LoadLevel:
-        if (extensionState_ && extensionState_->GetLua()) {
-            extensionState_->GetLua()->OnLevelLoading();
+        if (extensionState_) {
+            LuaClientPin lua(*extensionState_);
+            if (lua) {
+                lua->OnLevelLoading();
+            }
         }
+        break;
+
+    case GameState::UnloadModule:
+        stats::gStatStructureCache.Invalidate();
+        stats::gStatStructureCache.GetValuePool().Clear();
         break;
     }
 
@@ -248,17 +280,40 @@ void ScriptExtender::OnGameStateChanged(GameState fromState, GameState toState)
 
 void ScriptExtender::GameStateWorkerWrapper(void (*wrapped)(void*), void* self)
 {
-    AddThread(GetCurrentThreadId());
+    ContextGuard _(ContextType::Client);
     wrapped(self);
-    RemoveThread(GetCurrentThreadId());
+}
+
+#if USE_OPTICK
+std::unique_ptr< ::Optick::Event> frameEvent;
+#endif
+
+void ScriptExtender::OnPreUpdate(void* self, GameTime* time)
+{
+#if USE_OPTICK
+    static ::Optick::ThreadScope mainThreadScope("Client");
+    frameEvent.reset();
+    ::Optick::EndFrame();
+    ::Optick::Update();
+
+    auto frameNumber = ::Optick::BeginFrame();
+    frameEvent = std::make_unique<::Optick::Event>(*::Optick::GetFrameDescription());
+    OPTICK_TAG("Frame", frameNumber);
+#endif
 }
 
 void ScriptExtender::OnUpdate(void* self, GameTime* time)
 {
     BEGIN_GUARDED()
     // In case we're loaded too late to see LoadModule transition
-    AddThread(GetCurrentThreadId());
+    BindToThreadPersistent();
+    OnUpdateGuarded(self, time);
+    END_GUARDED()
+}
 
+void ScriptExtender::OnUpdateGuarded(void* self, GameTime* time)
+{
+    network_.Update();
     RunPendingTasks();
     gExtender->IMGUI().Update();
     if (extensionState_) {
@@ -267,7 +322,7 @@ void ScriptExtender::OnUpdate(void* self, GameTime* time)
             gExtender->GetLuaDebugger()->ClientTick();
         }
     }
-    END_GUARDED()
+
 }
 
 void ScriptExtender::OnIncLocalProgress(void* self, int progress, char const* state)
@@ -308,9 +363,20 @@ void ScriptExtender::ShowVersionNumber()
     }
 }
 
-bool ScriptExtender::IsInClientThread() const
+void ScriptExtender::OnUiPredicatesManagerUpdate(ui::DeferredPredicatesManager*)
 {
-    return IsInThread();
+    // Non-threadsafe peek to check if we need to acquire the Lua state lock.
+    // (we need to wait for the main thread to finish processing Lua code if we do)
+    if (extensionState_ 
+        && extensionState_->GetClientLua()
+        && extensionState_->GetClientLua()->GetDeferredUIEvents().HasAnyNoesisThreadCallbacks()) {
+
+        ContextGuardAnyThread _(ContextType::Client);
+        ecl::LuaClientPin lua(*extensionState_);
+        if (lua) {
+            lua->GetDeferredUIEvents().PostUpdateNoesis();
+        }
+    }
 }
 
 void ScriptExtender::ResetLuaState()
@@ -324,15 +390,18 @@ void ScriptExtender::ResetLuaState()
             if (state && (state == GameState::Paused || state == GameState::Running)) {
                 ext->OnGameSessionLoading();
                 ext->OnGameSessionLoaded();
-                ext->OnResetCompleted();
             }
+            ext->OnResetCompleted();
         });
-        ext->LuaReset(true);
+        ext->RequestLuaReset(true);
     }
 }
 
 void ScriptExtender::ResetExtensionState()
 {
+    OPTICK_EVENT();
+    network_.OnResetExtensionState();
+    extensionState_.reset();
     extensionState_ = std::make_unique<ExtensionState>();
     extensionState_->Reset();
     gExtender->ClearPathOverrides();
@@ -345,6 +414,7 @@ void ScriptExtender::LoadExtensionState(ExtensionStateContext ctx)
         return;
     }
 
+    OPTICK_EVENT(Optick::Category::IO);
     PostStartup();
 
     if (!extensionState_) {
@@ -357,7 +427,7 @@ void ScriptExtender::LoadExtensionState(ExtensionStateContext ctx)
         OsiMsg("Initializing client with target context " << ContextToString(ctx));
         gExtender->GetLibraryManager().ApplyCodePatches();
         //networkManager_.ExtendNetworkingClient();
-        extensionState_->LuaReset(ctx, true);
+        extensionState_->RequestLuaReset(ctx, true);
     }
 
     extensionLoaded_ = true;

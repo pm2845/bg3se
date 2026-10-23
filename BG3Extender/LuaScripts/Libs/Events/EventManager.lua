@@ -7,13 +7,15 @@ local NetworkManager = Ext.CoreLib("NetworkManager")
 --- @field Events table<string, SubscribableEvent>
 --- @field NetListeners table<string, fun(string, string, number)[]>
 --- @field ConsoleCommandListeners table<string, fun(...)[]>
+--- @field EventsById SubscribableEvent[]
 local EventManager = {}
 
 function EventManager:Instantiate()
     return {
         Events = {},
         NetListeners = {},
-        ConsoleCommandListeners = {}
+        ConsoleCommandListeners = {},
+        EventsById = {}
     }
 end
 
@@ -24,7 +26,9 @@ end
 
 
 function EventManager:RegisterEngineEvent(event)
-    self.Events[event] = SubscribableEvent:New(event)
+    local ev = SubscribableEvent:New(event, #self.EventsById + 1)
+    self.Events[event] = ev
+    table.insert(self.EventsById, ev)
 end
 
 
@@ -47,6 +51,12 @@ function EventManager:RegisterEvents()
         self:NetMessageReceived(e.Channel, e.Payload, e.UserID)
     end)
 
+    local oldSubscribe = self.Events.NetMessage.Subscribe
+    self.Events.NetMessage.Subscribe = function (self, handler, opts)
+        _PW("Ext.Events.NetMessage.Subscribe() is deprecated; consider using Ext.Net.CreateChannel() instead")
+        return oldSubscribe(self, handler, opts)
+    end
+
     NetworkManager:RegisterEvents()
 end
 
@@ -57,26 +67,52 @@ function EventManager:RegisterNetListener(channel, fn)
     end
 
     table.insert(self.NetListeners[channel], fn)
+    _PW("Ext.RegisterNetListener(" .. channel .. ") is deprecated; consider using Ext.Net.CreateChannel() instead")
 end
 
+if Ext.Config.PerfMessagesEnabled then
 
-function EventManager:NetMessageReceived(channel, payload, userId)
-    if self.NetListeners[channel] ~= nil then
-        for i,callback in pairs(self.NetListeners[channel]) do
-            local ok, err = xpcall(callback, debug.traceback, channel, payload, userId)
-            if not ok then
-                _PE("Error during NetMessage dispatch: ", err)
+    -- Separate profiler-enabled version for perf reasons
+    function EventManager:NetMessageReceived(channel, payload, userId)
+        if self.NetListeners[channel] ~= nil then
+            for i,callback in pairs(self.NetListeners[channel]) do
+                local startTime = Ext.Timer.MicrosecTime()
+                local ok, err = xpcall(callback, debug.traceback, channel, payload, userId)
+                local took = Ext.Timer.MicrosecTime() - startTime
+                if not ok then
+                    _PE("Error during NetMessage dispatch: ", err)
+                else
+                    if _I.Profiler:ShouldLikelyReport(took) then
+                        local source, line = Ext.Types.GetFunctionLocation(callback)
+                        _I.Profiler:Report(took, "Dispatching net message on channel " .. channel .. " (" .. source .. ":" .. line .. ")")
+                    end
+                end
             end
         end
     end
-end
 
+else
+
+    function EventManager:NetMessageReceived(channel, payload, userId)
+        if self.NetListeners[channel] ~= nil then
+            for i,callback in pairs(self.NetListeners[channel]) do
+                local ok, err = xpcall(callback, debug.traceback, channel, payload, userId)
+                if not ok then
+                    _PE("Error during NetMessage dispatch: ", err)
+                end
+            end
+        end
+    end
+
+end
 
 function EventManager:DoConsoleCommand(cmd)
     local params = {}
     for param in string.gmatch(cmd, "%S+") do
         table.insert(params, param)
     end
+
+    if #params == 0 then return end
 
     local listeners = self.ConsoleCommandListeners[params[1]]
     if listeners ~= nil then
@@ -86,6 +122,8 @@ function EventManager:DoConsoleCommand(cmd)
                 _PE("Error during console command callback: ", result)
             end
         end
+    else
+        _PE("Console command does not exist: " .. params[1])
     end
 end
 

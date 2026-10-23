@@ -19,13 +19,13 @@ public:
         size_(size)
     {
         BOOL succeeded = VirtualProtect((LPVOID)ptr_, size_, PAGE_EXECUTE_READWRITE, &oldProtect_);
-        assert(succeeded);
+        se_assert(succeeded);
     }
 
     inline ~WriteAnchor()
     {
         BOOL succeeded = VirtualProtect((LPVOID)ptr_, size_, oldProtect_, &oldProtect_);
-        assert(succeeded);
+        se_assert(succeeded);
     }
 
     inline uint8_t * ptr()
@@ -282,7 +282,7 @@ private:
     SymbolMappings& mappings_;
     std::unordered_map<std::string, ModuleInfo> modules_;
     std::unordered_map<std::string, std::function<MappingResult(uint8_t const*)>> engineCallbacks_;
-    uint32_t gameRevision_;
+    uint32_t gameRevision_{ 0 };
     bool hasFailedMappings_{ false };
     bool hasFailedCriticalMappings_{ false };
 

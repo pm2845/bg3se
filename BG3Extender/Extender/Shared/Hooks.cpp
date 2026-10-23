@@ -2,6 +2,7 @@
 #include <Extender/Shared/Hooks.h>
 #include <Extender/ScriptExtender.h>
 #include <GameDefinitions/Net.h>
+#include <GameDefinitions/Stats/Cache.h>
 
 BEGIN_SE()
 
@@ -14,7 +15,7 @@ void Hooks::Startup()
     }
 
     auto& lib = gExtender->GetEngineHooks();
-    lib.RPGStats__PreParseDataFolder.SetWrapper(&Hooks::OnParseDataFolder, this);
+    lib.RPGStats__ParseDataBuffers.SetPreHook(&Hooks::OnParseDataBuffers, this);
     eocnet__ClientConnectMessage__Serialize.SetWrapper(&Hooks::OnClientConnectMessage, this);
     
     loaded_ = true;
@@ -42,16 +43,13 @@ void Hooks::HookNetworkMessages(net::MessageFactory* factory)
     networkingInitialized_ = true;
 }
 
-void Hooks::OnParseDataFolder(stats::RPGStats::ParseStructureFolderProc* next, stats::RPGStats* self, Array<STDString>* paths)
+void Hooks::OnParseDataBuffers(stats::RPGStats* self)
 {
+    stats::gStatStructureCache.Invalidate();
+
     LuaVirtualPin lua(gExtender->GetCurrentExtensionState());
     if (lua) {
         lua->OnStatsStructureLoaded();
-    }
-
-    {
-        DisableCrashReporting _;
-        next(self, paths);
     }
 
     gExtender->GetStatLoadOrderHelper().OnLoadFinished();

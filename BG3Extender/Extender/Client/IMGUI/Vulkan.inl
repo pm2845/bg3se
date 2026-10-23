@@ -40,11 +40,8 @@ BEGIN_NS(extui)
 class VulkanBackend : public RenderingBackend
 {
 public:
-    struct TextureRefCount
-    {
-        TextureDescriptor* Descriptor;
-        uint32_t RefCount;
-    };
+    static constexpr unsigned TextureSoftCap = 2000;
+    static constexpr unsigned TextureHardCap = 2048;
 
     VulkanBackend(IMGUIManager& ui) : ui_(ui) {}
 
@@ -104,7 +101,7 @@ public:
         VkDescriptorPoolSize poolSize
         {
             .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 2048,
+            .descriptorCount = TextureHardCap,
         };
 
         VkDescriptorPoolCreateInfo createInfo
@@ -112,7 +109,7 @@ public:
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
             .pNext = nullptr,
             .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-            .maxSets = 2048,
+            .maxSets = TextureHardCap,
             .poolSizeCount = 1,
             .pPoolSizes = &poolSize
         };
@@ -187,6 +184,7 @@ public:
         // Speculative check to avoid unnecessary locking
         if (!initialized_) return;
 
+        OPTICK_EVENT(Optick::Category::Rendering);
         std::lock_guard _(globalResourceLock_);
 
         // Locked check (at this point we're certain noone is manipulating the initialized flag)
@@ -210,6 +208,7 @@ public:
         // Speculative check to avoid unnecessary locking
         if (!initialized_) return;
 
+        OPTICK_EVENT(Optick::Category::Rendering);
         std::lock_guard _(globalResourceLock_);
 
         // Locked check (at this point we're certain noone is manipulating the initialized flag)
@@ -229,7 +228,7 @@ public:
             auto list = vp.DrawDataP.CmdLists[i];
             auto drawList = list->CloneOutput();
             vp.DrawDataP.CmdLists[i] = drawList;
-            drawLists.Add(drawList);
+            drawLists.push_back(drawList);
         }
 
         drawViewport_ = curViewport_;
@@ -247,45 +246,56 @@ public:
     {
         if (!initialized_) return {};
 
+        if (descriptor->Vulkan.Views.size() != 1 || !descriptor->Vulkan.Views[0]->View) {
+            ERR("VK texture has no render view?");
+            return {};
+        }
+
         auto view = descriptor->Vulkan.Views[0]->View;
         if (!view) return {};
 
-        auto tex = textures_.find(descriptor);
-        if (tex != textures_.end()) {
-            auto desc = tex.Value();
-            auto refCount = textureRefCounts_.find(desc);
-            refCount.Value().RefCount++;
-            return TextureLoadResult{ desc, descriptor->Vulkan.ImageData.Width, descriptor->Vulkan.ImageData.Height };
-        } else {
-            if (textures_.size() > 2000) {
-                if (!textureLimitWarningShown_) {
-                    ERR("UI texture limit reached. Newly loaded textures may not load or render correctly");
-                    textureLimitWarningShown_ = true;
-                }
-                return {};
+        if (textures_ > TextureSoftCap) {
+            if (!textureLimitWarningShown_) {
+                ERR("UI texture limit reached. Newly loaded textures may not load or render correctly");
+                textureLimitWarningShown_ = true;
             }
-
-            auto desc = ImGui_ImplVulkan_AddTexture(sampler_, VkImageView(view), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            textures_.set(descriptor, desc);
-            textureRefCounts_.set(desc, TextureRefCount{ descriptor, 1 });
-            return TextureLoadResult{ desc, descriptor->Vulkan.ImageData.Width, descriptor->Vulkan.ImageData.Height };
+            return {};
         }
+
+        textures_++;
+        return TextureLoadResult{ 
+            TextureOpaqueHandle(view),
+            descriptor->Vulkan.ImageData.Width, 
+            descriptor->Vulkan.ImageData.Height
+        };
     }
 
-    void UnregisterTexture(ImTextureID id) override
+    void UnregisterTexture(TextureOpaqueHandle opaqueHandle) override
     {
         if (!initialized_) return;
 
-        auto desc = static_cast<VkDescriptorSet>(id);
-        auto refCount = textureRefCounts_.find(desc);
-        if (refCount != textureRefCounts_.end()) {
-            refCount.Value().RefCount--;
-            if (refCount.Value().RefCount == 0) {
-                ImGui_ImplVulkan_RemoveTexture(desc);
-                textures_.remove(refCount.Value().Descriptor);
-                textureRefCounts_.remove(desc);
+        auto imageView = static_cast<VkImageView>(opaqueHandle);
+        auto desc = textureDescriptors_.get_or_default(imageView, 0);
+        if (desc) {
+            ImGui_ImplVulkan_RemoveTexture(desc);
+            textureDescriptors_.remove(imageView);
+        }
+
+        textures_--;
+    }
+
+    std::optional<ImTextureID> BindTexture(TextureOpaqueHandle opaqueHandle) override
+    {
+        auto imageView = static_cast<VkImageView>(opaqueHandle);
+        auto desc = textureDescriptors_.get_or_default(imageView, 0);
+        if (!desc) {
+            desc = ImGui_ImplVulkan_AddTexture(sampler_, imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            if (desc) {
+                textureDescriptors_.set(imageView, desc);
             }
         }
+        
+        return (ImTextureID)desc;
     }
 
     bool IsInitialized() override
@@ -319,8 +329,8 @@ private:
         VkRenderPass renderPass_{ VK_NULL_HANDLE };
         VkCommandPool commandPool_{ VK_NULL_HANDLE };
         Array<SwapchainImageInfo> images_;
-        uint32_t width_;
-        uint32_t height_;
+        uint32_t width_{ 0 };
+        uint32_t height_{ 0 };
     };
 
     struct ViewportInfo
@@ -397,7 +407,7 @@ private:
         vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice_, &numFamilies, nullptr);
         Array<VkQueueFamilyProperties> families;
         families.resize(numFamilies);
-        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice_, &numFamilies, families.raw_buf());
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice_, &numFamilies, families.data());
 
         uint32_t queueFamily{ 0 };
         VkQueue queue{ nullptr };
@@ -450,6 +460,7 @@ private:
         if (descriptorPool_ != VK_NULL_HANDLE) {
             vkDestroyDescriptorPool(device_, descriptorPool_, nullptr);
             descriptorPool_ = VK_NULL_HANDLE;
+            textureDescriptors_.clear();
         }
 
         if (sampler_ != VK_NULL_HANDLE) {
@@ -593,7 +604,7 @@ private:
             images.resize(numSwapImages);
 
             // go through our own function so we assign these images IDs
-            VK_CHECK(vkGetSwapchainImagesKHR(device_, swapChain_, &numSwapImages, images.raw_buf()));
+            VK_CHECK(vkGetSwapchainImagesKHR(device_, swapChain_, &numSwapImages, images.data()));
 
             for (uint32_t i = 0; i < numSwapImages; i++)
             {
@@ -838,6 +849,8 @@ private:
     bool requestReloadFonts_{ false };
     std::mutex globalResourceLock_;
 
+    HashMap<VkImageView, VkDescriptorSet> textureDescriptors_;
+
     VkCreateInstanceHookType CreateInstanceHook_;
     VkCreateDeviceHookType CreateDeviceHook_;
     VkDestroyDeviceHookType DestroyDeviceHook_;
@@ -847,9 +860,7 @@ private:
     VkQueuePresentKHRHookType QueuePresentKHRHook_;
 
     SwapchainInfo swapchain_;
-
-    HashMap<TextureDescriptor*, VkDescriptorSet> textures_;
-    HashMap<VkDescriptorSet, TextureRefCount> textureRefCounts_;
+    uint32_t textures_{ 0 };
 };
 
 END_NS()

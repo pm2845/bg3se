@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Extender/Shared/ScriptExtenderBase.h>
 #include "ExtensionHelpers.h"
 #include "Lua/LuaBinding.h"
 #include <random>
@@ -51,7 +52,6 @@ namespace bg3se
 
         void LoadConfigs();
         bool LoadConfig(Module const & mod, STDString const & configText, ExtensionModConfig & config);
-        bool LoadConfig(Module const & mod, Json::Value & json, ExtensionModConfig & config);
         bool HasFeatureFlag(char const * flag) const;
 
         inline ExtensionStateContext Context() const
@@ -62,6 +62,11 @@ namespace bg3se
         inline bool WasStatLoadTriggered() const
         {
             return StatLoadTriggered;
+        }
+
+        inline DWORD GetOwningThread() const
+        {
+            return owningThread_;
         }
 
         inline GameTime const& Time() const
@@ -77,10 +82,16 @@ namespace bg3se
         void OnResetCompleted();
         virtual void OnUpdate(GameTime const& time);
 
+        inline void EnteredCheck() const
+        {
+            se_assert(luaRefs_ > 0);
+            se_assert(owningThread_ == GetCurrentThreadId());
+        }
+
         void IncLuaRefs();
-        void DecLuaRefs();
-        void LuaReset(ExtensionStateContext nextContext, bool startup);
-        void LuaReset(bool startup);
+        void DecLuaRefs(bool releaseVm);
+        void RequestLuaReset(ExtensionStateContext nextContext, bool startup);
+        void RequestLuaReset(bool startup);
         void AddPostResetCallback(PostResetCallback callback);
 
         std::optional<STDString> ResolveModScriptPath(STDString const& modNameGuid, STDString const& fileName);
@@ -120,14 +131,19 @@ namespace bg3se
             return modVariables_;
         }
 
-        inline uint32_t GetEnterCount()
+        inline uint32_t GetEnterCount() const
         {
             return luaRefs_;
         }
 
+        inline bool IsServer() const
+        {
+            return server_;
+        }
+
+        static std::unordered_set<std::string_view> sAllFeatureFlags;
     protected:
         friend class LuaVirtualPin;
-        static std::unordered_set<std::string_view> sAllFeatureFlags;
 
         ExtensionModConfig MergedConfig;
         Module const* HighestVersionMod{ nullptr };
@@ -135,10 +151,12 @@ namespace bg3se
 
         std::recursive_mutex luaMutex_;
         std::atomic<uint32_t> luaRefs_{ 0 };
+        DWORD owningThread_{ 0 };
         std::vector<PostResetCallback> luaPostResetCallbacks_;
         bool LuaPendingDelete{ false };
         bool LuaPendingStartup{ false };
         bool StatLoadTriggered{ false };
+        bool server_{ false };
         ExtensionStateContext context_{ ExtensionStateContext::Uninitialized };
         ExtensionStateContext nextContext_{ ExtensionStateContext::Uninitialized };
 
@@ -151,8 +169,9 @@ namespace bg3se
         GameTime time_;
 
         void LuaResetInternal();
-        virtual void DoLuaReset() = 0;
-        virtual void LuaStartup();
+        virtual void ShutdownLuaState() = 0;
+        virtual void InitializeLuaState() = 0;
+        virtual void BootstrapLua();
         void LuaLoadGameBootstrap(ExtensionModConfig const& config, Module const& mod);
         void LuaLoadPreinitBootstrap(ExtensionModConfig const& config, Module const& mod);
     };
@@ -183,7 +202,7 @@ namespace bg3se
 
         inline ~LuaVirtualPin()
         {
-            if (state_) state_->DecLuaRefs();
+            if (state_) state_->DecLuaRefs(true);
         }
 
         inline operator bool() const
@@ -195,19 +214,19 @@ namespace bg3se
 
         inline lua::State & Get() const
         {
-            assert(*this);
+            se_assert(*this);
             return *state_->GetLua();
         }
 
         inline lua::State & operator *() const
         {
-            assert(*this);
+            se_assert(*this);
             return *state_->GetLua();
         }
 
         inline lua::State * operator ->() const
         {
-            assert(*this);
+            se_assert(*this);
             return state_->GetLua();
         }
 
@@ -223,12 +242,14 @@ namespace bg3se
         inline LuaStatePin(T & state)
             : state_(state)
         {
+            se_assert((state_.IsServer() ? ContextType::Server : ContextType::Client) == GetCurrentContextType());
             state_.IncLuaRefs();
         }
 
         inline ~LuaStatePin()
         {
-            state_.DecLuaRefs();
+            state_.DecLuaRefs(true);
+            se_assert((state_.IsServer() ? ContextType::Server : ContextType::Client) == GetCurrentContextType());
         }
 
         LuaStatePin(LuaStatePin const& state) = delete;
@@ -242,19 +263,19 @@ namespace bg3se
 
         inline TLua & Get() const
         {
-            assert(*this);
+            se_assert(*this);
             return *state_.Lua;
         }
 
         inline TLua & operator *() const
         {
-            assert(*this);
+            se_assert(*this);
             return *state_.Lua;
         }
 
         inline TLua * operator ->() const
         {
-            assert(*this);
+            se_assert(*this);
             return state_.Lua.get();
         }
 

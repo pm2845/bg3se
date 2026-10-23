@@ -4,6 +4,9 @@
 #include <GameDefinitions/EntitySystem.h>
 #include <GameDefinitions/RootTemplates.h>
 #include <GameDefinitions/Progression.h>
+#include <GameDefinitions/Components/SpellCastShared.h>
+#include <GameDefinitions/Components/Death.h>
+#include <GameDefinitions/Ai.h>
 
 BEGIN_SE()
 
@@ -13,33 +16,7 @@ struct GenericPropertyTag
     Guid Entity;
 };
 
-struct ArmorComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Armor, "eoc::ArmorComponent")
-
-    int ArmorType;
-    int ArmorClass;
-    int AbilityModifierCap;
-    uint8_t ArmorClassAbility;
-    uint8_t Shield;
-};
-
-struct ArmorSetStateComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ArmorSetState, "eoc::armor_set::StateComponent")
-
-    uint8_t State;
-};
-
-struct BaseHpComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(BaseHp, "eoc::BaseHpComponent")
-
-    int Vitality;
-    int VitalityBoost;
-};
-
-struct Bound
+struct Bound : public ProtectedGameObject<Bound>
 {
     EntityHandle Entity;
     LegacyRefMap<AIBoundType, BoundData> AIBounds;
@@ -56,7 +33,6 @@ struct Bound
     uint8_t field_89;
     BoundFlags Flags;
     FixedString OwnerPlatform;
-    [[bg3::hidden]] void* field_90;
 };
 
 struct BoundComponent : public BaseProxyComponent
@@ -73,31 +49,11 @@ struct CustomStatsComponent : public BaseComponent
     LegacyMap<FixedString, int> Stats;
 };
 
-struct DataComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Data, "eoc::DataComponent")
-
-    int32_t Weight;
-    FixedString StatsId;
-    uint32_t StepsType;
-};
-
 struct DetachedComponent : public BaseComponent
 {
     DEFINE_COMPONENT(Detached, "eoc::DetachedComponent")
 
     uint32_t Flags;
-};
-
-
-struct ExperienceComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Experience, "eoc::exp::ExperienceComponent")
-
-    int CurrentLevelExperience;
-    int NextLevelExperience;
-    int TotalExperience;
-    uint8_t field_28;
 };
 
 struct HealthComponent : public BaseComponent
@@ -112,34 +68,13 @@ struct HealthComponent : public BaseComponent
     [[bg3::legacy(field_20)]] bool IsInvulnerable;
 };
 
-struct ResistancesComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Resistances, "eoc::ResistancesComponent")
-
-    std::array<ResistanceBoostFlags, 14> Resistances;
-    uint8_t field_E;
-    int AC;
-    std::array<uint16_t, 14> PerDamageTypeHealthThresholds;
-    std::array<uint32_t, 14> PerDamageTypeHealthThresholds2;
-};
-
 struct DifficultyCheckComponent : public BaseComponent
 {
     DEFINE_COMPONENT(DifficultyCheck, "eoc::DifficultyCheckComponent")
 
-    [[bg3::legacy(field_0)]] Array<int32_t> AbilityDC;
-    [[bg3::legacy(field_10)]] Array<int32_t> AbilityModifiers;
-    Array<AbilityId> Abilities;
-    Array<uint32_t> field_30;
-    int field_40;
-    int field_44;
-};
-
-struct AttributeFlagsComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(AttributeFlags, "eoc::AttributeFlagsComponent")
-
-    uint32_t AttributeFlags;
+    [[bg3::legacy(field_0)]] HashMap<AbilityId, uint32_t> AbilityDC;
+    [[bg3::legacy(field_40)]] int32_t SpellSaveDCBoost;
+    [[bg3::legacy(field_44)]] int32_t WeaponActionDC;
 };
 
 struct BodyTypeComponent : public BaseComponent
@@ -172,55 +107,11 @@ struct ExpertiseComponent : public BaseComponent
     HashSet<SkillId> Expertise;
 };
 
-struct StatsComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Stats, "eoc::StatsComponent")
-
-    int InitiativeBonus;
-    std::array<int, 7> Abilities;
-    std::array<int, 7> AbilityModifiers;
-    std::array<int, 18> Skills;
-    int ProficiencyBonus;
-    AbilityId SpellCastingAbility;
-    int field_8C;
-    int field_90;
-    int ArmorType;
-    int ArmorType2;
-    AbilityId UnarmedAttackAbility;
-    AbilityId RangedAttackAbility;
-};
-
 struct StatusImmunitiesComponent : public BaseComponent
 {
     DEFINE_COMPONENT(StatusImmunities, "eoc::StatusImmunitiesComponent")
 
-    HashMap<FixedString, Guid> PersonalStatusImmunities;
-};
-
-struct ValueComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Value, "eoc::ValueComponent")
-
-    int Value;
-    uint8_t Rarity;
-    bool Unique;
-};
-
-struct WeaponComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Weapon, "eoc::WeaponComponent")
-
-    LegacyRefMap<AbilityId, Array<RollDefinition>> Rolls;
-    LegacyRefMap<AbilityId, Array<RollDefinition>> Rolls2;
-    float WeaponRange;
-    float DamageRange;
-    stats::Functors* WeaponFunctors;
-    uint32_t WeaponProperties;
-    uint8_t WeaponGroup;
-    AbilityId Ability;
-    [[bg3::legacy(field_38)]] Array<StatsExpressionWithMetadata> DamageValues;
-    DiceSizeId DamageDice;
-    DiceSizeId VersatileDamageDice;
+    HashMap<FixedString, Array<Guid>> PersonalStatusImmunities;
 };
 
 struct BackgroundComponent : public BaseComponent
@@ -235,9 +126,7 @@ struct GodComponent : public BaseComponent
     DEFINE_COMPONENT(God, "eoc::god::GodComponent")
 
     Guid God;
-    Guid field_10;
-    uint8_t field_20;
-    int field_24;
+    std::optional<Guid> GodOverride;
 };
     
 struct ProficiencyComponent : public BaseComponent
@@ -254,6 +143,12 @@ struct ProficiencyGroupComponent : public BaseComponent
     [[bg3::legacy(field_0)]] ProficiencyGroupFlags Flags;
 };
 
+struct AreaLevelComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(AreaLevel, "eoc::stats::AreaLevelComponent")
+
+    int32_t Level;
+};
 
 struct FloatingComponent : public BaseComponent
 {
@@ -292,13 +187,6 @@ struct DisarmableComponent : public BaseComponent
     uint8_t field_11;
 };
 
-struct ShortRestComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ShortRest, "eoc::rest::ShortRestComponent")
-
-    uint8_t StateId;
-};
-
 struct IsSummonComponent : public BaseComponent
 {
     DEFINE_COMPONENT(IsSummon, "eoc::summon::IsSummonComponent")
@@ -335,6 +223,7 @@ struct StealthComponent : public BaseComponent
 DEFINE_TAG_COMPONENT(eoc, ClientControlComponent, ClientControl)
 DEFINE_TAG_COMPONENT(ls, IsGlobalComponent, IsGlobal)
 DEFINE_TAG_COMPONENT(ls, SavegameComponent, Savegame)
+DEFINE_TAG_COMPONENT(ls::savegame, LoadedComponent, SavegameLoaded)
 
 struct DisabledEquipmentComponent : public BaseComponent
 {
@@ -358,23 +247,6 @@ struct LootComponent : public BaseComponent
 
     uint8_t Flags;
     uint8_t InventoryType;
-};
-
-struct LockComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Lock, "eoc::lock::LockComponent")
-
-    FixedString Key_M;
-    int LockDC;
-    Guid field_8;
-    Array<Guid> field_18;
-};
-
-struct KeyComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Key, "eoc::lock::KeyComponent")
-
-    FixedString Key;
 };
 
 struct SummonLifetimeComponent : public BaseComponent
@@ -469,22 +341,15 @@ struct CanDoRestComponent : public BaseComponent
     DEFINE_COMPONENT(CanDoRest, "eoc::CanDoRestComponent")
 
     RestFlags Flags;
-    RestErrorFlags RestErrorFlags1;
-    RestErrorFlags RestErrorFlags2;
+    [[bg3::legacy(RestErrorFlags1)]] RestErrorFlags LongRestErrorFlags;
+    [[bg3::legacy(RestErrorFlags2)]] RestErrorFlags ShortRestErrorFlags;
 };
 
 struct CanModifyHealthComponent : public BaseComponent
 {
     DEFINE_COMPONENT(CanModifyHealth, "eoc::CanModifyHealthComponent")
-        
+
     uint16_t Flags;
-};
-
-struct AvailableLevelComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(AvailableLevel, "eoc::exp::AvailableLevelComponent")
-
-    int Level;
 };
 
 struct CanBeLootedComponent : public BaseComponent
@@ -523,8 +388,8 @@ struct CanMoveComponent : public BaseComponent
     DEFINE_COMPONENT(CanMove, "eoc::CanMoveComponent")
 
     CanMoveFlags Flags;
-    uint16_t field_4;
-    uint8_t field_6;
+    [[bg3::legacy(field_2)]] uint16_t Encumbrance;
+    [[bg3::legacy(field_4)]] MovementSpeedType SpeedLimit;
 };
 
 struct CanSenseComponent : public BaseComponent
@@ -532,15 +397,6 @@ struct CanSenseComponent : public BaseComponent
     DEFINE_COMPONENT(CanSense, "eoc::CanSenseComponent")
 
     uint16_t Flags;
-};
-
-struct ConcentrationTarget
-{
-    [[bg3::legacy(field_0)]] EntityHandle Target;
-    [[bg3::legacy(field_8)]] EntityHandle Concentration;
-    [[bg3::legacy(field_10)]] ComponentHandle Status;
-    [[bg3::legacy(field_18)]] int16_t SurfaceIndex;
-    bool field_1A;
 };
 
 struct ConcentrationComponent : public BaseComponent
@@ -578,12 +434,20 @@ struct DualWieldingComponent : public BaseComponent
     [[bg3::legacy(DisableDualWielding)]] bool ToggledOn;
 };
 
+struct GravityDisabledUntilMovedComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(GravityDisabledUntilMoved, "eoc::GravityDisabledUntilMovedComponent")
+
+    Transform Transform;
+};
+
 DEFINE_TAG_COMPONENT(eoc, GravityDisabledComponent, GravityDisabled)
-DEFINE_TAG_COMPONENT(eoc::improvised_weapon, CanBeWieldedComponent, CanBeWielded)
 DEFINE_TAG_COMPONENT(eoc::tag, AvatarComponent, Avatar)
 DEFINE_TAG_COMPONENT(eoc::tag, HasExclamationDialogComponent, HasExclamationDialog)
 DEFINE_TAG_COMPONENT(eoc::tag, TraderComponent, Trader)
 DEFINE_TAG_COMPONENT(eoc::ambush, AmbushingComponent, Ambushing)
+DEFINE_TAG_COMPONENT(eoc::trade, CanTradeComponent, CanTrade)
+DEFINE_TAG_COMPONENT(eoc::falling, IsFallingComponent, IsFalling)
 
 struct InteractionFilterComponent : public BaseComponent
 {
@@ -610,14 +474,6 @@ struct ItemBoostsComponent : public BaseComponent
     DEFINE_COMPONENT(ItemBoosts, "eoc::ItemBoostsComponent")
 
     Array<EntityHandle> Boosts;
-};
-
-struct EquipableComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Equipable, "eoc::EquipableComponent")
-
-    [[bg3::legacy(field_18)]] Guid EquipmentTypeID;
-    ItemSlot Slot;
 };
 
 struct RaceComponent : public BaseComponent
@@ -667,19 +523,6 @@ struct ActiveSkeletonSlotsComponent : public BaseComponent
     Array<FixedString> Slots;
 };
 
-struct SomeSharedServerClientObjId
-{
-    __int64 field_0;
-    int field_8;
-};
-
-
-struct SomeSharedServerClientObjId2 : public SomeSharedServerClientObjId
-{
-    __int64 field_10;
-    int field_18;
-};
-
 struct ApprovalRatingsComponent : public BaseComponent
 {
     DEFINE_COMPONENT(ApprovalRatings, "eoc::approval::RatingsComponent")
@@ -691,17 +534,17 @@ struct ApprovalRatingsComponent : public BaseComponent
 
 struct AttitudeIdentifier
 {
-    EntityHandle field_0;
-    uint8_t field_8;
-    Guid field_10;
-    uint8_t field_20;
+    [[bg3::legacy(field_0)]] EntityHandle Character;
+    [[bg3::legacy(field_8)]] IdentityType Identity;
+    [[bg3::legacy(field_10)]] Guid Race;
+    [[bg3::legacy(field_20)]] uint8_t BodyType;
 
     inline bool operator == (AttitudeIdentifier const& o) const
     {
-        return field_0 == o.field_0
-            && field_8 == o.field_8
-            && field_10 == o.field_10
-            && field_20 == o.field_20;
+        return Character == o.Character
+            && Identity == o.Identity
+            && Race == o.Race
+            && BodyType == o.BodyType;
     }
 };
 
@@ -715,8 +558,35 @@ struct AttitudesToPlayersComponent : public BaseComponent
 template <>
 inline uint64_t HashMapHash<AttitudeIdentifier>(AttitudeIdentifier const& v)
 {
-    return HashMulti(v.field_0, v.field_8, v.field_10, v.field_20);
+    return HashMulti(v.Character, v.Identity, v.Race, v.BodyType);
 }
+
+struct PlatformTransformData
+{
+    Transform Transform;
+    bool FireEvents{ true };
+};
+
+struct PlatformTransformChangeRequest
+{
+    Transform Transform;
+    bool FireEvents{ true };
+    EntityHandle Platform;
+};
+
+struct PlatformSystem : public BaseSystem
+{
+    static constexpr nullptr_t SystemName = nullptr;
+
+    [[bg3::hidden]] UnknownSignal qword10;
+    LegacyRefMap<FixedString, EntityHandle> PlatformEntities;
+    [[bg3::hidden]] UnknownFunction field_38;
+    [[bg3::hidden]] void* TransformSystem;
+    Array<PlatformTransformChangeRequest> TransformChanged;
+    // Editor only
+    // Array<EntityHandle> UpdateSubgrids;
+    [[bg3::hidden]] void* field_58;
+};
 
 END_SE()
 
@@ -739,40 +609,96 @@ struct GoalsComponent : public BaseComponent
 
 END_NS()
 
-BEGIN_NS(eoc::hotbar)
+BEGIN_NS(eoc::exp)
 
-struct Slot
+struct ExperienceComponent : public BaseComponent
 {
-    EntityHandle Item;
-    SpellId SpellId;
-    FixedString Passive;
-    uint32_t Slot;
-    bool IsNew;
+    DEFINE_COMPONENT(Experience, "eoc::exp::ExperienceComponent")
+
+    int CurrentLevelExperience;
+    int NextLevelExperience;
+    int TotalExperience;
+    uint8_t field_28;
 };
 
-struct Bar
+struct AvailableLevelComponent : public BaseComponent
 {
-    uint8_t Index;
-    uint8_t field_1;
-    Array<Slot> Elements;
-    uint8_t Width;
-    uint32_t Height;
-    STDString field_20;
+    DEFINE_COMPONENT(AvailableLevel, "eoc::exp::AvailableLevelComponent")
+
+    int Level;
 };
 
-struct ContainerComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(HotbarContainer, "eoc::hotbar::ContainerComponent")
+DEFINE_TAG_COMPONENT(eoc::exp, CanLevelUpComponent, CanLevelUp)
 
-    HashMap<FixedString, Array<Bar>> Containers;
-    FixedString ActiveContainer;
+END_NS()
+
+BEGIN_NS(eoc::lock)
+
+struct LockComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(Lock, "eoc::lock::LockComponent")
+
+    FixedString Key_M;
+    int LockDC;
+    [[bg3::legacy(field_8)]] Guid LockDifficultyClassID;
+    Array<Guid> field_18;
 };
 
-struct HotbarCurrentDecksComponent : public BaseComponent
+struct KeyComponent : public BaseComponent
 {
-    DEFINE_COMPONENT(HotbarDecks, "eoc::hotbar::CurrentDecksComponent")
+    DEFINE_COMPONENT(Key, "eoc::lock::KeyComponent")
 
-    HashMap<FixedString, int32_t> Decks;
+    FixedString Key;
+};
+
+DEFINE_TAG_COMPONENT(eoc::lock, AnimationStateComponent, LockAnimationState)
+DEFINE_TAG_COMPONENT(eoc::lock, LifetimeComponent, LockLifetime)
+
+END_NS()
+
+BEGIN_NS(esv::lock)
+
+struct LockpickingStateComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerLockpickingState, "esv::lock::LockpickingStateComponent")
+
+    EntityHandle Entity;
+    uint8_t State;
+    EntityHandle Target;
+    EntityHandle Target2;
+    glm::vec3 Position;
+    EntityHandle Roll;
+    int RequestId;
+    float ScriptPermissionTimeRemaining;
+    float ActionResourceSpendTimeRemaining;
+    Guid ActionResource;
+    Guid SteeringState;
+    float ActiveRollWaitTimeRemaining;
+};
+
+struct ScriptPermissionResponse
+{
+    EntityHandle Entity;
+    int RequestId;
+    bool Response;
+};
+
+struct PickLockRequest
+{
+    EntityHandle Player;
+    EntityHandle Target;
+    EntityHandle field_10;
+};
+
+struct LockpickingSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerLockpicking, "esv::lock::LockpickingSystem")
+
+    [[bg3::hidden]] void* ImmutableDataHeadmaster;
+    [[bg3::hidden]] UnknownFunction SignalCollection;
+    Array<PickLockRequest> PickLockRequests;
+    Array<ScriptPermissionResponse> ScriptPermissionResponses;
+    [[bg3::hidden]] Array<void*> ActiveRollFinishedEvents;
 };
 
 END_NS()
@@ -796,28 +722,482 @@ struct StartingDateComponent : public BaseComponent
 
 END_NS()
 
-BEGIN_NS(eoc::ftb)
+BEGIN_NS(eoc::improvised_weapon)
 
-struct ParticipantComponent : public BaseComponent
+struct WieldedComponent : public BaseComponent
 {
-    DEFINE_COMPONENT(FTBParticipant, "eoc::ftb::ParticipantComponent")
+    DEFINE_COMPONENT(ImprovisedWeaponWielded, "eoc::improvised_weapon::WieldedComponent")
 
-    EntityHandle field_18;
+    EntityHandle Wielder;
+    uint8_t field_8;
+    uint8_t field_9;
 };
 
-struct ZoneBlockReasonComponent : public BaseComponent
+struct WieldingComponent : public BaseComponent
 {
-    DEFINE_COMPONENT(FTBZoneBlockReason, "eoc::ftb::ZoneBlockReasonComponent")
+    DEFINE_COMPONENT(ImprovisedWeaponWielding, "eoc::improvised_weapon::WieldingComponent")
 
-    uint8_t Reason;
+    EntityHandle Weapon;
 };
 
-DEFINE_TAG_COMPONENT(eoc::ftb, RespectComponent, FTBRespect)
+DEFINE_TAG_COMPONENT(eoc::improvised_weapon, CanBeWieldedComponent, CanBeWielded)
+
+END_NS()
+
+BEGIN_NS(eoc::pickup)
+
+struct PickUpRequestComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(PickUpRequest, "eoc::pickup::PickUpRequestComponent")
+
+    Guid field_0;
+    uint8_t State;
+};
+
+DEFINE_TAG_COMPONENT(eoc::pickup, PickUpExecutingComponent, PickUpExecuting)
+
+END_NS()
+
+BEGIN_NS(eoc::rest)
+
+struct LongRestStateComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(LongRestState, "eoc::rest::LongRestState")
+
+    LongRestState State;
+    bool WaitingForOthers;
+    bool FinishConfirmed;
+    bool Finishing;
+    RestCancelReason CancelReason;
+    FixedString field_8;
+    EntityHandle Requester;
+};
+
+struct LongRestTimeline : public BaseComponent
+{
+    DEFINE_COMPONENT(LongRestTimeline, "eoc::rest::LongRestTimeline")
+
+    Guid Timeline;
+};
+
+struct LongRestTimers : public BaseComponent
+{
+    DEFINE_COMPONENT(LongRestTimers, "eoc::rest::LongRestTimers")
+
+    int field_0;
+};
+
+struct LongRestUsers : public BaseComponent
+{
+    DEFINE_COMPONENT(LongRestUsers, "eoc::rest::LongRestUsers")
+
+    bool RequestRestore;
+    HashMap<UserId, LongRestUserState> States;
+    HashSet<UserId> FinishConfirmation;
+};
+
+struct RestingEntities : public BaseComponent
+{
+    DEFINE_COMPONENT(RestingEntities, "eoc::rest::RestingEntities")
+
+    HashSet<EntityHandle> ScriptFinished;
+    HashSet<EntityHandle> RestRequested;
+    HashSet<EntityHandle> RestStarted;
+    HashSet<EntityHandle> Party;
+    bool HasSurfaces;
+};
+
+
+DEFINE_TAG_COMPONENT(eoc::rest, ShortRestComponent, ShortRest)
+DEFINE_TAG_COMPONENT(eoc::rest, LongRestInScriptPhase, LongRestInScriptPhase)
+
+END_NS()
+
+BEGIN_NS(esv::rest)
+
+struct PendingTypeComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerRestPendingType, "esv::rest::PendingTypeComponent")
+
+    RestCancelReason CancelReason;
+    HashMap<EntityHandle, int> Supplies;
+};
+
+struct RestTypeChosenEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(ServerRestTypeChosenEvent, "esv::rest::RestTypeChosenEventOneFrameComponent")
+
+    RestCancelReason CancelReason;
+    HashMap<EntityHandle, int> Supplies;
+    bool UserDecision;
+};
+
+struct ShortRestResultEventOneFrameComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerShortRestResultEvent, "esv::rest::ShortRestResultEventOneFrameComponent")
+
+    bool Rested;
+    RestErrorFlags ErrorFlags;
+};
+
+
+DEFINE_TAG_COMPONENT(esv::rest, ShortRestConsumeResourcesComponent, ShortRestConsumeResources)
+
+struct LongRestSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerLongRest, "esv::rest::LongRestSystem")
+
+    EntityHandle RestRequester;
+    bool RestConfirmed;
+    bool Pending;
+    bool RequestSyncedFinish;
+    bool RequestReloadStory;
+    bool RequestUserStateRestore;
+    bool RequestLongRest;
+    Array<bool> AutoConfirmation;
+    HashSet<Guid> SetTimeline;
+    Array<FixedString> ScriptDeny;
+    HashSet<EntityHandle> Finish;
+    HashSet<UserId> FinishConfirmation;
+    [[bg3::hidden]] void* LongRestUnitTestHelper;
+    [[bg3::hidden]] void* EocServer;
+    uint8_t UserDecisionRestType;
+    HashMap<EntityHandle, int> RestSupplies;
+    bool UserDecision;
+    std::optional<bool> SetPlayersAreDreaming;
+};
+
+struct ShortRestSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerShortRest, "esv::rest::ShortRestSystem")
+
+    [[bg3::hidden]] UnknownSignal qword10;
+    [[bg3::hidden]] UnknownSignal qword28;
+    HashMap<EntityHandle, bool> UIRequest;
+    HashMap<EntityHandle, bool> ReConRequest;
+    HashMap<EntityHandle, bool> FunctorRequest;
+};
 
 END_NS()
 
 BEGIN_NS(heal)
 
-DEFINE_TAG_COMPONENT(eoc::heal, BlockComponent, HealBlock)
+struct BlockComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(HealBlock, "eoc::heal::BlockComponent")
+
+    HealingType HealingType;
+};
+
+struct MaxIncomingComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(HealMaxIncoming, "eoc::heal::MaxIncomingComponent")
+
+    HealingType HealingType;
+};
+
+struct MaxOutgoingComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(HealMaxOutgoing, "eoc::heal::MaxOutgoingComponent")
+
+    HealingType HealingType;
+};
+
+END_NS()
+
+BEGIN_NS(spatial_grid)
+
+struct DataComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(SpatialGrid, "eoc::spatial_grid::DataComponent")
+
+    GridStructure Grid;
+    std::optional<FixedString> Level;
+};
+
+DEFINE_TAG_COMPONENT(eoc::spatial_grid, CharacterComponent, SpatialGridCharacter)
+DEFINE_TAG_COMPONENT(eoc::spatial_grid, ItemComponent, SpatialGridItem)
+
+END_NS()
+
+BEGIN_NS(esv)
+
+struct GodSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerGod, "esv::god::GodSystem")
+
+    [[bg3::hidden]] void* GodManager;
+    HashMap<EntityHandle, std::optional<Guid>> GodOverrides;
+};
+
+struct RestoreRequest
+{
+    EntityHandle Entity;
+    bool field_8{ true };
+};
+
+struct RestoreSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerRestore, "esv::restore::RestoreSystem")
+
+    Array<RestoreRequest> PartyRestore;
+};
+
+struct BodyTypeSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerBodyType, "esv::BodyTypeSystem")
+
+    [[bg3::hidden]] UnknownFunction qword10;
+    [[bg3::hidden]] void* EntityManager;
+    [[bg3::hidden]] void* ShapeshiftSystem;
+    Array<EntityHandle> Create;
+    Array<EntityHandle> Update;
+    Array<EntityHandle> CharacterCreationUpdate;
+};
+
+struct EvaluateDualWieldingRequest
+{
+    DualWieldingRequestType Type{ DualWieldingRequestType::ToggleDualWielding };
+    EntityHandle Entity;
+    StatsItemSlot Slot{ StatsItemSlot::Sentinel };
+};
+
+struct DualWieldingSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerDualWielding, "esv::DualWieldingSystem")
+
+    [[bg3::hidden]] void* ActionResourceSystem;
+    [[bg3::hidden]] void* BoostSystem;
+    [[bg3::hidden]] void* ThothMachine;
+    [[bg3::hidden]] UnknownFunction qword28;
+    Array<EvaluateDualWieldingRequest> Requests;
+};
+
+struct SetTeleportFlagRequest
+{
+    bool SnapToGrid{ true };
+    glm::vec3 OriginTeleportPos;
+};
+
+struct FallingSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerFalling, "esv::FallingSystem")
+
+    [[bg3::hidden]] void* LevelManager;
+    [[bg3::hidden]] void* ClassDescriptions;
+    [[bg3::hidden]] void* FallingUnitTestHelper;
+    HashSet<EntityHandle> ResetFallHeight;
+    HashSet<EntityHandle> StartFalling;
+    HashSet<EntityHandle> StopFalling;
+    HashMap<EntityHandle, float> SetLifetime;
+    HashMap<EntityHandle, SetTeleportFlagRequest> SetTeleportFlag;
+    HashMap<EntityHandle, bool> DeferredStopFalling;
+};
+
+struct DisplayNameRequest
+{
+    EntityHandle Entity;
+    TranslatedString DisplayName;
+    DisplayNameType Type{ DisplayNameType::Unknown };
+};
+
+struct DisplayTitleRequest
+{
+    EntityHandle Entity;
+    TranslatedString DisplayName;
+    DisplayTitleType Type{ DisplayTitleType::Transform };
+};
+
+struct DisplayNameSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerDisplayName, "esv::DisplayNameSystem")
+
+    Array<DisplayNameRequest> SetDisplayName;
+    Array<DisplayTitleRequest> SetDisplayTitle;
+    HashSet<EntityHandle> DirtyName;
+    HashSet<EntityHandle> DirtyTitle;
+};
+
+struct SetGravityActiveRequest
+{
+    bool Active{ true };
+    EntityHandle Instigator;
+};
+
+struct GravitySystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerGravity, "esv::GravitySystem")
+
+    [[bg3::hidden]] UnknownFunction qword10;
+    [[bg3::hidden]] void* GravitySystemHelper;
+    HashMap<EntityHandle, SetGravityActiveRequest> SetGravityActive;
+    HashMap<EntityHandle, GravityType> SetGravityType;
+    Array<EntityHandle> InstigatorTagChange;
+    Array<EntityHandle> InstigatorTagChange2;
+};
+
+struct LeaderSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerLeader, "esv::LeaderSystem")
+
+    HashMap<EntityHandle, HashSet<EntityHandle>> AddFollower;
+    HashMap<EntityHandle, HashSet<EntityHandle>> RemoveFollower;
+};
+
+struct TeleportPartyRequest
+{
+    std::variant<EntityHandle, FixedString> LevelOrEntity;
+    STDString Event;
+    FixedString Movie;
+};
+
+struct PartyTeleportSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerPartyTeleport, "esv::PartyTeleportSystem")
+
+    [[bg3::hidden]] void* GameEventListenerVMT;
+    [[bg3::hidden]] void* EocServer;
+    [[bg3::hidden]] void* LevelManager;
+    [[bg3::hidden]] void* GameControl;
+    bool DelayedTeleport;
+    TeleportPartyRequest Teleport;
+};
+
+struct PingRequestData
+{
+    EntityHandle Source;
+    EntityHandle Target;
+    glm::vec3 Position;
+    bool field_1C{ false };
+};
+
+struct UIPingRequestData
+{
+    int16_t PingId;
+    EntityHandle Source;
+    EntityHandle Target;
+    glm::vec3 Position;
+    bool field_24{ false };
+};
+
+struct OsirisPingRequestSingletonComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerOsirisPingRequestSingleton, "esv::OsirisPingRequestSingletonComponent")
+
+    Array<PingRequestData> Pings;
+};
+
+struct PingCooldownSingletonComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerPingCooldownSingleton, "esv::PingCooldownSingletonComponent")
+
+    HashMap<int16_t, float> Cooldowns;
+};
+
+struct PingRequestSingletonComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerPingRequestSingleton, "esv::PingRequestSingletonComponent")
+
+    Array<PingRequestData> Pings;
+};
+
+struct PingRequestSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerPingRequest, "esv::PingRequestSystem")
+
+    [[bg3::hidden]] void* RPGStats;
+    Array<UIPingRequestData> UIPings;
+    Array<PingRequestData> Pings;
+};
+
+struct PlatformSetAuthorityTransformRequest
+{
+    bool FireEvents{ true };
+    Transform Transform;
+    EntityHandle Platform;
+};
+
+struct PlatformSystem : public bg3se::PlatformSystem
+{
+    DEFINE_SYSTEM(ServerPlatform, "esv::PlatformSystem")
+
+    [[bg3::hidden]] void* GameEventListener;
+    [[bg3::hidden]] void* field_B0;
+    [[bg3::hidden]] void* NetEventListener;
+    HashMap<EntityHandle, bg3se::death::DeathData> DestroyRequests;
+    Array<PlatformSetAuthorityTransformRequest> SetAuthorityTransform;
+    [[bg3::hidden]] void* AnubisConfigSystem;
+    [[bg3::hidden]] void* LevelInstanceAttachRequestSystem;
+    [[bg3::hidden]] void* LevelInstanceLoadRequestSystem;
+    [[bg3::hidden]] void* LevelManager;
+    bool Activated;
+};
+
+END_NS()
+
+BEGIN_NS(esv::approval)
+
+struct RatingsChangedOneFrameComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ServerRatingsChanged, "esv::approval::RatingsChangedOneFrameComponent")
+
+    EntityHandle Subject;
+    EntityHandle Avatar;
+    int FinalRating;
+    int Adjustment;
+    int RealAdjustment;
+    ApprovalReactionScope ReactionScope;
+    Guid field_20;
+};
+
+struct RatingChangeRequest
+{
+    EntityHandle Subject;
+    EntityHandle Avatar;
+    int Adjustment{ 0 };
+    ApprovalReactionScope ReactionScope{ ApprovalReactionScope::Global };
+    Guid field_18;
+    Guid field_28;
+};
+
+struct RatingRemoveRequest
+{
+    EntityHandle Subject;
+    EntityHandle Avatar;
+};
+
+struct RatingSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerRating, "esv::approval::RatingSystem")
+
+    [[bg3::hidden]] void* EntityManager;
+    [[bg3::hidden]] void* GlobalTemplateManager;
+    [[bg3::hidden]] void* CacheTemplateManager;
+    [[bg3::hidden]] void* LevelManager;
+    [[bg3::hidden]] UnknownFunction qword30;
+    [[bg3::hidden]] void* RatingSystemHelper;
+    Array<RatingChangeRequest> ChangeRating;
+    Array<RatingRemoveRequest> RemoveRating;
+    HashSet<EntityHandle> CreateRatingsComponent;
+};
+
+END_NS()
+
+BEGIN_NS(esv::attitude)
+
+struct UpdateRequest
+{
+    EntityHandle Avatar;
+    int Attitude;
+};
+
+struct UpdateSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerAttitude, "esv::attitude::UpdateSystem")
+
+    Array<EntityHandle> CreateAttitudesComponent;
+    HashMap<EntityHandle, Array<UpdateRequest>> OsirisAddAttitude;
+    HashMap<EntityHandle, Array<UpdateRequest>> ReConAddAttitude;
+};
 
 END_NS()

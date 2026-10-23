@@ -3,6 +3,7 @@
 #include <GameDefinitions/Base/Base.h>
 #include <GameDefinitions/Stats/Common.h>
 #include <GameDefinitions/Stats/Functors.h>
+#include <GameDefinitions/Stats/Entries.h>
 
 BEGIN_NS(stats)
 
@@ -22,6 +23,8 @@ enum class RPGEnumerationType
     // Legacy DOS2 type, unused
     MemorizationRequirements,
     TranslatedString,
+    // Not technically a type, but is stored separately from other modifiers
+    AIFlags,
     Unknown
 };
 
@@ -32,6 +35,11 @@ struct RPGEnumeration : public ProtectedGameObject<RPGEnumeration>
 
     static bool IsFlagType(FixedString const& typeName);
     RPGEnumerationType GetPropertyType() const;
+
+    inline FixedString const& GetElementName() const
+    {
+        return Name;
+    }
 };
 
 struct Modifier : public Noncopyable<Modifier>
@@ -40,202 +48,47 @@ struct Modifier : public Noncopyable<Modifier>
     int32_t LevelMapIndex{ -1 };
     int32_t UnknownZero{ 0 };
     FixedString Name;
+
+    inline FixedString const& GetElementName() const
+    {
+        return Name;
+    }
 };
 
-struct ModifierList
+struct ModifierList : public Noncopyable<ModifierList>
 {
     CNamedElementManager<Modifier> Attributes;
     FixedString Name;
 
-    Modifier* GetAttributeInfo(FixedString const& name, int * attributeIndex) const;
+    inline FixedString const& GetElementName() const
+    {
+        return Name;
+    }
 };
 
-struct ItemTypeManager : public CNamedElementManager<uint64_t>
+struct ItemTypeManager : public CNamedElementManager<ItemType>
 {
     uint64_t Unknown;
 };
 
-/*
-struct CSkillSet
+struct ItemProgressionManager : ProtectedGameObject<ItemProgressionManager>
 {
-    FixedString Name;
-    ObjectSet<FixedString> Skills;
+    LegacyMap<FixedString, ItemGroup*> ItemGroups;
+    LegacyMap<FixedString, NameGroup*> NameGroups;
+    ItemGroup* CurrentItemGroup;
+    LevelGroup* CurrentLevelGroup;
+    RootGroup* CurrentRootGroup;
+    NameGroup* CurrentNameCool;
 };
 
-struct CSkillSetManager : public CNamedElementManager<CSkillSet>
+struct ItemCombinationManager : public CNamedElementManager<ItemCombination>
 {
-    CSkillSet * ParsedSkillSet;
+    ItemCombination* CurrentCombination;
+    ItemCombinationPreviewData* CurrentPreviewData;
+    ItemCombinationProperty* CurrentProperty;
+    LegacyRefMap<FixedString, ItemCombinationPreviewData*> PreviewData;
+    LegacyRefMap<FixedString, ItemCombinationProperty*> Properties;
 };
-
-struct CEquipmentGroup
-{
-    FixedString Name;
-    ObjectSet<FixedString> Equipment;
-};
-
-struct CEquipmentSet
-{
-    FixedString Name;
-    Vector<CEquipmentGroup*> Groups;
-};
-
-struct CEquipmentSetManager : public CNamedElementManager<CEquipmentSet>
-{
-    CEquipmentSet * ParsedEquipmentSet;
-};
-*/
-
-struct TreasureSubTableCategory
-{
-    int32_t Index;
-    int32_t Frequency;
-    std::array<uint16_t, 7> Frequencies;
-    std::array<uint16_t, 7> Frequencies2;
-    bool IsTreasureTable;
-    bool IsTreasureTable2;
-};
-
-struct TreasureSubTableDropCount
-{
-    int32_t Chance;
-    int32_t Amount;
-};
-
-
-struct TreasureSubTable
-{
-    Array<TreasureSubTableCategory*> Categories;
-    Array<int32_t> CategoryFrequencies;
-    int32_t TotalFrequency;
-    Array<TreasureSubTableDropCount> DropCounts;
-    Array<int32_t> Amounts;
-    int32_t TotalCount;
-    int32_t StartLevel;
-    int32_t EndLevel;
-    FixedString field_54;
-};
-
-
-struct TreasureTable
-{
-    FixedString Name;
-    int MinLevel;
-    int MaxLevel;
-    bool IgnoreLevelDiff;
-    bool UseTreasureGroupContainers;
-    bool CanMerge;
-    Array<TreasureSubTable*> SubTables;
-};
-
-struct TreasureCategoryItem
-{
-    FixedString Name;
-    int Priority;
-    int MinAmount;
-    int MaxAmount;
-    int ActPart;
-    int Unique;
-    int MinLevel;
-    int MaxLevel;
-};
-
-struct TreasureCategory
-{
-    FixedString Category;
-    Vector<TreasureCategoryItem*> Items;
-    uint64_t Unknown[3];
-};
-
-struct RPGStats_Treasure_Object_Info
-{
-    FixedString ItemType;
-    FixedString StatsId;
-    __int64 field_10;
-    int field_18;
-    int Amount;
-};
-
-/*
-struct CNameGroupName
-{
-    int field_0;
-    TranslatedString Name;
-    TranslatedString Name2;
-};
-
-
-struct CNameGroup
-{
-    FixedString Name;
-    ObjectSet<CNameGroupName*> Names;
-    ObjectSet<CNameGroupName*> NamesCool;
-};
-
-
-struct CNameGroupLink
-{
-    int field_0;
-    FixedString NameGroup;
-    int NoneCoolSuffix;
-    FixedString ItemName;
-};
-
-
-struct CRootGroup
-{
-    int MinLevel;
-    int MaxLevel;
-    FixedString RootGroup;
-    FixedString field_10;
-    ObjectSet<CNameGroupLink*> NameGroupLinks;
-};
-
-
-struct CLevelGroup
-{
-    int MinLevel;
-    int MaxLevel;
-    FixedString Name;
-    ObjectSet<CRootGroup*> RootGroups;
-};
-
-
-struct CItemGroup
-{
-    FixedString Name;
-    ObjectSet<CLevelGroup*> LevelGroups;
-};
-
-
-struct CItemProgressionManager : public ProtectedGameObject<CItemProgressionManager>
-{
-    LegacyMap<FixedString, CItemGroup*> ItemGroups;
-    LegacyMap<FixedString, CNameGroup*> NameGroups;
-    CItemGroup* CurrentItemGroup;
-    CLevelGroup* CurrentLevelGroup;
-    CRootGroup* CurrentRootGroup;
-    CNameGroup* CurrentNameGroup;
-};
-
-
-MARK_ALLOCATABLE(CSkillSet);
-MARK_ALLOCATABLE(CEquipmentGroup);
-MARK_ALLOCATABLE(CEquipmentSet);*/
-MARK_ALLOCATABLE(TreasureSubTable);
-MARK_ALLOCATABLE(TreasureSubTableCategory);
-MARK_ALLOCATABLE(TreasureTable);
-MARK_ALLOCATABLE(TreasureCategory);
-MARK_ALLOCATABLE(TreasureCategoryItem);
-/*MARK_ALLOCATABLE(CNameGroupName);
-MARK_ALLOCATABLE(CNameGroup);
-MARK_ALLOCATABLE(CNameGroupLink);
-MARK_ALLOCATABLE(CRootGroup);
-MARK_ALLOCATABLE(CLevelGroup);
-MARK_ALLOCATABLE(CItemGroup);
-
-
-extern CRPGStatsVMTMappings gCRPGStatsVMTMappings;
-*/
 
 struct RNG
 {
@@ -253,7 +106,7 @@ struct RNG
 struct PreParsedDataBuffer
 {
     ScratchString Buf;
-    FixedString Name;
+    FixedString Type;
     void* field_28;
 };
 
@@ -269,15 +122,10 @@ struct BloodType
 
 struct RPGStats : public ProtectedGameObject<RPGStats>
 {
-    using LoadProc = void(RPGStats* self, Array<STDString>* paths);
-    using ParseStructureFolderProc = void(RPGStats* self, Array<STDString>* paths);
-
     struct VMTMappings
     {
         bool VMTsMapped{ false };
         void* ObjectVMT{ nullptr };
-        Functors::BaseVMT* StatsFunctorSetVMT{ nullptr };
-        std::unordered_map<FunctorId, Functor::FunctorVMT*> FunctorVMTs;
 
         void Update();
     };
@@ -291,23 +139,27 @@ struct RPGStats : public ProtectedGameObject<RPGStats>
     CNamedElementManager<TreasureTable> TreasureTables;
     ItemTypeManager ItemTypes;
     LegacyMap<FixedString, Functors*> StatsFunctors;
-    uint64_t Unkn1[9];
+    RPGEnumeration* CurrentParsedValueList;
+    Modifier* CurrentParsedType;
+    TreasureTable* CurrentTreasureTable;
+    TreasureCategory* CurrentTreasureCategory;
+    uint64_t RNG[5];
     HashMap<FixedString, float>* ExtraData;
-    LegacyMap<FixedString, FixedString> field_290;
-    LegacyMap<FixedString, void*> field_2A8;
-    LegacyMap<FixedString, void*> field_2C0;
-    LegacyMap<FixedString, void*> field_2D8;
+    LegacyMap<FixedString, FixedString> CategoryMappings;
+    LegacyMap<FixedString, int32_t> WeaponCounters;
+    LegacyMap<FixedString, int32_t> SpellbookCounters;
+    LegacyMap<FixedString, int32_t> ArmorCounters;
     LegacyRefMap<FixedString, void*> field_2F0;
     FixedString TreasureRarities[7];
-    Array<FixedString> FixedStrings;
+    TrackedCompactSet<FixedString> FixedStrings;
     Array<int64_t*> Int64s;
     Array<Guid> GUIDs;
     Array<float> Floats;
     Array<TranslatedString> TranslatedStrings;
-    void* EquipmentSetManager;
-    void* SpellSetManager;
-    void* ItemProgressionManager;
-    void* ItemCombinationManager;
+    CNamedElementManager<EquipmentSet>* EquipmentSetManager;
+    CNamedElementManager<SpellSet>* SpellSetManager;
+    ItemProgressionManager* ItemProgressionManager;
+    ItemCombinationManager* ItemCombinationManager;
     void* CurrentDataBuffer;
     FixedString CurrentDataBufferPath;
     LegacyMap<FixedString, int32_t> PreParsedDataBufferMap;
@@ -327,25 +179,20 @@ struct RPGStats : public ProtectedGameObject<RPGStats>
     std::optional<Object*> CreateObject(FixedString const& name, int32_t modifierListIndex);
     Functors* ConstructFunctorSet(FixedString const& propertyName);
     Functor* ConstructFunctor(FunctorId action);
-    /*void SyncObjectFromServer(MsgS2CSyncStat const& msg);*/
     void SyncWithPrototypeManager(Object* object);
-    /*void BroadcastSyncAll();*/
 
     std::optional<FixedString*> GetFixedString(int stringId);
-    FixedString* GetOrCreateFixedString(int& stringId);
+    int CreatePooledFixedString(FixedString const& value);
     std::optional<int64_t*> GetInt64(int int64Id);
-    int64_t* GetOrCreateInt64(int& int64Id);
+    int CreatePooledInt64(int64_t value);
     std::optional<float*> GetFloat(int floatId);
-    float* GetOrCreateFloat(int& floatId);
+    int CreatePooledFloat(float value);
     std::optional<Guid*> GetGuid(int guidId);
-    Guid* GetOrCreateGuid(int& guidId);
+    int CreatePooledGuid(Guid value);
     std::optional<TranslatedString*> GetTranslatedString(int tsId);
-    TranslatedString* GetOrCreateTranslatedString(int& tsId);
+    int CreatePooledTranslatedString(TranslatedString const& value);
     std::optional<STDString*> GetConditions(int conditionsId);
     int GetOrCreateConditions(STDString const& conditions);
-
-    std::optional<int> EnumLabelToIndex(FixedString const& enumName, char const* enumLabel);
-    FixedString EnumIndexToLabel(FixedString const& enumName, int index);
 };
 
 Object * StatFindObject(char const * name, bool warnOnError = true);

@@ -37,6 +37,7 @@ public:
 
     inline ExtensionState & GetExtensionState() const
     {
+        se_assert(extensionState_);
         return *extensionState_;
     }
 
@@ -55,7 +56,6 @@ public:
         return network_;
     }
 
-    bool IsInServerThread() const;
     void ResetLuaState();
     bool RequestResetClientLuaState();
     void ResetExtensionState();
@@ -79,7 +79,8 @@ private:
 
     void OnBaseModuleLoaded(void * self);
     void GameStateWorkerWrapper(void (* wrapped)(void*), void * self);
-    void OnUpdate(void* self, GameTime* time);
+    void PreUpdate(void* self, GameTime* time);
+    void PostUpdate(void* self, GameTime* time);
 };
 
 END_NS()

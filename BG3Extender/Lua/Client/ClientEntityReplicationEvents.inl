@@ -7,13 +7,13 @@ using namespace bg3se::lua;
 
 DummyFieldTracker::~DummyFieldTracker() {}
 
-void DummyFieldTracker::Add(EntityHandle entity, EntityHandle entity2, void* component)
+void DummyFieldTracker::Add(EntityHandle entity, void* component)
 {
-    assert(Changes.empty());
+    se_assert(Changes.empty());
 
     if (Base) {
-        assert(ChangeEvent.Connections.size() == Base->ChangeEvent.Connections.size());
-        Base->Add(entity, entity2, component);
+        se_assert(ChangeEvent.Connections.size() == Base->ChangeEvent.Connections.size());
+        Base->Add(entity, component);
     }
 
     auto change = SharedChanges->ChangedEntities.try_get(entity);
@@ -26,10 +26,10 @@ void DummyFieldTracker::Add(EntityHandle entity, EntityHandle entity2, void* com
 
 void DummyFieldTracker::FireEvents()
 {
-    assert(Changes.empty());
+    se_assert(Changes.empty());
 
     if (Base) {
-        assert(ChangeEvent.Connections.size() == Base->ChangeEvent.Connections.size());
+        se_assert(ChangeEvent.Connections.size() == Base->ChangeEvent.Connections.size());
         Base->FireEvents();
     }
 
@@ -123,16 +123,15 @@ void ClientEntityReplicationEventHooks::RemoveComponentType(ecs::ReplicationType
 
     // Restore original trackers
     for (uint32_t i = 0; i < trackers.size(); i++) {
-        auto tracker = trackers[i];
-        if (tracker) {
-            auto base = static_cast<DummyFieldTracker*>(tracker)->Base;
+        auto tracker = trackers.try_get(i);
+        if (tracker && *tracker) {
+            auto base = static_cast<DummyFieldTracker*>(*tracker)->Base;
+            GameDelete(*tracker);
             if (base) {
                 trackers.set(i, base);
             } else {
                 trackers.clear(i);
             }
-
-            GameDelete(tracker);
         }
     }
 
@@ -154,7 +153,7 @@ std::optional<EntityReplicationEventHooks::SubscriptionIndex> ClientEntityReplic
 
     pool->Fields |= fields;
     if (!entity) {
-        pool->GlobalHooks.Add(index);
+        pool->GlobalHooks.push_back(index);
     } else {
         auto entityHooks = pool->EntityHooks.try_get(entity);
         if (entityHooks) {
@@ -214,7 +213,10 @@ void ClientEntityReplicationEventHooks::PostUpdate()
         ecl::LuaClientPin lua(gExtender->GetClient().GetExtensionState());
         if (lua) {
             for (auto const& e : pendingEvents_) {
-                CallHandler(e.Entity, e.Fields, e.Type, e.Hook);
+                auto sub = subscriptions_.Find(e.Index);
+                if (sub) {
+                    CallHandler(e.Entity, e.Fields, e.Type, *sub);
+                }
             }
         }
     }
@@ -223,7 +225,7 @@ void ClientEntityReplicationEventHooks::PostUpdate()
     pendingEvents_.clear();
 }
 
-void ClientEntityReplicationEventHooks::OnEntityReplication(ecs::ReplicationTypeIndex type, EntityHandle entity, void* component, uint64_t fields)
+void ClientEntityReplicationEventHooks::OnEntityReplication(ecs::ReplicationTypeIndex const& type, EntityHandle entity, void* component, uint64_t fields)
 {
     auto& hooks = hookedReplicationComponents_[(unsigned)type];
     if ((hooks.Fields & fields) == 0) return;
@@ -240,7 +242,7 @@ void ClientEntityReplicationEventHooks::OnEntityReplication(ecs::ReplicationType
                 .Entity = entity,
                 .Fields = fields,
                 .Type = type,
-                .Hook = *hook
+                .Index = index
             });
         }
     }
@@ -254,7 +256,7 @@ void ClientEntityReplicationEventHooks::OnEntityReplication(ecs::ReplicationType
                     .Entity = entity,
                     .Fields = fields,
                     .Type = type,
-                    .Hook = *hook
+                    .Index = index
                 });
             }
         }
@@ -265,7 +267,7 @@ void ClientEntityReplicationEventHooks::CallHandler(EntityHandle entity, uint64_
 {
     auto L = state_.GetState();
     auto componentType = state_.GetEntitySystemHelpers()->GetComponentType(type);
-    hook.Hook.Push();
+    hook.Hook.Push(L);
     Ref func(L, lua_absindex(L, -1));
 
     ProtectedFunctionCaller<std::tuple<EntityHandle, ExtComponentType, uint64_t>, void> caller{ func, std::tuple(entity, *componentType, fields) };

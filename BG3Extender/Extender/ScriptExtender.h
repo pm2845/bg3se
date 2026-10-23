@@ -4,18 +4,15 @@
 #include <GameDefinitions/Osiris.h>
 #include <GameDefinitions/GuidResources.h>
 #include <Extender/Client/ScriptExtenderClient.h>
-#if defined(ENABLE_IMGUI)
 #include <Extender/Client/IMGUI/IMGUI.h>
-#endif
 #include <Extender/Server/ScriptExtenderServer.h>
 #include <Extender/Shared/StatLoadOrderHelper.h>
 #include <Extender/Shared/VirtualTextures.h>
 #include <Extender/Shared/UseActions.h>
 #include <Extender/Shared/Hooks.h>
-#if !defined(OSI_NO_DEBUGGER)
+#include <Extender/Shared/UpdaterAPI.h>
 #include <Lua/Debugger/LuaDebugger.h>
 #include <Lua/Debugger/LuaDebugMessages.h>
-#endif
 #include <Lua/Shared/LuaBundle.h>
 #include <Lua/Shared/Proxies/LuaCppClass.h>
 #include <GameHooks/OsirisWrappers.h>
@@ -74,7 +71,6 @@ public:
         return Libraries;
     }
 
-#if !defined(OSI_NO_DEBUGGER)
     inline lua::dbg::Debugger* GetLuaDebugger()
     {
         return luaDebugger_.get();
@@ -84,7 +80,6 @@ public:
     {
         return luaDebugMsgHandler_.get();
     }
-#endif
 
     ExtensionStateBase* GetCurrentExtensionState();
     ecs::EntitySystemHelpersBase* GetECS(ecs::EntityWorld* world);
@@ -126,12 +121,25 @@ public:
         return useActions_;
     }
 
-#if defined(ENABLE_IMGUI)
+    inline GameVersionInfo const& GetGameVersion() const
+    {
+        return gameVersion_;
+    }
+
+    inline ULONGLONG GetStartTime() const
+    {
+        return startTime_;
+    }
+
     inline extui::IMGUIManager& IMGUI()
     {
         return imgui_;
     }
-#endif
+
+    inline UpdaterAPIHelpers& GetUpdaterAPI()
+    {
+        return updaterApi_;
+    }
 
     void ClearPathOverrides();
     void AddPathOverride(STDString const & path, STDString const & overriddenPath);
@@ -145,9 +153,9 @@ public:
     enum class CoreLibInitTag {};
     WrappableFunction<CoreLibInitTag, CoreLibInitProc> CoreLibInit;
     enum class AppUpdatePathsTag {};
-    WrappableFunction<AppUpdatePathsTag, AppUpdatePathsProc> AppUpdatePaths;
+    WrappableFunction<AppUpdatePathsTag, App__UpdatePathsProc> AppUpdatePaths;
     enum class AppLoadGraphicSettingsTag {};
-    WrappableFunction<AppLoadGraphicSettingsTag, App::LoadGraphicSettingsProc> AppLoadGraphicSettings;
+    WrappableFunction<AppLoadGraphicSettingsTag, App__LoadGraphicSettingsProc> AppLoadGraphicSettings;
 
 private:
     esv::ScriptExtender server_;
@@ -164,35 +172,33 @@ private:
     lua::CppPropertyMapManager propertyMapManager_;
     VirtualTextureHelpers virtualTextures_;
     UseActionHelpers useActions_;
-#if defined(ENABLE_IMGUI)
     extui::IMGUIManager imgui_;
-#endif
+    UpdaterAPIHelpers updaterApi_;
 
     ExtenderConfig config_;
     bool postStartupDone_{ false };
     bool updateHooksAdded_{ false };
 
-#if !defined(OSI_NO_DEBUGGER)
     std::thread* luaDebuggerThread_{ nullptr };
     std::unique_ptr<LuaDebugInterface> luaDebugInterface_;
     std::unique_ptr<lua::dbg::DebugMessageHandler> luaDebugMsgHandler_;
     std::unique_ptr<lua::dbg::Debugger> luaDebugger_;
-#endif
+
+    GameVersionInfo gameVersion_;
+    ULONGLONG startTime_{ 0 };
 
     void WarnIfOffline();
     void OnCoreLibInit(void * self);
-    void OnAppUpdatePaths(void * self);
+    void OnAppUpdatePaths(App* self);
     void OnAppLoadGraphicSettings(App* self);
     void HookStateMachineUpdates();
-    void OnBaseModuleLoaded(void * self);
-    void OnModuleLoadStarted(TranslatedStringRepository* self);
-    void OnStatsLoad(stats::RPGStats::LoadProc* wrapped, stats::RPGStats* mgr, Array<STDString>* paths);
-    void OnStatsLoadGuarded(stats::RPGStats::LoadProc* wrapped, stats::RPGStats* mgr, Array<STDString>* paths);
-    void OnECSUpdate(ecs::EntityWorld::UpdateProc* wrapped, ecs::EntityWorld* entityWorld, GameTime const& time);
-    void OnECSUpdateGuarded(ecs::EntityWorld::UpdateProc* wrapped, ecs::EntityWorld* entityWorld, GameTime const& time);
+    void OnStatsLoad(stats::RPGStats__LoadProc* wrapped, stats::RPGStats* mgr, Array<STDString>* paths);
+    void OnStatsLoadGuarded(stats::RPGStats__LoadProc* wrapped, stats::RPGStats* mgr, Array<STDString>* paths);
+    void OnECSUpdate(ecs::EntityWorld__UpdateProc* wrapped, ecs::EntityWorld* entityWorld, GameTime const& time);
+    void OnECSUpdateGuarded(ecs::EntityWorld__UpdateProc* wrapped, ecs::EntityWorld* entityWorld, GameTime const& time);
     void OnECSFlushECBs(ecs::EntityWorld* entityWorld);
     void OnFindPath(AiGrid* self, AiPathId pathId);
-    FileReader * OnFileReaderCreate(FileReader::CtorProc* next, FileReader * self, Path const& path, unsigned int type, unsigned int unknown);
+    FileReader * OnFileReaderCreate(FileReader__CtorProc* next, FileReader * self, Path const& path, unsigned int type, unsigned int unknown);
 };
 
 extern std::unique_ptr<ScriptExtender> gExtender;

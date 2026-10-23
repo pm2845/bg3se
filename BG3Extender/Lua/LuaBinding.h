@@ -12,10 +12,9 @@
 #include <Lua/Shared/Proxies/LuaEnumValue.h>
 #include <Lua/Shared/Proxies/LuaBitfieldValue.h>
 #include <Lua/Shared/Proxies/LuaUserVariableHolder.h>
-#if defined(ENABLE_IMGUI)
 #include <Lua/Shared/Proxies/LuaImguiProxy.h>
-#endif
 #include <Lua/Shared/EntityComponentEvents.h>
+#include <Lua/Shared/SystemEvents.h>
 #include <Lua/Shared/EntityEventHelpers.h>
 #include <Extender/Shared/UserVariables.h>
 #include <Lua/Libs/Timer.h>
@@ -52,7 +51,7 @@ namespace bg3se::lua
     class LuaStateWrapper : Noncopyable<LuaStateWrapper>
     {
     public:
-        LuaStateWrapper();
+        LuaStateWrapper(ExtensionStateBase& state);
         ~LuaStateWrapper();
 
         inline operator lua_State* () const
@@ -62,12 +61,72 @@ namespace bg3se::lua
 
         lua_State* L;
         LuaInternalState* Internal;
+        std::atomic<int64_t> AllocatedMemory{ 0 };
+    };
+
+    class State;
+
+#if USE_OPTICK
+    class ProfilerStack
+    {
+    public:
+        void Begin(Optick::EventDescription const* desc);
+        void Begin(StringView msg);
+        void End();
+
+        inline bool WasEntered() const
+        {
+            return !stackAtEntry_.empty();
+        }
+
+        void EnterVM();
+        void ExitVM();
+
+    private:
+        Array<Optick::EventData*> stack_;
+        Array<uint32_t> stackAtEntry_;
+    };
+
+    class ProfilerStackGuard
+    {
+    public:
+        ProfilerStackGuard(State* state);
+        ~ProfilerStackGuard();
+
+    private:
+        State* state_;
+    };
+#else
+    class ProfilerStackGuard
+    {
+    public:
+        inline ProfilerStackGuard(State* state) {}
+        inline ~ProfilerStackGuard() {}
+    };
+#endif
+
+    class VMCallEntry
+    {
+    public:
+        inline VMCallEntry(State* state, int stackDelta = 0);
+        ~VMCallEntry();
+
+    private:
+        [[no_unique_address]] StackCheck check_;
+        LifetimeStackPin lifetime_;
+        [[no_unique_address]] ProfilerStackGuard profiler_;
+    };
+
+    struct LuaExtraSpace
+    {
+        State* State;
+        LifetimeHandle CurrentLifetime;
     };
 
     class State : Noncopyable<State>
     {
     public:
-        static_assert(LUA_EXTRASPACE >= sizeof(State*), "Should have enough extra space in Lua for state ptr");
+        static_assert(LUA_EXTRASPACE >= sizeof(LuaExtraSpace), "Should have enough extra space in Lua for state");
 
         enum RestrictionFlag
         {
@@ -98,10 +157,23 @@ namespace bg3se::lua
         State(State &&) = delete;
         State & operator = (State const &) = delete;
         State & operator = (State &&) = delete;
+        
+        inline static LuaExtraSpace* GetExtra(lua_State* L)
+        {
+            return (LuaExtraSpace *)lua_getextraspace(L);
+        }
 
-        static State* FromLua(lua_State* L);
+        inline static State* FromLua(lua_State* L)
+        {
+            return GetExtra(L)->State;
+        }
 
         inline lua_State * GetState()
+        {
+            return L;
+        }
+
+        inline LuaStateWrapper& GetStateWrapper()
         {
             return L;
         }
@@ -133,11 +205,6 @@ namespace bg3se::lua
 
         LifetimeHandle GetCurrentLifetime();
 
-        inline LifetimeHandle GetGlobalLifetime()
-        {
-            return globalLifetime_;
-        }
-
         inline LifetimePool& GetLifetimePool()
         {
             return lifetimePool_;
@@ -147,6 +214,23 @@ namespace bg3se::lua
         {
             return metatableManager_;
         }
+
+        inline GlobalRefManager& GetGlobals()
+        {
+            return globals_;
+        }
+
+        inline CustomPropertyManager& GetCustomProperties()
+        {
+            return customProperties_;
+        }
+
+#if USE_OPTICK
+        inline ProfilerStack& GetProfiler()
+        {
+            return profilerStack_;
+        }
+#endif
 
         inline CachedUserVariableManager& GetVariableManager()
         {
@@ -186,6 +270,11 @@ namespace bg3se::lua
             return entityHooks_;
         }
 
+        SystemEventHooks& GetSystemEventHooks()
+        {
+            return systemHooks_;
+        }
+
         void FinishStartup();
         void LoadBootstrap(STDString const& path, STDString const& modTable);
         virtual void OnGameSessionLoading();
@@ -198,15 +287,14 @@ namespace bg3se::lua
         void OnShutdown();
         virtual void OnUpdate(GameTime const& time);
         void OnStatsStructureLoaded();
-        void OnNetMessageReceived(char const* channel, char const* payload, char const* moduleUuid, int32_t requestId, int32_t replyId, UserId userId);
+        void OnNetMessageReceived(StringView channel, StringView payload, StringView moduleUuid, int32_t requestId,
+            int32_t replyId, UserId userId, bool binary);
         void OnFindPath(AiGrid* self, AiPathId pathId);
 
         template <class... Ret, class... Args>
         bool CallExtRet(char const * func, uint32_t restrictions, std::tuple<Ret...>& ret, Args... args)
         {
-            StackCheck _(L);
-            // FIXME - Restriction restriction(*this, restrictions);
-            LifetimeStackPin _p(lifetimeStack_);
+            VMCallEntry _(this);
             auto lifetime = lifetimeStack_.GetCurrent();
             PushInternalFunction(L, func);
             (push(L, args, lifetime), ...);
@@ -216,9 +304,7 @@ namespace bg3se::lua
         template <class... Args>
         bool CallExt(char const * func, uint32_t restrictions, Args... args)
         {
-            StackCheck _(L, 0);
-            // FIXME - Restriction restriction(*this, restrictions);
-            LifetimeStackPin _p(lifetimeStack_);
+            VMCallEntry _(this);
             auto lifetime = lifetimeStack_.GetCurrent();
             PushInternalFunction(L, func);
             (push(L, args, lifetime), ...);
@@ -229,18 +315,13 @@ namespace bg3se::lua
         EventResult ThrowEvent(char const* eventName, TEvent& evt, bool canPreventAction = false, uint32_t restrictions = 0)
         {
             static_assert(std::is_base_of_v<EventBase, TEvent>, "Event object must be a descendant of EventBase");
-            StackCheck _(L, 0);
-            LifetimeStackPin _p(GetStack());
+            VMCallEntry _(this);
             PushInternalFunction(L, "_ThrowEvent");
             MakeObjectRef(L, &evt);
             return DispatchEvent(evt, eventName, canPreventAction, restrictions);
         }
 
         std::optional<int> LoadScript(STDString const & script, STDString const & name = "", int globalsIdx = 0);
-
-        /*void OnNetMessageReceived(STDString const & channel, STDString const & payload, UserId userId);*/
-
-        static STDString GetBuiltinLibrary(int resourceId);
 
     protected:
         LuaStateWrapper L;
@@ -250,13 +331,18 @@ namespace bg3se::lua
 
         LifetimePool lifetimePool_;
         LifetimeStack lifetimeStack_;
-        LifetimeHandle globalLifetime_;
 
         CppMetatableManager metatableManager_;
+        GlobalRefManager globals_;
+        CustomPropertyManager customProperties_;
+#if USE_OPTICK
+        ProfilerStack profilerStack_;
+#endif
 
         CachedUserVariableManager variableManager_;
         CachedModVariableManager modVariableManager_;
         EntityComponentEventHooks entityHooks_;
+        SystemEventHooks systemHooks_;
         timer::TimerSystem timers_;
         level::PathfindingSystem pathfinding_;
         net::NetworkRequestSystem networkRequests_;
@@ -297,16 +383,17 @@ namespace bg3se::lua
 
     struct NetMessageEvent : public EventBase
     {
-        STDString Channel;
-        STDString Payload;
+        StringView Channel;
+        StringView Payload;
         std::optional<Guid> Module;
         std::optional<net::RequestId> RequestId;
         UserId UserID;
+        bool Binary{ false };
     };
 
     struct FindPathEvent : public EventBase
     {
-        AiPath* Path;
+        AiPath* Path{ nullptr };
     };
 }
 

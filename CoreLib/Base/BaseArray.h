@@ -14,21 +14,34 @@ public:
     using pointer = T*;
     using difference_type = int32_t;
     using size_type = uint32_t;
-    using iterator_category = std::random_access_iterator_tag;
+    using iterator_category = std::contiguous_iterator_tag;
 
     ContiguousIterator(T* p) : ptr_(p) {}
 
-    ContiguousIterator operator ++ ()
+    ContiguousIterator& operator ++ ()
+    {
+        ++ptr_;
+        return *this;
+    }
+
+    ContiguousIterator& operator -- ()
+    {
+        --ptr_;
+        return *this;
+    }
+
+    ContiguousIterator operator ++ (int)
     {
         ContiguousIterator<T> it(ptr_);
-        ptr_++;
+        ++ptr_;
         return it;
     }
 
-    ContiguousIterator& operator ++ (int)
+    ContiguousIterator operator -- (int)
     {
-        ptr_++;
-        return *this;
+        ContiguousIterator<T> it(ptr_);
+        --ptr_;
+        return it;
     }
 
     bool operator == (ContiguousIterator const& it) const
@@ -39,6 +52,11 @@ public:
     bool operator != (ContiguousIterator const& it) const
     {
         return it.ptr_ != ptr_;
+    }
+
+    bool operator < (ContiguousIterator const& it) const
+    {
+        return ptr_ < it.ptr_;
     }
 
     ContiguousIterator operator + (difference_type n) const
@@ -85,21 +103,34 @@ public:
     using pointer = T const*;
     using difference_type = int32_t;
     using size_type = uint32_t;
-    using iterator_category = std::random_access_iterator_tag;
+    using iterator_category = std::contiguous_iterator_tag;
 
     ContiguousConstIterator(T const* p) : ptr_(p) {}
 
-    ContiguousConstIterator operator ++ ()
+    ContiguousConstIterator& operator ++ ()
+    {
+        ++ptr_;
+        return *this;
+    }
+
+    ContiguousConstIterator& operator -- ()
+    {
+        --ptr_;
+        return *this;
+    }
+
+    ContiguousConstIterator operator ++ (int)
     {
         ContiguousConstIterator<T> it(ptr_);
-        ptr_++;
+        ++ptr_;
         return it;
     }
 
-    ContiguousConstIterator& operator ++ (int)
+    ContiguousConstIterator operator -- (int)
     {
-        ptr_++;
-        return *this;
+        ContiguousConstIterator<T> it(ptr_);
+        --ptr_;
+        return it;
     }
 
     bool operator == (ContiguousConstIterator const& it) const
@@ -110,6 +141,11 @@ public:
     bool operator != (ContiguousConstIterator const& it) const
     {
         return it.ptr_ != ptr_;
+    }
+
+    bool operator < (ContiguousConstIterator const& it) const
+    {
+        return ptr_ < it.ptr_;
     }
 
     ContiguousConstIterator operator + (difference_type n) const
@@ -146,60 +182,6 @@ private:
     T const* ptr_;
 };
 
-
-template <class TWord, unsigned NumWords>
-struct BitArray
-{
-    static constexpr uint32_t BitsPerWord = sizeof(TWord) * CHAR_BIT;
-    static constexpr uint32_t IndexBitsPerWord = (sizeof(TWord) == 4) ? 5 : 6;
-    static constexpr uint32_t NumBits = NumWords * BitsPerWord;
-
-    TWord Bits[NumWords];
-
-    inline bool operator [] (uint32_t index) const
-    {
-        if (index >= NumBits) {
-            return false;
-        }
-
-        return (Bits[index >> IndexBitsPerWord] & (TWord(1) << (index & (BitsPerWord - 1)))) != 0;
-    }
-
-    inline bool Set(uint32_t index)
-    {
-        if (index >= NumBits) {
-            return false;
-        }
-
-        Bits[index >> IndexBitsPerWord] |= (TWord(1) << (index & (BitsPerWord - 1)));
-        return true;
-    }
-
-    inline bool Clear(uint32_t index)
-    {
-        if (index >= NumBits) {
-            return false;
-        }
-
-        Bits[index >> IndexBitsPerWord] &= ~(TWord(1) << (index & (BitsPerWord - 1)));
-        return true;
-    }
-
-    inline bool IsSet(uint32_t index) const
-    {
-        if (index >= NumBits) {
-            return false;
-        }
-
-        return (Bits[index >> IndexBitsPerWord] & (TWord(1) << (index & (BitsPerWord - 1)))) != 0;
-    }
-
-    inline uint32_t size() const
-    {
-        return NumWords * sizeof(TWord) * CHAR_BIT;
-    }
-};
-
 template <class T>
 class StaticArray
 {
@@ -229,7 +211,7 @@ public:
         CopyFrom(a);
     }
 
-    StaticArray(StaticArray&& a)
+    StaticArray(StaticArray&& a) noexcept
     {
         if (this != &a) {
             buf_ = a.buf_;
@@ -241,13 +223,7 @@ public:
 
     ~StaticArray()
     {
-        if (buf_) {
-            for (size_type i = 0; i < size_; i++) {
-                buf_[i].~T();
-            }
-
-            GameFree(buf_);
-        }
+        release();
     }
 
     StaticArray& operator =(StaticArray const& a)
@@ -256,9 +232,10 @@ public:
         return *this;
     }
 
-    StaticArray& operator =(StaticArray&& a)
+    StaticArray& operator =(StaticArray&& a) noexcept
     {
         if (this != &a) {
+            release();
             buf_ = a.buf_;
             size_ = a.size_;
             a.buf_ = nullptr;
@@ -275,12 +252,17 @@ public:
         if (a.size_ != size_) {
             Resize(a.size_);
             for (size_type i = 0; i < size_; i++) {
-                new (buf_ + i) T(a[i]);
+                buf_[i] = a[i];
             }
         }
     }
 
-    inline T* raw_buf() const
+    inline T* data()
+    {
+        return buf_;
+    }
+
+    inline T const* data() const
     {
         return buf_;
     }
@@ -297,13 +279,13 @@ public:
 
     inline T const& operator [] (size_type index) const
     {
-        assert(index < size_);
+        se_assert(index < size_);
         return buf_[index];
     }
 
     inline T& operator [] (size_type index)
     {
-        assert(index < size_);
+        se_assert(index < size_);
         return buf_[index];
     }
 
@@ -318,16 +300,16 @@ public:
             T* newBuf;
             if (newSize > 0) {
                 newBuf = GameMemoryAllocator::NewRaw<T>(newSize);
+
+                for (size_type i = 0; i < std::min(size_, newSize); i++) {
+                    new (newBuf + i) T(std::move(buf_[i]));
+                }
+            
+                for (size_type i = std::min(size_, newSize); i < newSize; i++) {
+                    new (newBuf + i) T(initval);
+                }
             } else {
                 newBuf = nullptr;
-            }
-
-            for (size_type i = 0; i < std::min(size_, newSize); i++) {
-                new (newBuf + i) T(std::move(buf_[i]));
-            }
-            
-            for (size_type i = std::min(size_, newSize); i < newSize; i++) {
-                new (newBuf + i) T(initval);
             }
 
             if (buf_ != nullptr) {
@@ -349,16 +331,16 @@ public:
             T* newBuf;
             if (newSize > 0) {
                 newBuf = GameMemoryAllocator::NewRaw<T>(newSize);
+
+                for (size_type i = 0; i < std::min(size_, newSize); i++) {
+                    new (newBuf + i) T(std::move(buf_[i]));
+                }
+
+                for (size_type i = std::min(size_, newSize); i < newSize; i++) {
+                    new (newBuf + i) T();
+                }
             } else {
                 newBuf = nullptr;
-            }
-
-            for (size_type i = 0; i < std::min(size_, newSize); i++) {
-                new (newBuf + i) T(std::move(buf_[i]));
-            }
-            
-            for (size_type i = std::min(size_, newSize); i < newSize; i++) {
-                new (newBuf + i) T();
             }
 
             if (buf_ != nullptr) {
@@ -397,6 +379,17 @@ public:
 private:
     T* buf_{ nullptr };
     size_type size_{ 0 };
+
+    void release()
+    {
+        if (buf_) {
+            for (size_type i = 0; i < size_; i++) {
+                buf_[i].~T();
+            }
+
+            GameFree(buf_);
+        }
+    }
 };
 
 template <class T>
@@ -410,15 +403,10 @@ public:
     using size_type = uint32_t;
 
     inline UninitializedStaticArray() {}
-    
-    UninitializedStaticArray(size_type size)
-    {
-        resize(size);
-    }
 
     UninitializedStaticArray(UninitializedStaticArray const& a) = delete;
 
-    UninitializedStaticArray(UninitializedStaticArray&& a)
+    UninitializedStaticArray(UninitializedStaticArray&& a) noexcept
     {
         if (this != &a) {
             buf_ = a.buf_;
@@ -430,14 +418,18 @@ public:
 
     ~UninitializedStaticArray()
     {
-        GameFree(buf_);
+        // User needs to clear() the array before deletion
+        se_assert(buf_ == nullptr);
     }
 
     UninitializedStaticArray& operator =(UninitializedStaticArray const& a) = delete;
 
-    UninitializedStaticArray& operator =(UninitializedStaticArray&& a)
+    UninitializedStaticArray& operator =(UninitializedStaticArray&& a) noexcept
     {
         if (this != &a) {
+            // User needs to clear() the array before a move
+            se_assert(buf_ == nullptr);
+
             buf_ = a.buf_;
             size_ = a.size_;
             a.buf_ = nullptr;
@@ -447,12 +439,12 @@ public:
         return *this;
     }
 
-    inline T* raw_buf()
+    inline T* data()
     {
         return buf_;
     }
 
-    inline T const* raw_buf() const
+    inline T const* data() const
     {
         return buf_;
     }
@@ -464,58 +456,45 @@ public:
 
     inline T const& operator [] (size_type index) const
     {
-        assert(index < size_);
+        se_assert(index < size_);
         return buf_[index];
     }
 
     inline T& operator [] (size_type index)
     {
-        assert(index < size_);
+        se_assert(index < size_);
         return buf_[index];
     }
 
     void clear(size_type initializedCapacity)
     {
-        resize(0, 0, initializedCapacity);
+        if (buf_ != nullptr) {
+            for (size_type i = 0; i < initializedCapacity; i++) {
+                buf_[i].~T();
+            }
+
+            GameFree(buf_);
+        }
+
+        buf_ = nullptr;
+        size_ = 0;
     }
 
     void resize(size_type newSize, size_type newInitializedCapacity, size_type initializedCapacity)
     {
-        assert(initializedCapacity <= size_);
-        assert(newInitializedCapacity <= newSize);
+        se_assert(initializedCapacity <= size_);
+        se_assert(newInitializedCapacity <= newSize);
 
         if (size_ != newSize) {
-            T* newBuf;
-            if (newSize > 0) {
-                newBuf = GameMemoryAllocator::NewRaw<T>(newSize);
-            } else {
-                newBuf = nullptr;
-            }
-
-            for (size_type i = 0; i < std::min(initializedCapacity, newInitializedCapacity); i++) {
-                new (newBuf + i) T(std::move(buf_[i]));
-            }
-            
-            for (size_type i = std::min(initializedCapacity, newInitializedCapacity); i < newInitializedCapacity; i++) {
-                new (newBuf + i) T();
-            }
-
-            if (buf_ != nullptr) {
-                for (size_type i = 0; i < initializedCapacity; i++) {
-                    buf_[i].~T();
-                }
-
-                GameFree(buf_);
-            }
-
-            buf_ = newBuf;
-            size_ = newSize;
+            resizeWithMove(newSize, newInitializedCapacity, initializedCapacity);
+        } else {
+            resizeInPlace(newInitializedCapacity, initializedCapacity);
         }
     }
 
     void copy_from(UninitializedStaticArray const& a, size_type curInitializedCapacity, size_type newInitializedCapacity)
     {
-        assert(newInitializedCapacity <= a.size());
+        se_assert(newInitializedCapacity <= a.size());
         resize(a.size(), newInitializedCapacity, curInitializedCapacity);
         for (size_type i = 0; i < newInitializedCapacity; i++) {
             buf_[i] = a.buf_[i];
@@ -531,9 +510,56 @@ public:
         }
     }
 
+    void unsafe_swap_buffer(T* buf)
+    {
+        buf_ = buf;
+    }
+
 private:
     T* buf_{ nullptr };
     size_type size_{ 0 };
+
+    void resizeWithMove(size_type newSize, size_type newInitializedCapacity, size_type initializedCapacity)
+    {
+        T* newBuf;
+        if (newSize > 0) {
+            newBuf = GameMemoryAllocator::NewRaw<T>(newSize);
+        } else {
+            newBuf = nullptr;
+        }
+
+        for (size_type i = 0; i < std::min(initializedCapacity, newInitializedCapacity); i++) {
+            new (newBuf + i) T(std::move(buf_[i]));
+        }
+            
+        for (size_type i = std::min(initializedCapacity, newInitializedCapacity); i < newInitializedCapacity; i++) {
+            new (newBuf + i) T();
+        }
+
+        if (buf_ != nullptr) {
+            for (size_type i = 0; i < initializedCapacity; i++) {
+                buf_[i].~T();
+            }
+
+            GameFree(buf_);
+        }
+
+        buf_ = newBuf;
+        size_ = newSize;
+    }
+
+    void resizeInPlace(size_type newInitializedCapacity, size_type initializedCapacity)
+    {
+        // Free discarded items if array was shrunk
+        for (size_type i = newInitializedCapacity; i < initializedCapacity; i++) {
+            buf_[i].~T();
+        }
+
+        // Default-initialize new slots
+        for (size_type i = initializedCapacity; i < newInitializedCapacity; i++) {
+            new (buf_ + i) T();
+        }
+    }
 };
 
 template <class T>
@@ -552,7 +578,7 @@ public:
 
     Array(Array const& a)
     {
-        CopyFrom(a);
+        copyFrom(a);
     }
 
     Array(Array&& a) noexcept
@@ -569,21 +595,19 @@ public:
 
     ~Array()
     {
-        if (buf_) {
-            clear();
-            GameFree(buf_);
-        }
+        release();
     }
 
     Array& operator =(Array const& a)
     {
-        CopyFrom(a);
+        copyFrom(a);
         return *this;
     }
 
     Array& operator =(Array&& a) noexcept
     {
         if (this != &a) {
+            release();
             buf_ = a.buf_;
             capacity_ = a.capacity_;
             size_ = a.size_;
@@ -594,20 +618,12 @@ public:
         return *this;
     }
 
-    void CopyFrom(Array const& a)
+    inline constexpr T const* data() const noexcept
     {
-        clear();
-
-        if (a.size_ > 0) {
-            Reallocate(a.size_);
-            size_ = a.size_;
-            for (size_type i = 0; i < size_; i++) {
-                new (buf_ + i) T(a[i]);
-            }
-        }
+        return buf_;
     }
 
-    inline constexpr T* raw_buf() const noexcept
+    inline constexpr T* data() noexcept
     {
         return buf_;
     }
@@ -634,23 +650,14 @@ public:
 
     inline T const& operator [] (size_type index) const
     {
-        assert(index < size_);
+        se_assert(index < size_);
         return buf_[index];
     }
 
     inline T& operator [] (size_type index)
     {
-        assert(index < size_);
+        se_assert(index < size_);
         return buf_[index];
-    }
-
-    constexpr size_type CapacityIncrement() const noexcept
-    {
-        if (capacity_ > 0) {
-            return 2 * capacity_;
-        } else {
-            return 1;
-        }
     }
 
     void clear()
@@ -662,29 +669,17 @@ public:
         size_ = 0;
     }
 
-    void Reallocate(size_type newCapacity)
+    void reserve(size_type newCapacity)
     {
-        auto newBuf = GameMemoryAllocator::NewRaw<T>(newCapacity);
-        for (size_type i = 0; i < std::min(size_, newCapacity); i++) {
-            new (newBuf + i) T(std::move(buf_[i]));
+        if (newCapacity > capacity_) {
+            reallocate(newCapacity);
         }
-
-        if (buf_ != nullptr) {
-            for (size_type i = 0; i < size_; i++) {
-                buf_[i].~T();
-            }
-
-            GameFree(buf_);
-        }
-
-        buf_ = newBuf;
-        capacity_ = newCapacity;
     }
 
     void resize(size_type newSize)
     {
         if (newSize > capacity_) {
-            Reallocate(newSize);
+            reallocate(newSize);
         }
 
         if (size_ > newSize) {
@@ -700,43 +695,26 @@ public:
         size_ = newSize;
     }
 
-    void Add(T const& value)
-    {
-        if (capacity_ <= size_) {
-            Reallocate(CapacityIncrement());
-        }
-
-        new (&buf_[size_++]) T(value);
-    }
-
     T& push_back(T const& value)
     {
-        if (capacity_ <= size_) {
-            Reallocate(CapacityIncrement());
-        }
-
+        growIfNecessary();
         return *(new (&buf_[size_++]) T(value));
     }
 
     T& push_back(T&& value)
     {
-        if (capacity_ <= size_) {
-            Reallocate(CapacityIncrement());
-        }
-
+        growIfNecessary();
         return *(new (&buf_[size_++]) T(std::move(value)));
     }
 
     void ordered_insert_at(size_type index, T const& value)
     {
-        assert(index <= size_);
-        if (capacity_ <= size_) {
-            Reallocate(CapacityIncrement());
-        }
+        se_assert(index <= size_);
+        growIfNecessary();
 
         new (&buf_[size_++]) T();
 
-        for (size_type i = size_ - 1; i > index; i++) {
+        for (size_type i = size_ - 1; i > index; i--) {
             buf_[i] = std::move(buf_[i - 1]);
         }
 
@@ -745,19 +723,22 @@ public:
 
     void insert_at(size_type index, T const& value)
     {
-        assert(index <= size_);
-        if (capacity_ <= size_) {
-            Reallocate(CapacityIncrement());
+        se_assert(index <= size_);
+        growIfNecessary();
+
+        if (index < size_) {
+            new (&buf_[size_]) T(buf_[index]);
+            buf_[index] = value;
+        } else {
+            new (&buf_[index]) T(value);
         }
 
-        new (&buf_[size_]) T(buf_[index]);
-        buf_[index] = value;
         size_++;
     }
 
     void remove_at(size_type index)
     {
-        assert(index < size_);
+        se_assert(index < size_);
 
         if (index + 1 < size_) {
             buf_[index] = std::move(buf_[size_ - 1]);
@@ -769,7 +750,7 @@ public:
 
     void ordered_remove_at(size_type index)
     {
-        assert(index < size_);
+        se_assert(index < size_);
 
         for (size_type i = index; i < size_ - 1; i++) {
             buf_[i] = std::move(buf_[i + 1]);
@@ -781,20 +762,20 @@ public:
 
     void erase(iterator const& it)
     {
-        assert(it != end());
+        se_assert(it != end());
         ordered_remove_at((size_type)(it.get() - buf_));
     }
 
     void remove_last()
     {
-        assert(size_ > 0);
+        se_assert(size_ > 0);
         buf_[size_ - 1].~T();
         size_--;
     }
 
     T pop_last()
     {
-        assert(size_ > 0);
+        se_assert(size_ > 0);
         return std::move(buf_[--size_]);
     }
 
@@ -840,6 +821,69 @@ private:
     T* buf_{ nullptr };
     size_type capacity_{ 0 };
     size_type size_{ 0 };
+
+    void release()
+    {
+        if (buf_) {
+            clear();
+            GameFree(buf_);
+        }
+    }
+
+    inline void growIfNecessary()
+    {
+        if (capacity_ <= size_) {
+            reallocate(capacityIncrement());
+        }
+    }
+
+    void reallocate(size_type newCapacity)
+    {
+        auto newBuf = GameMemoryAllocator::NewRaw<T>(newCapacity);
+        for (size_type i = 0; i < std::min(size_, newCapacity); i++) {
+            new (newBuf + i) T(std::move(buf_[i]));
+        }
+
+        // Reassign buf_ after moving the old values, but before destroying them.
+        // This reduces the time window in which a concurrent thread could see garbage data
+        // by dereferencing buf_[x].
+        auto oldBuf = buf_;
+        buf_ = newBuf;
+        capacity_ = newCapacity;
+
+        if (oldBuf != nullptr) {
+            for (size_type i = 0; i < size_; i++) {
+                oldBuf[i].~T();
+            }
+
+            GameFree(oldBuf);
+        }
+    }
+
+    constexpr size_type capacityIncrement() const noexcept
+    {
+        if (capacity_ > 0) {
+            return 2 * capacity_;
+        } else {
+            return 1;
+        }
+    }
+
+    void copyFrom(Array const& a)
+    {
+        clear();
+
+        if (a.size_ > 0) {
+            if (capacity_ < a.size_) {
+                reallocate(a.size_);
+            }
+
+            size_ = a.size_;
+            for (size_type i = 0; i < size_; i++) {
+                new (buf_ + i) T(a[i]);
+            }
+        }
+    }
 };
 
 
@@ -851,6 +895,7 @@ public:
 
 private:
     uint32_t Used{ 0 };
+    uint32_t GrowSize{ 1 };
 };
 
 END_SE()

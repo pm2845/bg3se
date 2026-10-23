@@ -9,7 +9,75 @@ using AiGridLayerId = uint16_t;
 
 static constexpr AiMetaDataId AiNullMetaData = 0xffff;
 
-using AiPathId = int32_t;
+struct AiFlags
+{
+    AiFlags()
+        : Flags(0)
+    {}
+    
+    AiFlags(uint64_t flags)
+        : Flags(flags)
+    {}
+
+    uint64_t Flags{ 0 };
+
+    inline AiBaseFlags GetFlags() const
+    {
+        return (AiBaseFlags)(Flags & 0xffffff);
+    }
+
+    inline bool IsBlocker() const
+    {
+        return (GetFlags() & AiBaseFlags::Blocker) == AiBaseFlags::Blocker;
+    }
+
+    inline bool IsObstacle() const
+    {
+        return (GetFlags() & AiBaseFlags::WalkBlock2) == AiBaseFlags::WalkBlock2;
+    }
+
+    inline SurfaceType GetGroundSurface() const
+    {
+        return (SurfaceType)((Flags >> 24) & 0xff);
+    }
+
+    inline SurfaceType GetCloudSurface() const
+    {
+        auto surface = ((Flags >> 32) & 0xff);
+        return surface ? (SurfaceType)(surface + 38) : SurfaceType::None;
+    }
+
+    inline SurfaceType GetSurface(bool cloud) const
+    {
+        return cloud ? GetCloudSurface() : GetGroundSurface();
+    }
+
+    inline bool HasGroundSurface() const
+    {
+        return GetGroundSurface() != SurfaceType::None;
+    }
+
+    inline bool HasCloudSurface() const
+    {
+        return GetCloudSurface() != SurfaceType::None;
+    }
+
+    inline bool HasAnySurface() const
+    {
+        return ((Flags >> 24) & 0xffff) != 0;
+    }
+
+    inline MaterialType GetMaterial() const
+    {
+        return (MaterialType)((Flags >> 40) & 0x3f);
+    }
+
+    inline AiExtraFlags GetExtraFlags() const
+    {
+        return (AiExtraFlags)(Flags >> 46);
+    }
+};
+
 
 struct AIPortalObjectData : public ProtectedGameObject<AIPortalObjectData>
 {
@@ -31,18 +99,18 @@ struct AIPortalObjectData : public ProtectedGameObject<AIPortalObjectData>
 };
 
 
-struct SomeArray2int
+struct AiFullTileRef
 {
-    int32_t A;
-    int32_t B;
+    int32_t Cost;
+    int32_t FullTileIndex;
 };
 
 
 struct AiIgnoreMask
 {
     AiGrid* AiGrid;
-    uint64_t AggregateFlags;
-    Array<uint64_t> AiFlags;
+    AiFlags AggregateFlags;
+    Array<AiFlags> Flags;
     bool Restore;
     uint64_t NextId;
 };
@@ -91,7 +159,7 @@ struct AiGridTile
 {
     static constexpr float HeightScale = 1.0f/50.0f;
 
-    uint64_t AiFlags;
+    AiFlags Flags;
     uint16_t MaxHeight;
     uint16_t MinHeight;
     AiMetaDataId MetaDataIndex;
@@ -105,31 +173,6 @@ struct AiGridTile
     inline float GetLocalMaxHeight() const
     {
         return (float)MaxHeight * HeightScale;
-    }
-
-    inline AiBaseFlags GetFlags() const
-    {
-        return (AiBaseFlags)(AiFlags & 0xffffff);
-    }
-
-    inline SurfaceType GetGroundSurface() const
-    {
-        return (SurfaceType)((AiFlags >> 24) & 0xff);
-    }
-
-    inline SurfaceType GetCloudSurface() const
-    {
-        return (SurfaceType)((AiFlags >> 32) & 0xff);
-    }
-
-    inline uint8_t GetMaterial() const
-    {
-        return (uint8_t)((AiFlags >> 40) & 0x3f);
-    }
-
-    inline uint32_t GetExtraFlags() const
-    {
-        return (uint32_t)(AiFlags >> 46);
     }
 };
 
@@ -193,12 +236,14 @@ struct AiSubgrid : public DataGrid
     [[bg3::hidden]] void* Visual; // AiGridVisual*
 
     bool WorldToTilePos(AiWorldPos const& pos, glm::ivec2& localPos) const;
+    AiFlags GetStateInArea(glm::ivec2 const& pos, int radius) const;
+    void GetCornerTiles(glm::ivec2 const& pos, int radius, glm::ivec2& topLeft, glm::ivec2& bottomRight) const;
 };
 
 
 struct AiGridLayerDelta
 {
-    uint64_t AiFlags;
+    AiFlags Flags;
     float Height;
 };
 
@@ -222,6 +267,25 @@ struct [[bg3::hidden]] AiGridRequestMap
     Array<T*> Requests;
     LegacyRefMap<uint16_t, T*> IdToRequest;
     Array<T*> Requests2;
+};
+
+
+struct [[bg3::hidden]] AiFlood : public ProtectedGameObject<AiFlood>
+{
+    void* VMT;
+    EntityHandle MovingObject;
+    uint8_t FloodType;
+    float field_14;
+    float ClimbHeight;
+    uint8_t PathClimbingMode;
+    uint8_t PathDroppingMode;
+    HashSet<FixedString> field_20;
+    int field_50;
+    uint8_t FloodFlags;
+    uint8_t field_55;
+    uint8_t Flags;
+    int MaxIterations;
+    uint64_t field_60;
 };
 
 
@@ -289,10 +353,10 @@ struct DangerousAuras
 
 struct AiPathAoOPosition
 {
-    int field_0;
-    int field_4;
-    int field_8;
-    int field_C;
+    glm::vec3 Position;
+    float Distance;
+    float field_10;
+    float field_14;
 };
 
 
@@ -315,9 +379,10 @@ struct AiPathNode
 };
 
 
-struct AiPathCheckpoint : public ProtectedGameObject<AiPathCheckpoint>
+struct AiPathCheckpoint
 {
-    [[bg3::hidden]] void* field_0;
+    virtual ~AiPathCheckpoint();
+
     glm::vec3 Position;
     EntityHandle Portal;
     EntityHandle field_20;
@@ -325,6 +390,16 @@ struct AiPathCheckpoint : public ProtectedGameObject<AiPathCheckpoint>
 };
 
 
+struct AiPlayerWeightFuncData
+{
+    int CharacterBounds;
+    bool IsAvoidingDynamics;
+    bool IsAvoidingObstacles;
+    bool UseSurfaceInfluences;
+    bool IsAvoidingTraps;
+    Array<SurfacePathInfluence>* SurfacePathInfluences;
+    int DamagingSurfacesThreshold;
+};
 
 struct AiPath : public ProtectedGameObject<AiPath>
 {
@@ -333,9 +408,9 @@ struct AiPath : public ProtectedGameObject<AiPath>
     EntityHandle Target;
     float MovingBound;
     float StandingBound;
-    uint64_t CollisionMask;
-    uint64_t CollisionMaskMove;
-    uint64_t CollisionMaskStand;
+    AiFlags CollisionMask;
+    AiFlags CollisionMaskMove;
+    AiFlags CollisionMaskStand;
 #if 0
     // STDString CallerLocation;
     // int CallerLine;
@@ -350,7 +425,7 @@ struct AiPath : public ProtectedGameObject<AiPath>
     float CloseEnoughPreference;
     int PathType;
     uint16_t CoverFlags;
-    int field_90;
+    [[bg3::legacy(field_90)]] float InteractionRange;
     glm::vec3 SourceAdjusted;
     glm::vec3 SourceOriginal;
     glm::vec3 TargetAdjusted;
@@ -390,29 +465,27 @@ struct AiPath : public ProtectedGameObject<AiPath>
     bool UseStandAtDestination;
     bool PickUpTarget;
     [[bg3::hidden]] void* CoverManager;
-    EntityHandle field_148;
-    uint8_t field_150;
-    int field_154;
+    [[bg3::legacy(field_148)]] EntityHandle Portal;
+    [[bg3::legacy(field_150)]] bool Climbing;
+    int field_154; // Some portal ID
     Array<AiPathEntityPosition> MovedEntities;
     Array<EntityHandle> IgnoreEntities;
     [[bg3::legacy(field_178)]] glm::vec3 TargetPosition;
-    [[bg3::hidden]] UnknownFunction* pDestinationFunc;
     [[bg3::hidden]] UnknownFunction DestinationFunc;
-    [[bg3::hidden]] UnknownFunction* pWeightFunc;
-    [[bg3::hidden]] UnknownFunction WeightFunc;
+    [[bg3::hidden]] Function<bool (AiGrid*, AiTilePos const&, int&)> WeightFunc;
     HashMap<AiTilePos, uint64_t> AoOTiles;
     Array<AiPathAoOPosition> AoOPositions;
     DangerousAuras DangerousAuras;
     int MovingBoundTiles;
     int StandingBoundTiles;
     int MovingBoundTiles2;
-    int field_294;
-    int32_t field_298;
-    float field_29C;
+    [[bg3::legacy(field_294)]] int ClosestFullTileIndex;
+    [[bg3::legacy(field_298)]] int32_t ClosestCollidingCount;
+    [[bg3::legacy(field_29C)]] float ClosestCost;
     bool SearchStarted;
     bool SearchComplete;
     bool GoalFound;
-    uint8_t field_2A3;
+    [[bg3::legacy(field_2A3)]] bool DestinationReached;
     bool InUse;
     Array<AiPathNode> Nodes;
     Array<AiPathCheckpoint> Checkpoints;
@@ -422,20 +495,22 @@ struct AiPath : public ProtectedGameObject<AiPath>
 
     void Reset();
     void SetSourceEntity(ecs::EntitySystemHelpersBase& helpers, EntityHandle entity);
-    void SetSourceTemplate(CharacterTemplate* tmpl);
+    void SetSourceTemplate(ecs::EntitySystemHelpersBase& helpers, CharacterTemplate* tmpl);
     void SetSource(glm::vec3 position);
     void SetTargetEntity(EntityHandle entity);
     void SetTarget(glm::vec3 position);
     void SetBounds(float movingBound, float standingBound);
+    void SetPlayerWeightFunction(AiPlayerWeightFuncData const& params);
+
+    // Lua call helpers
+    //# P_FUN(UsePlayerWeighting, AiPath::UsePlayerWeighting)
+    void UsePlayerWeighting(lua_State* L, std::optional<bool> avoidObstacles, std::optional<bool> avoidDynamics);
 };
 
 
 struct AiGrid : public ProtectedGameObject<AiGrid>
 {
     static constexpr float PatchSize = 25.0f;
-
-    using FindPathProc = void (AiGrid* self, AiPathId pathId);
-    using FindPathImmediateProc = bool (AiGrid* self, AiPathId pathId);
 
     [[bg3::hidden]] void* VMT;
     __int64 field_8;
@@ -452,26 +527,25 @@ struct AiGrid : public ProtectedGameObject<AiGrid>
     [[bg3::hidden]] ecs::EntityWorld* EntityWorld;
     [[bg3::hidden]] void* ThothMachine;
     AiPathId NextPathHandle;
-    int field_EC;
     Array<AiPath*> PathPool;
     LegacyRefMap<AiPathId, AiPath*> PathMap;
     Array<AiPath*> Paths;
     [[bg3::hidden]] AiGridRequestMap<void*> TileStates;
     [[bg3::hidden]] AiGridRequestMap<void*> Floods;
     [[bg3::hidden]] AiGridRequestMap<void*> TileHeights;
-    uint8_t field_1C8;
+    bool ReverseClimb;
     int NumIterations;
     __int64 PreciseClock;
     __int64 field_1D8;
     __int64 field_1E0;
     Array<AiFullTile> FullTiles;
-    StaticArray<SomeArray2int> field_1F8_Arr_2xint;
-    StaticArray<SomeArray2int> field_208_Arr_2xint;
+    StaticArray<AiFullTileRef> TilesToCheck;
+    StaticArray<AiFullTileRef> ReverseTilesToCheck;
     AiIgnoreMask IgnoreMask;
-    int field_248_SomeNodeId;
-    int field_24C_SomeNodeId;
+    int FinalFullTileIndex;
+    int FinalReverseFullTileIndex;
     int PathDistanceToClosestPortal;
-    int field_254;
+    int DistanceToClosestPortal;
     //[[bg3::hidden]] Array<void*> PathHistory;
     //[[bg3::hidden]] Array<void*> PathHistory2;
     //int field_278;
@@ -498,7 +572,7 @@ struct AiGrid : public ProtectedGameObject<AiGrid>
     //bool VisualVisible;
     //int field_2C0;
     //int field_2C4;
-    //[[bg3::hidden]] void* Scene;
+    //[[bg3::hidden]] Scene* Scene;
     //int NumAiMetaData;
     //int NumAiSurfaceMetaData;
     //AiSomeFloodObj SomeFloodObj;
@@ -517,21 +591,23 @@ struct AiGrid : public ProtectedGameObject<AiGrid>
     static AiWorldPos ToWorldPos(glm::vec3 pos);
     std::span<AiSubgridId const> GetSubgridsAt(AiWorldPos const& pos) const;
     bool ToTilePos(AiWorldPos const& pos, AiSubgrid*& pSubgrid, AiTilePos& tilePos, AiGridTile const*& tileInfo) const;
+    AiGridTile const* GetTileAt(AiTilePos const& pos) const;
+    AiFlags GetStateInArea(AiTilePos const& pos, int radius) const;
     Array<float> GetHeightsAt(AiWorldPos const& pos) const;
+
     AiPath* CreatePath();
     std::optional<AiPathId> GetPathId(AiPath* path);
     void FreePath(AiPath* path);
 };
-
 
 struct AiGridLuaTile
 {
     AiBaseFlags Flags;
     SurfaceType GroundSurface;
     SurfaceType CloudSurface;
-    uint8_t Material;
+    MaterialType Material;
     uint32_t UnmappedFlags;
-    uint32_t ExtraFlags;
+    AiExtraFlags ExtraFlags;
     uint32_t SubgridId;
     int16_t TileX;
     int16_t TileY;
@@ -542,5 +618,84 @@ struct AiGridLuaTile
     Array<EntityHandle> Entities;
 };
 
+END_SE()
+
+BEGIN_NS(spatial_grid)
+
+struct EntityRecord
+{
+    EntityHandle Entity;
+    glm::vec3 Position;
+};
+
+struct Cell
+{
+    Array<EntityRecord> Characters;
+    Array<EntityRecord> Items;
+    Array<EntityRecord> Platforms;
+};
+
+struct GridStructure
+{
+    static constexpr float CellSize = 12.727922f;
+
+    HashMap<int, Cell> Cells;
+    HashMap<EntityHandle, glm::vec3> EntityPositions;
+    glm::vec3 MinPos;
+    int Size;
+
+    glm::ivec2 ClampToCell(glm::vec3 position) const;
+    Array<EntityHandle> Collect(glm::vec3 position, float radius, bool includeCharacters, bool includeItems) const;
+};
+
+END_NS()
+
+BEGIN_NS(navcloud)
+
+struct TilePos
+{
+    glm::ivec3 field_0;
+    glm::ivec3 field_C;
+
+    inline bool operator == (TilePos const& o) const
+    {
+        return field_0 == o.field_0
+            && field_C == o.field_C;
+    }
+};
+
+struct Tile
+{
+    uint8_t field_0;
+};
+
+struct Region
+{
+    int DensityType;
+    HashMap<glm::ivec3, HashSet<EntityHandle>> field_8;
+    Array<Tile> field_48;
+};
+
+struct TileInfo
+{
+    TilePos Pos;
+    Region* Region;
+    Tile* Tile;
+};
+
+END_NS()
+
+BEGIN_SE()
+
+inline constexpr uint64_t Hash(glm::ivec3 v)
+{
+    return v.x ^ v.y ^ v.z;
+}
+
+template <>
+inline uint64_t HashMapHash<navcloud::TilePos>(navcloud::TilePos const& v)
+{
+    return HashMix(Hash(v.field_0), Hash(v.field_C));
+}
 
 END_SE()

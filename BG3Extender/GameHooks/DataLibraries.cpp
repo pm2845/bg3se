@@ -5,32 +5,29 @@
 #include <GameDefinitions/Symbols.h>
 #include <string>
 #include <functional>
+#include <chrono>
 #include <psapi.h>
 #include <DbgHelp.h>
 #include "resource.h"
 
 namespace bg3se
 {
-    void* BG3Alloc(std::size_t size)
+    _Post_writable_byte_size_(size) void* BG3Alloc(std::size_t size)
     {
         auto const& sym = GetStaticSymbols();
         // Fallback in case allocator is not available
         if (sym.ls__GlobalAllocator__Alloc && sym.ls__GlobalAllocator__Free && sym.ls__GlobalAllocator__Get) {
             return sym.ls__GlobalAllocator__Alloc(sym.ls__GlobalAllocator__Get(), size, 2, 0, 8);
-        } else if (sym.ls__GlobalAllocator__Alloc && sym.ls__GlobalAllocator__Free && sym.ls__gGlobalAllocator) {
-            return sym.ls__GlobalAllocator__Alloc(sym.ls__gGlobalAllocator, size, 2, 0, 8);
         } else {
             return malloc(size);
         }
     }
 
-    void BG3Free(void* ptr)
+    void BG3Free(_Post_ptr_invalid_ _Pre_valid_ void* ptr) noexcept
     {
         auto const& sym = GetStaticSymbols();
         if (sym.ls__GlobalAllocator__Alloc && sym.ls__GlobalAllocator__Free && sym.ls__GlobalAllocator__Get) {
             sym.ls__GlobalAllocator__Free(sym.ls__GlobalAllocator__Get(), ptr);
-        } else if (sym.ls__GlobalAllocator__Alloc && sym.ls__GlobalAllocator__Free && sym.ls__gGlobalAllocator) {
-            sym.ls__GlobalAllocator__Free(sym.ls__gGlobalAllocator, ptr);
         } else {
             return free(ptr);
         }
@@ -106,7 +103,7 @@ namespace bg3se
 
         auto initEnd = std::chrono::high_resolution_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(initEnd - initStart).count();
-        DEBUG("LibraryManager::PostStartupFindLibraries() took %d ms", ms);
+        DEBUG("LibraryManager::PostStartupFindLibraries() took %lld ms", ms);
 
         PostLoaded = true;
         return !CriticalInitFailed;
@@ -115,7 +112,7 @@ namespace bg3se
     void LibraryManager::ApplyCodePatches()
     {
         if (gExtender->GetConfig().EnableAchievements && !WasPatchApplied("ls::ModuleSettings::IsModded")) {
-            if (ApplyCodePatch("ls::ModuleSettings::IsModded")) {
+            if (ApplyCodePatch("ls::ModuleSettings::IsModded") && ApplyCodePatch("esv::SavegameManager::ThrowError")) {
                 DEBUG("Modded achievements enabled.");
             } else {
                 ERR("Couldn't enable modded achievements (symbol not mapped)");
@@ -295,12 +292,12 @@ namespace bg3se
         if (!tskRef) return;
 
         auto str = GameAlloc<STDString>(msg);
-        texts->Strings.Add(str);
+        texts->Strings.push_back(str);
 
         // Update reference to new string
         *tskRef = LSStringView(str->data(), str->size());
 
-        GetStaticSymbols().ecl__EoCClient__HandleError(*GetStaticSymbols().ecl__EoCClient, ts, exitGame, ts);
+        GetStaticSymbols().ecl__EoCClient__HandleError(*GetStaticSymbols().ecl__EoCClient, ts, exitGame, ts, 0);
     }
 
     bool LibraryManager::CanShowMessages()

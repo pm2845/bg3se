@@ -18,7 +18,9 @@ _I._PublishedSharedEvents = {
     "StatsStructureLoaded",
     "FindPath",
     "NetMessage",
-    "NetModMessage"
+    "NetModMessage",
+    -- Thrown by Log module
+    "Log"
 }
 
 _I._DoStartup = function ()
@@ -93,7 +95,15 @@ _PE = Ext.Log.PrintError
 Print = Ext.Log.Print
 print = Ext.Log.Print
 
-require = Ext.Require
+require = function (name)
+    if string.sub(name, -4) == ".lua" then
+        -- Name is already a path (backwards compatibility with v21)
+        return Ext.Require(name)
+    else
+        -- Convert module name to .lua path
+        return Ext.Require(string.gsub(name, "%.", "/") .. ".lua")
+    end
+end
 
 -- Backwards compatibility with v3
 Ext.Definition = Ext.StaticData
@@ -103,3 +113,11 @@ Ext.Utils.Random = Ext.Math.Random
 -- Backwards compatibility with v21 beta
 Ext.Entity.GetTile = Ext.Level.GetTile
 Ext.Entity.GetEntitiesOnTile = Ext.Level.GetEntitiesOnTile
+
+-- Backwards compatibility with v23
+Ext.Utils.MonotonicTime = Ext.Timer.MonotonicTime
+Ext.Utils.MicrosecTime = Ext.Timer.MicrosecTime
+Ext.Utils.GameTime = Ext.Timer.GameTime
+
+-- New table lib aliases
+table.find = Ext.Table.Find

@@ -16,7 +16,7 @@ public:
     UIEventHooks(ClientState& state);
     ~UIEventHooks();
 
-    SubscriptionIndex Subscribe(UIElement* target, RoutedEvent const* event, Symbol eventName, RegistryEntry&& hook);
+    SubscriptionIndex Subscribe(UIElement* target, RoutedEvent const* event, bg3se::FixedString const& eventName, RegistryEntry&& hook);
     bool Unsubscribe(SubscriptionIndex index);
     void EventFired(SubscriptionIndex index, Noesis::BaseComponent* target, const RoutedEventArgs& args);
 
@@ -27,21 +27,63 @@ private:
         ~EventHandler();
 
         EventHandler(EventHandler const&) = delete;
-        EventHandler(EventHandler &&);
+        EventHandler(EventHandler &&) noexcept = default;
         EventHandler& operator = (EventHandler const&) = delete;
-        EventHandler& operator = (EventHandler&&);
+        EventHandler& operator = (EventHandler&&) noexcept = default;
 
         void Unsubscribe();
 
         Ptr<UIElement> Target;
-        Symbol Event;
-        RoutedEvent const* EventType;
+        bg3se::FixedString Event;
+        RoutedEvent const* EventType{ nullptr };
         RegistryEntry Handler;
-        SubscriptionIndex Index;
+        SubscriptionIndex Index{ 0 };
+        bool IsActive{ false };
     };
 
     ClientState& state_;
     SaltedPool<EventHandler> subscriptions_;
+};
+
+class DeferredUIEvents
+{
+public:
+    DeferredUIEvents(ClientState& state);
+
+    void PostUpdate();
+
+    void OnCommand(lua::PersistentRegistryEntry const& handler, Noesis::BaseCommand* command, Noesis::BaseComponent* parameter);
+    void OnPropertyChanged(lua::PersistentRegistryEntry const& handler, Noesis::BaseComponent* object, Noesis::Symbol property);
+
+    void PostUpdateNoesis();
+    bool HasAnyNoesisThreadCallbacks() const;
+    void DeferNoesisThreadCallback(lua::PersistentRegistryEntry&& handler);
+
+    inline bool IsDispatchingOnRenderThread() const
+    {
+        return dispatchingOnRenderThread_;
+    }
+
+private:
+    struct DeferredCommand
+    {
+        lua::PersistentRegistryEntry Handler;
+        Ptr<Noesis::BaseCommand> Command;
+        Ptr<Noesis::BaseComponent> Parameter;
+    };
+    
+    struct DeferredPropertyChange
+    {
+        lua::PersistentRegistryEntry Handler;
+        Ptr<Noesis::BaseComponent> Object;
+        Noesis::Symbol Property;
+    };
+
+    ClientState& state_;
+    Array<DeferredCommand> commands_;
+    Array<DeferredPropertyChange> propertyChanges_;
+    Array<lua::PersistentRegistryEntry> noesisThreadCallbacks_;
+    bool dispatchingOnRenderThread_{ false };
 };
 
 END_SE()

@@ -1,12 +1,11 @@
 param($Channel)
 
-if ($Channel -ne "Devel" -And $Channel -ne "Release" -And $Channel -ne "NextVersion") {
+if ($Channel -ne "Devel" -And $Channel -ne "Release" -And $Channel -ne "Nightly") {
 	Write-Error -Message "Usage: publish.ps1 <Channel>"
 	Exit 1
 }
 
 $GameChannel = $Channel
-$EditorChannel = $Channel + "Editor"
 $S3Bucket = "nb-stor"
 $S3RootPath = "bg3-updater-v3/Channels"
 $CloudFrontRootPath = "/Channels"
@@ -15,52 +14,67 @@ $CloudFrontDistributionID = "EVZRUV2YONUZF"
 
 $S3ManifestPath = "Manifest.json"
 
-$PublishingRoot = Join-Path "D:\Dev\LS\BG3PublishingRoot" "$Channel"
-$SigningKey = Join-Path "D:\Dev\LS\BG3PublishingRoot" "package-signer.key"
+$PublishingBaseDir = "D:\Dev\LS\BG3PublishingRoot"
+$PublishingRoot = Join-Path "$PublishingBaseDir" "$Channel"
+$SigningKey = Join-Path "$PublishingBaseDir" "package-signer.key"
+$CertificationFile = Join-Path "$PublishingBaseDir" "certification.txt"
 $BuildRoot = Join-Path "$PublishingRoot" "Build"
 $PDBRoot = Join-Path "$PublishingRoot" "PDB"
+$UpdaterBuildRoot = Join-Path "$PublishingRoot" "UpdaterBuild"
 $RootPath = (Get-Location).Path
 $GameManifestPath = Join-Path $PublishingRoot "GameManifest.json"
-$EditorManifestPath = Join-Path $PublishingRoot "EditorManifest.json"
 $GameBuildZipPath = Join-Path $BuildRoot "GameLatest.zip"
 $GameOfflineBuildZipPath = Join-Path $BuildRoot "GameLatestOffline.zip"
 $GameDebugAdapterBuildZipPath = Join-Path $BuildRoot "DebugAdapter.zip"
-$EditorBuildZipPath = Join-Path $BuildRoot "EditorLatest.zip"
 $GameDllPath = Join-Path $RootPath "x64\Game Release\BG3ScriptExtender.dll"
-$EditorDllPath = Join-Path $RootPath "x64\Editor Release\BG3EditorScriptExtender.dll"
 
 $GameBuildDir = Join-Path "$BuildRoot" "TempGameBuild"
 $GameOfflineBuildDir = Join-Path "$BuildRoot" "TempGameOfflineBuild"
 $GameDebugAdapterBuildDir = Join-Path "$BuildRoot" "TempGameDebugAdapter"
-$EditorBuildDir = Join-Path "$BuildRoot" "TempEditorBuild"
 $PDBDir = Join-Path "$PDBRoot" "TempPDB"
-	
-$EditorMinVersion = "4.57.26.0"
-$EditorMaxVersion = "-"
 
-$GameMinVersion = "4.57.26.0"
+$GameMinVersion = "4.69.95.0"
 $GameMaxVersion = "-"
 
 function Build-Extender
 {
 	# Force a build date refresh
 	(gci BG3Extender/Extender/Shared/Console.cpp).LastWriteTime = Get-Date
-	(gci BG3Extender/Extender/BuildInfo.h).LastWriteTime = Get-Date
+
 	if ($Channel -eq "Release") {
-		echo "#undef SE_IS_DEVELOPER_BUILD" | Out-File -FilePath BG3Extender/Extender/BuildInfo.h
+		$BuildInfo = "#undef SE_IS_DEVELOPER_BUILD`r`n"
 	} else {
-		echo "#define SE_IS_DEVELOPER_BUILD" | Out-File -FilePath BG3Extender/Extender/BuildInfo.h
+		$BuildInfo = "#define SE_IS_DEVELOPER_BUILD`r`n"
 	}
+	
+	$BuildInfo += "#define SE_BUILD_CHANNEL `"$Channel`"`r`n"
+
+	if (Test-Path $CertificationFile) {
+		$CertificationId = Get-Content -Path $CertificationFile
+		$BuildInfo += "#define SE_CERTIFICATION_ID `"$CertificationId`"`r`n"
+	} else {
+		$BuildInfo += "#undef SE_CERTIFICATION_ID`r`n"
+	}
+	
+	echo $BuildInfo | Out-File -FilePath BG3Extender/Extender/BuildInfo.h
+	(gci BG3Extender/Extender/BuildInfo.h).LastWriteTime = Get-Date
+
+	if ($Channel -eq "Release") {
+		$CLConfig = "#undef SE_RELEASE_ASSERTS`r`n"
+	} else {
+		$CLConfig = "#define SE_RELEASE_ASSERTS`r`n"
+	}
+	
+	echo $CLConfig | Out-File -FilePath CoreLib/Config.h
+	(gci CoreLib/Config.h).LastWriteTime = Get-Date
 
 	Write-Output " ===== BUILDING GAME EXTENDER ===== "
 	msbuild BG3Tools.sln "/p:Configuration=Game Release" /t:Build /m /nologo /verbosity:quiet /consoleloggerparameters:summary
 	
-	x64\Release\SymbolTableGenerator.exe "x64\Game Release\BG3ScriptExtender.pdb" "BG3Extender\GameHooks\BG3ScriptExtender.symtab"
+	Write-Output " ===== BUILDING SYMTAB ===== "
+	x64\Release\SymbolTableGenerator.exe "x64\Game Release\BG3ScriptExtender.pdb" "x64\Game Release\BG3ScriptExtender.symtab"
 	
-	msbuild BG3Tools.sln "/p:Configuration=Game Release" /t:Build /m /nologo /verbosity:quiet /consoleloggerparameters:summary
-	
-	# Write-Output " ===== BUILDING EDITOR EXTENDER ===== "
-	# msbuild BG3Tools.sln "/p:Configuration=Editor Release" /t:Build /m /nologo /verbosity:quiet /consoleloggerparameters:summary
+	Write-Output " ===== FIN. ===== "
 }
 
 function Create-PDBDir
@@ -70,13 +84,11 @@ function Create-PDBDir
 
 	Copy-Item "x64\Release\CrashReporter.pdb" -Destination $PDBDir\CrashReporter.pdb
 	Copy-Item "x64\Game Release\BG3ScriptExtender.pdb" -Destination $PDBDir\BG3ScriptExtender.pdb
-	#Copy-Item "x64\Editor Release\BG3EditorScriptExtender.pdb" -Destination $PDBDir\BG3EditorScriptExtender.pdb
 	Copy-Item "x64\Release\CrashReporter.exe" -Destination $PDBDir\CrashReporter.exe
 	Copy-Item "x64\Game Release\BG3ScriptExtender.dll" -Destination $PDBDir\BG3ScriptExtender.dll
-	#Copy-Item "x64\Editor Release\BG3EditorScriptExtender.dll" -Destination $PDBDir\BG3EditorScriptExtender.dll
-	Copy-Item External\protobuf\bin\libprotobuf-lite.dll -Destination $PDBDir\libprotobuf-lite.dll
+	Copy-Item "x64\Game Release\BG3ScriptExtender.symtab" -Destination $PDBDir\BG3ScriptExtender.symtab
 
-	if ($Channel -eq "Devel" -Or $Channel -eq "NextVersion") {
+	if ($Channel -eq "Devel" -Or $Channel -eq "Nightly") {
 		New-Item $PDBDir\DAP -ItemType "directory"
 		Copy-Item "LuaDebugger\bin\Release\Google.Protobuf.dll" -Destination $PDBDir\DAP\Google.Protobuf.dll
 		Copy-Item "LuaDebugger\bin\Release\Newtonsoft.Json.dll" -Destination $PDBDir\DAP\Newtonsoft.Json.dll
@@ -85,7 +97,7 @@ function Create-PDBDir
 	}
 }
 
-function Create-Update-Package ($BuildDir, $ZipPath, $HasEditor, $HasGame)
+function Create-Update-Package ($BuildDir, $ZipPath)
 {
 	Remove-Item $BuildDir -Recurse -ErrorAction SilentlyContinue
 	New-Item $BuildDir -ItemType "directory"
@@ -93,17 +105,9 @@ function Create-Update-Package ($BuildDir, $ZipPath, $HasEditor, $HasGame)
 	git show -s --format="BG3SE Version: Commit %H, %cD" > $BuildDir\Version.txt
 
 	Copy-Item "x64\Release\CrashReporter.exe" -Destination $BuildDir\CrashReporter.exe
-	Copy-Item External\protobuf\bin\libprotobuf-lite.dll -Destination $BuildDir\libprotobuf-lite.dll
 	
-	if ($HasEditor)
-	{
-		Copy-Item "x64\Editor Release\BG3EditorScriptExtender.dll" -Destination $BuildDir\BG3EditorScriptExtender.dll
-	}
-	
-	if ($HasGame)
-	{
-		Copy-Item "x64\Game Release\BG3ScriptExtender.dll" -Destination $BuildDir\BG3ScriptExtender.dll
-	}
+	Copy-Item "x64\Game Release\BG3ScriptExtender.dll" -Destination $BuildDir\BG3ScriptExtender.dll
+	Copy-Item "x64\Game Release\BG3ScriptExtender.symtab" -Destination $BuildDir\BG3ScriptExtender.symtab
 	
 	Remove-Item $ZipPath -ErrorAction SilentlyContinue
 	Compress-Archive -Path $BuildDir\* -DestinationPath $ZipPath -CompressionLevel Optimal -Force
@@ -114,7 +118,6 @@ function Create-Offline-Package ($BuildDir, $ZipPath)
 	Remove-Item $BuildDir -Recurse -ErrorAction SilentlyContinue
 	New-Item $BuildDir -ItemType "directory"
 
-	Copy-Item External\protobuf\bin\libprotobuf-lite.dll -Destination $BuildDir\libprotobuf-lite.dll
 	Copy-Item "x64\Game Release\BG3ScriptExtender.dll" -Destination $BuildDir\DWrite.dll
 	
 	Remove-Item $ZipPath -ErrorAction SilentlyContinue
@@ -145,22 +148,27 @@ function Archive-Build ($Digest, $ZipPath)
 	Copy-Item $ZipPath -Destination $BuildRoot\$Digest.zip
 }
 
-function Build-Package ($BuildDir, $ZipPath, $DllPath, $Channel, $IsGame, $IsEditor)
+function Build-Package ($BuildDir, $ZipPath, $DllPath, $Channel)
 {
-	Create-Update-Package $BuildDir $ZipPath $IsEditor $IsGame
+	Create-Update-Package $BuildDir $ZipPath
 
 	x64\Release\UpdateSigner.exe sign $SigningKey $ZipPath
 	x64\Release\UpdateSigner.exe verify $ZipPath
 
-	if ($IsEditor)
-	{
-		x64\Release\UpdateSigner.exe update-manifest "$EditorManifestPath" ScriptExtender "$ZipPath" "$DllPath" $EditorMinVersion $EditorMaxVersion "$CloudFrontRootURL/$Channel/Packages/"
-	}
+	x64\Release\UpdateSigner.exe update-manifest "$GameManifestPath" ScriptExtender "$ZipPath" "$DllPath" $GameMinVersion $GameMaxVersion "$CloudFrontRootURL/$Channel/Packages/"
+}
+
+function Bundle-Updater ($ZipPath, $DllPath)
+{
+	Copy-Item BG3Updater/EmbeddedResources/BlankManifest.json -Destination BG3Updater/EmbeddedResources/LocalManifest.json
+	Copy-Item "$ZipPath" -Destination BG3Updater/EmbeddedResources/LocalSE.package
+	x64\Release\UpdateSigner.exe update-manifest "BG3Updater/EmbeddedResources/LocalManifest.json" ScriptExtender "$ZipPath" "$DllPath" $GameMinVersion $GameMaxVersion "-"
 	
-	if ($IsGame)
-	{
-		x64\Release\UpdateSigner.exe update-manifest "$GameManifestPath" ScriptExtender "$ZipPath" "$DllPath" $GameMinVersion $GameMaxVersion "$CloudFrontRootURL/$Channel/Packages/"
-	}
+	# Force a rebuild
+	(gci BG3Updater/dllmain.cpp).LastWriteTime = Get-Date
+
+	Write-Output " ===== BUILDING BUNDLED UPDATER ===== "
+	msbuild BG3Updater/BG3Updater.vcxproj /p:Configuration=Release /t:Build /m /nologo /verbosity:quiet /consoleloggerparameters:summary "/property:SolutionDir=$RootPath\"
 }
 
 function Publish-Package ($ZipPath, $OfflineZipPath, $DigestPath, $Channel, $ManifestPath)
@@ -204,20 +212,29 @@ function Publish-DebugAdapter-Package ($ZipPath, $Channel)
 	aws s3api put-object-acl --bucket nb-stor --key "$S3RootPath/$Channel/DebugAdapter.zip" --acl public-read
 }
 
+function Publish-Updater ()
+{
+	$BuildDate = (Get-Date -Format "yyyyMMdd")
+	$BuildDateFmt = (Get-Date -UFormat "%Y %b %d")
+	$ZipName = "BG3SE-Updater-$BuildDate.zip"
+	$Title = "Script Extender ($BuildDateFmt)"
+	Copy-Item x64/Release/BG3Updater.dll -Destination x64/Release/DWrite.dll
+	Compress-Archive -Path x64/Release/DWrite.dll -DestinationPath "$UpdaterBuildRoot/$ZipName" -CompressionLevel Optimal -Force
+	gh release create updater-test --draft --notes-file GHReleaseNotesTemplate.md --title "$Title" "$UpdaterBuildRoot/$ZipName"
+}
+
 Build-Extender
 
-Build-Package $GameBuildDir $GameBuildZipPath $GameDllPath $GameChannel 1 0
+Build-Package $GameBuildDir $GameBuildZipPath $GameDllPath $GameChannel
+Bundle-Updater $GameBuildZipPath $GameDllPath
 Create-Offline-Package $GameOfflineBuildDir $GameOfflineBuildZipPath
 Create-DebugAdapter-Package $GameDebugAdapterBuildDir $GameDebugAdapterBuildZipPath
-# Build-Package $EditorBuildDir $EditorBuildZipPath $EditorDllPath $EditorChannel 0 1
 
 Create-PDBDir
 
 $GameDigestPath = (x64\Release\UpdateSigner.exe compute-path "$GameBuildZipPath" "$GameDllPath")
-# $EditorDigestPath = (x64\Release\UpdateSigner.exe compute-path "$EditorBuildZipPath" "$EditorDllPath")
 
 Archive-Build $GameDigestPath $GameBuildZipPath
-# Archive-Build $EditorDigestPath $EditorBuildZipPath
 
 Write-Output "Build completed."
 Write-Output "."
@@ -233,4 +250,8 @@ Write-Output " ===== UPLOADING PACKAGES ===== "
 Publish-Package $GameBuildZipPath $GameOfflineBuildZipPath $GameDigestPath $GameChannel $GameManifestPath
 Publish-Latest-Offline-Package $GameOfflineBuildZipPath $GameChannel
 Publish-DebugAdapter-Package $GameDebugAdapterBuildZipPath $GameChannel
-# Publish-Package $EditorBuildZipPath $EditorDigestPath $EditorChannel $EditorManifestPath
+
+if ($Channel -eq "Release") {
+	Write-Output " ===== PUBLISHING UPDATER ===== "
+	Publish-Updater
+}

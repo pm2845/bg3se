@@ -1,8 +1,21 @@
 #include <Lua/Shared/Proxies/LuaBitfieldValue.h>
 #include <Extender/ScriptExtender.h>
-#include <json/json.h>
+//#include <json/json.h>
 
 BEGIN_NS(lua)
+
+bool IsPrimitiveLabel(uint64_t val)
+{
+    return val != 0
+        // Only a single bit is set
+        && (val & (val - 1)) == 0;
+}
+
+bool BitfieldHasValue(uint64_t bitfield, uint64_t val)
+{
+    return IsPrimitiveLabel(val)
+        && (bitfield & val) == val;
+}
 
 BitfieldInfoStore* BitfieldValueMetatable::GetBitfieldInfo(CppObjectMetadata const& self)
 {
@@ -37,25 +50,13 @@ STDString BitfieldValueMetatable::GetValueAsString(CppObjectMetadata& self)
     STDString labels;
     auto ei = GetBitfieldInfo(self);
     for (auto const& val : ei->Values) {
-        if ((self.Value & val.Value) == val.Value) {
+        if (BitfieldHasValue(self.Value, val.Value)) {
             if (!labels.empty()) labels += " | ";
             labels += val.Key.GetString();
         }
     }
 
     return labels;
-}
-
-Json::Value BitfieldValueMetatable::ToJson(CppObjectMetadata& self)
-{
-    Json::Value arr(Json::arrayValue);
-    auto ei = GetBitfieldInfo(self);
-    for (auto const& val : ei->Values) {
-        if ((self.Value & val.Value) == val.Value) {
-            arr.append(val.Key.GetString());
-        }
-    }
-    return arr;
 }
 
 int BitfieldValueMetatable::Index(lua_State* L, CppObjectMetadata& self)
@@ -69,7 +70,7 @@ int BitfieldValueMetatable::Index(lua_State* L, CppObjectMetadata& self)
             lua_newtable(L);
             int i = 1;
             for (auto const& val : ei->Values) {
-                if ((self.Value & val.Value) == val.Value) {
+                if (BitfieldHasValue(self.Value, val.Value)) {
                     settable(L, i, val.Key, -3);
                     i++;
                 }
@@ -123,7 +124,7 @@ int BitfieldValueMetatable::ToString(lua_State* L, CppObjectMetadata& self)
     STDString labels;
     auto ei = GetBitfieldInfo(self);
     for (auto const& val : ei->Values) {
-        if ((self.Value & val.Value) == val.Value) {
+        if (BitfieldHasValue(self.Value, val.Value)) {
             if (!labels.empty()) labels += ',';
             labels += val.Key.GetString();
         }
@@ -142,7 +143,7 @@ int BitfieldValueMetatable::ToString(lua_State* L, CppObjectMetadata& self)
 bool BitfieldValueMetatable::IsEqual(lua_State* L, CppObjectMetadata& self, int otherIndex)
 {
     auto ei = GetBitfieldInfo(self);
-    auto other = try_get_bitfield_value(L, otherIndex, self.PropertyMapTag, false);
+    auto other = try_get_bitfield_value(L, otherIndex, BitfieldTypeId(self.PropertyMapTag), false);
     return other && *other == self.Value;
 }
 
@@ -178,29 +179,29 @@ int BitfieldValueMetatable::Next(lua_State* L, CppObjectMetadata& self)
 
 int BitfieldValueMetatable::BAnd(lua_State* L, CppObjectMetadata& self, int otherIndex)
 {
-    auto other = get_bitfield_value(L, otherIndex, self.PropertyMapTag, true);
-    Make(L, self.Value & other, self.PropertyMapTag);
+    auto other = get_bitfield_value(L, otherIndex, BitfieldTypeId(self.PropertyMapTag), true);
+    Make(L, self.Value & other, BitfieldTypeId(self.PropertyMapTag));
     return 1;
 }
 
 int BitfieldValueMetatable::BOr(lua_State* L, CppObjectMetadata& self, int otherIndex)
 {
-    auto other = get_bitfield_value(L, otherIndex, self.PropertyMapTag, false);
-    Make(L, self.Value | other, self.PropertyMapTag);
+    auto other = get_bitfield_value(L, otherIndex, BitfieldTypeId(self.PropertyMapTag), false);
+    Make(L, self.Value | other, BitfieldTypeId(self.PropertyMapTag));
     return 1;
 }
 
 int BitfieldValueMetatable::BXor(lua_State* L, CppObjectMetadata& self, int otherIndex)
 {
-    auto other = get_bitfield_value(L, otherIndex, self.PropertyMapTag, false);
-    Make(L, self.Value ^ other, self.PropertyMapTag);
+    auto other = get_bitfield_value(L, otherIndex, BitfieldTypeId(self.PropertyMapTag), false);
+    Make(L, self.Value ^ other, BitfieldTypeId(self.PropertyMapTag));
     return 1;
 }
 
 int BitfieldValueMetatable::BNot(lua_State* L, CppObjectMetadata& self)
 {
     auto ei = GetBitfieldInfo(self);
-    Make(L, (~self.Value & ei->AllowedFlags), self.PropertyMapTag);
+    Make(L, (~self.Value & ei->AllowedFlags), BitfieldTypeId(self.PropertyMapTag));
     return 1;
 }
 
@@ -212,7 +213,7 @@ char const* BitfieldValueMetatable::GetTypeName(lua_State* L, CppObjectMetadata&
 
 EnumUnderlyingType get_bitfield_value(lua_State* L, int index, BitfieldTypeId typeId, bool maskInvalidBits)
 {
-    auto const& store = *BitfieldRegistry::Get().BitfieldsById[typeId];
+    auto const& store = *BitfieldRegistry::Get().Get(typeId);
 
     switch (lua_type(L, index)) {
     case LUA_TSTRING:
@@ -245,9 +246,9 @@ EnumUnderlyingType get_bitfield_value(lua_State* L, int index, BitfieldTypeId ty
         EnumUnderlyingType val{ 0 };
         for (auto valueIdx : iterate(L, index)) {
             auto label = do_get(L, valueIdx, Overload<FixedString>{});
-            auto index = store.Find(label);
-            if (index) {
-                val |= *index;
+            auto value = store.Find(label);
+            if (value) {
+                val |= *value;
             } else {
                 luaL_error(L, "Param %d: not a valid '%s' bitfield value: %s", 
                     index, store.EnumName.GetString(), label.GetString());
@@ -279,7 +280,7 @@ EnumUnderlyingType get_bitfield_value(lua_State* L, int index, BitfieldTypeId ty
 
 std::optional<EnumUnderlyingType> try_get_bitfield_value(lua_State* L, int index, BitfieldTypeId typeId, bool maskInvalidBits)
 {
-    auto const& store = *BitfieldRegistry::Get().BitfieldsById[typeId];
+    auto const& store = *BitfieldRegistry::Get().Get(typeId);
 
     switch (lua_type(L, index)) {
     case LUA_TSTRING:
@@ -308,9 +309,9 @@ std::optional<EnumUnderlyingType> try_get_bitfield_value(lua_State* L, int index
         EnumUnderlyingType val{ 0 };
         for (auto valueIdx : iterate(L, index)) {
             auto label = do_get(L, valueIdx, Overload<FixedString>{});
-            auto index = store.Find(label);
-            if (index) {
-                val |= *index;
+            auto value = store.Find(label);
+            if (value) {
+                val |= *value;
             } else {
                 return {};
             }

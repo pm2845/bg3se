@@ -8,12 +8,13 @@ using RequestId = uint32_t;
 class NetworkRequestSystem
 {
 public:
-    RequestId CreateRequest(LuaDelegate<void(STDString)>&& callback);
-    void HandleReply(RequestId replyId, char const* payload);
+    NetworkRequestSystem();
+    RequestId CreateRequest(LuaDelegate<void(STDString, bool)>&& callback);
+    void HandleReply(RequestId replyId, StringView payload, bool binary);
     void Update();
 
 private:
-    HashMap<RequestId, LuaDelegate<void(STDString)>> pendingRequests_;
+    HashMap<RequestId, LuaDelegate<void(STDString, bool)>> pendingRequests_;
     DeferredLuaDelegateQueue eventQueue_;
     RequestId nextRequestId_{ 1 };
 };

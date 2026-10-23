@@ -36,9 +36,8 @@ public:
         auto salt = TSalt(id >> IdBits) & ((TSalt(1) << SaltBits) - 1);
 
         if (index < salts_.size() && salts_[(uint32_t)index] == salt) {
-            freeIndices_.push_back(index);
-            salt = (salt + 1) & TSalt(((TId(1) << SaltBits) - 1));
-            salts_[(uint32_t)index] = salt | DeletedFlag;
+            MarkFree((uint32_t)index);
+            pool_[(uint32_t)index] = T{};
             return true;
         } else {
             return false;
@@ -69,10 +68,31 @@ public:
         return nullptr;
     }
 
+    T* PopNext(uint32_t& index)
+    {
+        for (auto i = index; i < pool_.size(); i++) {
+            if ((salts_[i] & DeletedFlag) == 0) {
+                MarkFree(i);
+                index = i + 1;
+                return &pool_[i];
+            }
+        }
+
+        return nullptr;
+    }
+
 private:
     Array<T> pool_;
     Array<TId> freeIndices_;
     Array<TId> salts_;
+
+    void MarkFree(uint32_t index)
+    {
+        freeIndices_.push_back(index);
+        auto salt = salts_[index];
+        salt = (salt + 1) & TSalt(((TId(1) << SaltBits) - 1));
+        salts_[index] = salt | DeletedFlag;
+    }
 };
 
 END_SE()

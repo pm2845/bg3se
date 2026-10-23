@@ -115,8 +115,9 @@ void DebugConsole::ExecLuaCommand(std::string const& cmd)
             params.Command = cmd.substr(1);
             pin->ThrowEvent("DoConsoleCommand", params, false);
         } else {
-            lua::StaticLifetimeStackPin _(pin->GetStack(), pin->GetGlobalLifetime());
             auto L = pin->GetState();
+            lua::StaticLifetimeStackPin _(L, lua::LifetimeHandle{});
+            lua::ProfilerStackGuard _p(&*pin);
             if (luaL_loadstring(L, cmd.c_str()) || lua::CallWithTraceback(L, 0, 0)) { // stack: errmsg
                 ERR("%s", lua_tostring(L, -1));
                 lua_pop(L, 1);
@@ -170,14 +171,12 @@ void DebugConsole::Print(DebugMessageType type, char const* msg)
 {
     Console::Print(type, msg);
 
-    #if !defined(OSI_NO_DEBUGGER)
     if (!silence_ && gExtender) {
         auto debugger = gExtender->GetLuaDebugger();
         if (debugger && debugger->IsDebuggerReady()) {
             debugger->OnLogMessage(type, msg);
         }
     }
-    #endif
 }
 
 void DebugConsole::ConsoleThread()

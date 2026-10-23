@@ -1,5 +1,7 @@
 #pragma once
 
+#include <GameDefinitions/GuidResources.h>
+
 BEGIN_NS(ecl)
 
 struct ProvidedMultiEffectObject
@@ -7,9 +9,15 @@ struct ProvidedMultiEffectObject
     EntityHandle Entity;
     glm::vec3 Position;
     Array<Guid> Tags;
-    uint32_t Flags;
+    ProvidedMultiEffectObjectFlags Flags{ 0 };
 };
 
+
+struct EffectHandlerPlayTime
+{
+    uint64_t Phase;
+    float Time;
+};
 
 struct EffectHandlerInitInfo
 {
@@ -17,14 +25,15 @@ struct EffectHandlerInitInfo
     EntityHandle Player;
     ProvidedMultiEffectObject SourceEffect;
     ProvidedMultiEffectObject TargetEffect;
-    DamageType DamageType;
-    uint8_t VerbalIntent;
+    Array<EffectHandlerPlayTime> PlayTime;
     STDString MultiEffectDefinition;
-    FixedString field_90;
-    float FXScale;
-    float ZoneRange;
-    uint8_t field_9C;
-    bool EnteredDuringSave;
+    FixedString WeaponBones;
+    float FXScale{ 1.0f };
+    float ZoneRange{ 0.0f };
+    DamageType DamageType{ DamageType::None };
+    uint8_t VerbalIntent{ 0 };
+    bool EnteredDuringSave{ false };
+    bool Reset{ false };
 };
 
 
@@ -37,30 +46,30 @@ struct EffectEntitySlot
 
 struct ConditionalEffect
 {
-    int EffectIndex;
+    int EffectIndex{ 0 };
     EntityHandle Effect;
     FixedString SourceBone;
     FixedString TargetBone;
     EffectEntitySlot EntitySlot;
-    bool Attached;
-    bool TextKeyEventStarted;
-    bool CanCreate;
-    DamageType DamageType;
-    uint8_t VerbalIntent;
+    bool Attached{ false };
+    bool TextKeyEventStarted{ false };
+    bool CanCreate{ false };
+    DamageType DamageType{ DamageType::None };
+    uint8_t VerbalIntent{ 0 };
 };
 
 
 struct EffectHandler : public ProtectedGameObject<EffectHandler>
 {
     [[bg3::hidden]] void* VMT;
-    [[bg3::hidden]] void* TextKeyEventManager;
-    [[bg3::hidden]] void* EffectManager;
-    [[bg3::hidden]] ResourceManager* ResourceManager;
+    [[bg3::hidden]] void* TextKeyEventManager{ nullptr };
+    [[bg3::hidden]] void* EffectManager{ nullptr };
+    [[bg3::hidden]] ResourceManager* ResourceManager{ nullptr };
     EffectHandlerInitInfo InitInfo;
-    [[bg3::hidden]] void* Scene;
+    [[bg3::hidden]] Scene* Scene{ nullptr };
     EntityHandle EventProviderEntity;
     resource::MultiEffectInfo MultiEffectInfo;
-    bool IsActive;
+    bool IsActive{ false };
     Array<ConditionalEffect> ConditionalEffects;
 };
 

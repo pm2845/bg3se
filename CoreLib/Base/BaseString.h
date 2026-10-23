@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <span>
 
 void MurmurHash3_x64_128(const void* key, int len, uint32_t seed, void* out);
 
@@ -75,12 +76,37 @@ namespace bg3se
     STDString ToUTF8(WStringView s);
     STDWString FromUTF8(StringView s);
 
-    struct FixedString
+    struct FixedStringId
+    {
+        static constexpr uint32_t NullIndex = 0xffffffffu;
+
+        inline FixedStringId() {}
+        
+        inline FixedStringId(uint32_t index)
+            : Index(index)
+        {}
+
+        inline bool operator !() const
+        {
+            return Index == NullIndex;
+        }
+
+        inline explicit operator bool() const
+        {
+            return Index != NullIndex;
+        }
+
+        uint32_t Index{ NullIndex };
+    };
+
+    struct FixedStringBase : public FixedStringId
     {
         using CreateFromStringProc = uint32_t (LSStringView const&);
-        using GetStringProc = LSStringView * (FixedString const*, LSStringView&);
+        using GetStringProc = LSStringView * (FixedStringBase const*, LSStringView&);
         using IncRefProc = void(uint32_t index);
         using DecRefProc = void(uint32_t index);
+
+        inline FixedStringBase() {}
 
         struct Header
         {
@@ -91,23 +117,67 @@ namespace bg3se
             uint64_t NextFreeIndex;
         };
 
-        static constexpr uint32_t NullIndex = 0xffffffffu;
+        char const* GetString() const;
+        StringView GetStringView() const;
+        uint32_t GetLength() const;
+        uint32_t GetHash() const;
+        bool IsValid() const;
+        Header const* GetMetadata() const;
 
+        inline operator char const* () const
+        {
+            return GetString();
+        }
+
+        inline operator StringView () const
+        {
+            return GetStringView();
+        }
+
+        static void StaticIncRef(uint32_t index);
+        static void StaticDecRef(uint32_t index);
+        static uint32_t CreateFixedString(StringView const& sv);
+
+    protected:
+        explicit inline FixedStringBase(uint32_t index)
+            : FixedStringId(index)
+        {}
+
+        inline FixedStringBase(FixedStringBase const& fs)
+            : FixedStringId(fs.Index)
+        {}
+
+        void IncRef();
+        void DecRef();
+
+        char const* GetPooledStringPtr() const;
+        static Header const* FindEntry(uint32_t id);
+    };
+
+    struct FixedString : public FixedStringBase
+    {
         inline FixedString()
-            : Index(NullIndex)
+            : FixedStringBase()
         {}
 
         explicit FixedString(StringView str);
         explicit FixedString(char const* str);
+        explicit FixedString(nullptr_t);
 
         inline FixedString(FixedString const& fs)
-            : Index(fs.Index)
+            : FixedStringBase(fs.Index)
+        {
+            IncRef();
+        }
+
+        inline FixedString(FixedStringBase const& fs)
+            : FixedStringBase(fs.Index)
         {
             IncRef();
         }
 
         inline FixedString(FixedString&& fs) noexcept
-            : Index(fs.Index)
+            : FixedStringBase(fs.Index)
         {
             fs.Index = NullIndex;
         }
@@ -130,8 +200,9 @@ namespace bg3se
 
         inline FixedString& operator = (FixedString&& fs) noexcept
         {
-            Index = fs.Index;
             if (this != &fs) {
+                DecRef();
+                Index = fs.Index;
                 fs.Index = NullIndex;
             }
 
@@ -147,45 +218,105 @@ namespace bg3se
         {
             return Index != fs.Index;
         }
+    };
 
-        inline bool operator !() const
+    struct FixedStringUnhashed : public FixedStringBase
+    {
+        inline FixedStringUnhashed()
+            : FixedStringBase()
+        {}
+
+        explicit FixedStringUnhashed(StringView str);
+        explicit FixedStringUnhashed(char const* str);
+
+        inline FixedStringUnhashed(FixedStringUnhashed const& fs)
+            : FixedStringBase(fs.Index)
         {
-            return Index == 0xffffffffu;
+            IncRef();
         }
 
-        inline explicit operator bool() const
+        inline FixedStringUnhashed(FixedStringId const& fs)
+            : FixedStringBase(fs.Index)
         {
-            return Index != 0xffffffffu;
+            IncRef();
         }
 
-        char const* GetString() const;
-        StringView GetStringView() const;
-        uint32_t GetLength() const;
-        uint32_t GetHash() const;
-        bool IsValid() const;
-
-        inline operator char const* () const
+        inline FixedStringUnhashed(FixedStringUnhashed&& fs) noexcept
+            : FixedStringBase(fs.Index)
         {
-            return GetString();
+            fs.Index = NullIndex;
         }
 
-        inline operator StringView () const
+        inline ~FixedStringUnhashed()
         {
-            return GetStringView();
+            DecRef();
         }
 
-        uint32_t Index;
+        inline FixedStringUnhashed& operator = (FixedStringUnhashed const& fs)
+        {
+            if (fs.Index != Index) {
+                DecRef();
+                Index = fs.Index;
+                IncRef();
+            }
 
-    private:
-        void IncRef();
-        void DecRef();
+            return *this;
+        }
 
-        char const* GetPooledStringPtr() const;
-        Header const* GetMetadata() const;
+        inline FixedStringUnhashed& operator = (FixedStringUnhashed&& fs) noexcept
+        {
+            if (this != &fs) {
+                DecRef();
+                Index = fs.Index;
+                fs.Index = NullIndex;
+            }
+
+            return *this;
+        }
+
+        inline bool operator == (FixedStringUnhashed const& fs) const
+        {
+            return Index == fs.Index;
+        }
+
+        inline bool operator != (FixedStringUnhashed const& fs) const
+        {
+            return Index != fs.Index;
+        }
+    };
+
+    struct FixedStringNoRef : public FixedStringId
+    {
+        inline FixedStringNoRef()
+            : FixedStringId()
+        {}
+
+        explicit FixedStringNoRef(StringView str);
+        explicit FixedStringNoRef(char const* str);
+
+        inline FixedStringNoRef(FixedStringId const& fs)
+            : FixedStringId(fs.Index)
+        {}
+
+        inline FixedStringNoRef& operator = (FixedStringId const& fs)
+        {
+            Index = fs.Index;
+            return *this;
+        }
+
+        inline bool operator == (FixedStringId const& fs) const
+        {
+            return Index == fs.Index;
+        }
+
+        inline bool operator != (FixedStringId const& fs) const
+        {
+            return Index != fs.Index;
+        }
     };
 
 
-    inline uint64_t Hash(FixedString const& s)
+    inline uint64_t Hash(FixedStringId const& s)
     {
         return (uint64_t)s.Index;
     }
@@ -228,8 +359,8 @@ namespace bg3se
 
         struct MainTable
         {
-            using DecRefProc = void (MainTable* self, FixedString* fs);
-            using CreateFromStringProc = FixedString* (MainTable* self, FixedString* fs, LSStringView* src);
+            using DecRefProc = void (MainTable* self, uint32_t* fs);
+            using CreateFromStringProc = FixedString* (MainTable* self, uint32_t* fs, LSStringView* src);
 
             SubTable::Element SomeTable[64];
             uint64_t field_1000;
@@ -245,39 +376,105 @@ namespace bg3se
         MainTable Main;
     };
 
-    struct ScratchBuffer : public Noncopyable<ScratchBuffer>
+
+    enum class MemBufferFlags : uint8_t
     {
-        uint8_t State_M{ 0 };
-        uint8_t field_1{ 0 };
-        uint16_t MemoryAlignment{ 1 };
-        uint32_t MultipleOf{ 1 };
-        void* Buffer{ nullptr };
-        uint64_t Size{ 0 };
-        bool HasBuffer2{ false };
-        bool field_19{ false };
-        int field_1C{ 0 };
-        uint8_t* Buffer2{ nullptr };
-        void* field_28{ nullptr };
-        void* ReadPointer{ nullptr };
-        void* ReadBuffer{ nullptr };
-        void* ReadEnd_M{ nullptr };
-        void* field_48{ nullptr };
-        uint64_t Size2{ 0 };
+        Mutable = 1,
+        Tracked = 2
     };
 
-    struct ScratchString : public Noncopyable<ScratchString>
+    enum class MemoryOrigin : uint8_t
+    {
+        None = 0,
+        Owned = 1,
+        External = 2
+    };
+
+
+    struct MemBufferMeta
+    {
+        MemoryOrigin Origin{ MemoryOrigin::Owned };
+        MemBufferFlags Flags{ MemBufferFlags::Mutable };
+        uint16_t AllocatorTag{ 0 };
+        uint32_t Alignment{ 1 };
+    };
+
+
+    struct MemBuffer
+    {
+        inline MemBuffer() {}
+        MemBuffer(std::span<char const> s);
+        MemBuffer(MemBuffer const&);
+        MemBuffer(MemBuffer &&) noexcept;
+        ~MemBuffer();
+
+        MemBuffer& operator = (MemBuffer const&);
+        MemBuffer& operator = (MemBuffer &&) noexcept;
+
+        MemBufferMeta Meta;
+        void* Buffer{ nullptr };
+        uint64_t Size{ 0 };
+    };
+
+
+    struct MemReadStream
     {
         void* Buffer{ nullptr };
-        uint32_t ReadSize{ 0 };
+        uint64_t Size{ 0 };
+        uint64_t Offset{ 0 };
+    };
+
+
+    struct MemWriteStream : public MemBuffer
+    {
+        uint64_t Offset{ 0 };
+    };
+
+
+    struct ScratchBuffer
+    {
+        inline ScratchBuffer() {}
+        ScratchBuffer(std::span<char const> s);
+        ScratchBuffer(ScratchBuffer const&);
+        ScratchBuffer(ScratchBuffer&&) noexcept;
+        ~ScratchBuffer();
+
+        ScratchBuffer& operator = (ScratchBuffer const&);
+        ScratchBuffer& operator = (ScratchBuffer&&) noexcept;
+
+        void RemapWriteStream();
+        void RemapReadStream();
+
+        MemBuffer Buffer;
+        MemWriteStream Write;
+        MemReadStream Read;
+        uint64_t Size{ 0 };
+    };
+
+    struct ScratchString
+    {
+        inline ScratchString() {}
+        ScratchString(std::span<char const> s);
+        ScratchString(ScratchString const&);
+        ScratchString(ScratchString &&) noexcept;
+        ~ScratchString();
+
+        ScratchString& operator = (ScratchString const&);
+        ScratchString& operator = (ScratchString&&) noexcept;
+
+        char* Buffer{ nullptr };
+        uint32_t Position{ 0 };
+        uint32_t Capacity{ 0 };
         uint32_t Size{ 0 };
-        uint32_t WritePosition{ 0 };
-        uint32_t ReadPosition{ 0 };
-        bool Unkn1{ false };
-        bool Unkn2{ false };
+        int32_t FloatPrecision{ -1 };
+        bool Managed{ false };
+        bool CanGrow{ false };
     };
 
     struct Guid
     {
+        static constexpr size_t StringLength = 36;
+
         static const Guid Null;
 
         uint64_t Val[2]{ 0 };
@@ -303,6 +500,7 @@ namespace bg3se
         }
 
         STDString ToString() const;
+        void ToString(std::span<char> str) const;
         static std::optional<Guid> Parse(StringView s);
         static std::optional<Guid> ParseGuidString(StringView nameGuid);
         static Guid Generate();
@@ -313,10 +511,17 @@ namespace bg3se
         return h.Val[0] ^ h.Val[1];
     }
 
+    inline uint64_t Hash(StringView const& s)
+    {
+        uint64_t hash[2];
+        MurmurHash3_x64_128(s.data(), (int)s.size(), 0, hash);
+        return hash[0];
+    }
+
     inline uint64_t Hash(STDString const& s)
     {
         uint64_t hash[2];
-        MurmurHash3_x64_128(s.data(), s.size(), 0, hash);
+        MurmurHash3_x64_128(s.data(), (int)s.size(), 0, hash);
         return hash[0];
     }
 }

@@ -5,122 +5,229 @@
 
 BEGIN_SE()
 
-struct DefaultPagedAllocator {};
-
-template <class T, class TAllocator = DefaultPagedAllocator>
-struct PagedArray : public TAllocator
+struct DefaultPagedAllocator
 {
-    T** Buckets;
-    uint16_t BitsPerBucket;
-    uint16_t NumBuckets;
-    uint32_t Size;
+    inline void* alloc(std::size_t size)
+    {
+        return GameAllocRaw(size);
+    }
+    
+    template <class T>
+    inline T* allocArray(std::size_t size)
+    {
+        return GameAllocArray<T>(size);
+    }
 
-    // Can't construct these for now
-    PagedArray() = delete;
-    PagedArray(PagedArray const&) = delete;
+    inline void free(void* ptr)
+    {
+        GameFree(ptr);
+    }
+};
 
-    void Resize(uint32_t newSize)
+struct PageLayout
+{
+    inline PageLayout(uint16_t bitsPerPage)
+        : BitsPerPage(bitsPerPage),
+        NumPages(0)
+    {}
+
+    uint16_t BitsPerPage;
+    uint16_t NumPages;
+
+    inline uint32_t bucket_size() const
+    {
+        return 1u << BitsPerPage;
+    }
+
+    inline uint32_t capacity() const
+    {
+        return NumPages * bucket_size();
+    }
+
+    template <class T>
+    inline T* at(T** pages, uint32_t index) const
+    {
+        se_assert(index < capacity());
+        return &pages[index >> BitsPerPage][index & ((1 << BitsPerPage) - 1)];
+    }
+};
+
+template <class T, class TAllocator>
+struct PagedOps
+{
+    static void Resize(uint32_t newSize, T**& pages, PageLayout& layout, TAllocator& allocator)
     {
         if (newSize) {
-            auto bucketSize = 1u << BitsPerBucket;
-            auto newNumBuckets = (~bucketSize & (bucketSize + newSize - 1)) >> BitsPerBucket;
-            if (newNumBuckets != NumBuckets) {
-                for (auto i = newNumBuckets; i < NumBuckets; i++) {
-                    GameFree(Buckets[i]);
+            auto bucketSize = (int32_t)layout.bucket_size();
+            auto newNumBuckets = (uint32_t)((-bucketSize & (bucketSize + newSize - 1)) >> layout.BitsPerPage);
+            if (newNumBuckets != layout.NumPages) {
+                for (auto i = newNumBuckets; i < layout.NumPages; i++) {
+                    allocator.free(pages[i]);
                 }
 
-                auto newAllocBuckets = (newNumBuckets + 15) & 0xFFF0;
-                if (newAllocBuckets < NumBuckets) {
-                    auto newBuckets = GameAllocArray<T*>(newAllocBuckets);
-                    if (Buckets) {
-                        if ((unsigned int)NumBuckets < NumBuckets)
-                            NumBuckets = NumBuckets;
-                        memcpy(newBuckets, Buckets, sizeof(T*) * std::min(newNumBuckets, (uint32_t)NumBuckets));
-                        GameFree(Buckets);
+                auto newAllocBuckets = (newNumBuckets + 15u) & 0xFFF0u;
+                auto oldAllocBuckets = (layout.NumPages + 15u) & 0xFFF0u;
+                if (oldAllocBuckets < newAllocBuckets) {
+                    auto newBuckets = allocator.allocArray<T*>(newAllocBuckets);
+                    if (pages) {
+                        memcpy(newBuckets, pages, sizeof(T*) * std::min(newNumBuckets, (uint32_t)layout.NumPages));
+                        allocator.free(pages);
                     }
-                    Buckets = newBuckets;
+                    pages = newBuckets;
                 }
 
-                for (auto i = NumBuckets; i < newNumBuckets; i++) {
-                    Buckets[i] = GameAllocArray<T>(bucketSize);
+                for (auto i = layout.NumPages; i < newNumBuckets; i++) {
+                    pages[i] = static_cast<T*>(allocator.alloc(sizeof(T) * bucketSize));
                 }
 
-                NumBuckets = newNumBuckets;
+                layout.NumPages = newNumBuckets;
             }
         } else {
-            if (NumBuckets) {
-                for (auto i = 0; i < NumBuckets; i++) {
-                    GameFree(Buckets[i]);
+            if (layout.NumPages) {
+                for (auto i = 0; i < layout.NumPages; i++) {
+                    allocator.free(pages[i]);
                 }
 
-                if (Buckets != nullptr) {
-                    GameFree(Buckets);
-                }
+                allocator.free(pages);
+                pages = nullptr;
+                layout.NumPages = 0;
             }
-
-            NumBuckets = 0;
         }
+    }
+};
+
+template <class T, class TAllocator = DefaultPagedAllocator>
+class PagedArray : protected TAllocator
+{
+public:
+    PagedArray(uint16_t bitsPerPage, TAllocator const& allocator)
+        : TAllocator(allocator), layout_(bitsPerPage)
+    {}
+
+    ~PagedArray()
+    {
+        clear();
+    }
+
+    // Can't copy these for now
+    PagedArray(PagedArray const&) = delete;
+    PagedArray(PagedArray &&) = delete;
+
+    inline TAllocator& allocator()
+    {
+        return *this;
+    }
+
+    inline uint32_t size() const
+    {
+        return size_;
+    }
+
+    inline uint32_t bucket_size() const
+    {
+        return layout_.bucket_size();
+    }
+
+    inline PageLayout const& layout() const
+    {
+        return layout_;
+    }
+
+    inline uint32_t capacity() const
+    {
+        return layout_.capacity();
+    }
+
+    void realloc(uint32_t newSize)
+    {
+        PagedOps<T, TAllocator>::Resize(newSize, pages_, layout_, *this);
+    }
+
+    template <class TAlloc>
+    void reallocExtern(uint32_t newSize, TAlloc& alloc)
+    {
+        PagedOps<T, TAlloc>::Resize(newSize, pages_, layout_, alloc);
+    }
+
+    void resize(uint32_t newSize)
+    {
+        for (auto i = newSize; i < size_; i++) {
+            layout_.at(pages_, i)->~T();
+        }
+
+        realloc(newSize);
+
+        for (auto i = size_; i < newSize; i++) {
+            new (layout_.at(pages_, i)) T();
+        }
+
+        size_ = newSize;
+    }
+
+    void clear()
+    {
+        resize(0);
+    }
+
+    template <class TAlloc>
+    void clearExtern(TAlloc& alloc)
+    {
+        for (auto i = 0; i < size_; i++) {
+            layout_.at(pages_, i)->~T();
+        }
+
+        PagedOps<T, TAlloc>::Resize(0, pages_, layout_, alloc);
+        size_ = 0;
+    }
+
+    T* add()
+    {
+        if (capacity() <= size()) {
+            realloc(capacity() + layout_.bucket_size());
+        }
+
+        auto val = layout_.at(pages_, size_++);
+        new (val) T();
+        return val;
+    }
+
+    T* add_uninitialized()
+    {
+        if (capacity() <= size()) {
+            realloc(capacity() + layout_.bucket_size());
+        }
+
+        return layout_.at(pages_, size_++);
     }
 
     inline T const& operator [] (uint32_t index) const
     {
-        assert(index < ((uint32_t)NumBuckets << BitsPerBucket));
-        return Buckets[index >> BitsPerBucket][index & ((1 << BitsPerBucket) - 1)];
+        return *layout_.at(pages_, index);
     }
 
     inline T& operator [] (uint32_t index)
     {
-        assert(index < ((uint32_t)NumBuckets << BitsPerBucket));
-        return Buckets[index >> BitsPerBucket][index & ((1 << BitsPerBucket) - 1)];
-    }
-};
-
-
-template <class TKey, class TAllocator = DefaultPagedAllocator>
-struct PagedHashSet : public TAllocator
-{
-    int32_t** HashKeys;
-    int32_t** NextIds;
-    TKey** Keys;
-    uint16_t BitsPerHashBucket;
-    uint16_t NumHashBuckets;
-    uint16_t BitsPerKeyBucket;
-    uint16_t NumKeyBuckets;
-    uint32_t HashTableSize;
-    uint32_t KeysSize;
-
-    TKey const& KeyAt(uint32_t index) const
-    {
-        auto keyTable = index >> BitsPerKeyBucket;
-        auto keySlot = index & ((1 << BitsPerKeyBucket) - 1);
-        return Keys[keyTable][keySlot];
+        return *layout_.at(pages_, index);
     }
 
-    int FindIndex(TKey const& key) const
-    {
-        if (HashTableSize == 0) return -1;
-
-        auto hash = HashMapHash(key) % HashTableSize;
-        auto keyIndex = HashKeys[hash >> BitsPerHashBucket][hash & ((1 << BitsPerHashBucket) - 1)];
-        while (keyIndex >= 0) {
-            auto keyTable = keyIndex >> BitsPerKeyBucket;
-            auto keySlot = keyIndex & ((1 << BitsPerKeyBucket) - 1);
-            if (Keys[keyTable][keySlot] == key) return keyIndex;
-            keyIndex = NextIds[keyTable][keySlot];
-        }
-
-        return -1;
-    }
+private:
+    T** pages_{ nullptr };
+    PageLayout layout_;
+    uint32_t size_{ 0 };
 };
 
 template <class TAllocator = DefaultPagedAllocator>
 struct PagedBitSet
 {
-    PagedArray<uint64_t, TAllocator> Storage;
+public:
+    inline TAllocator& allocator()
+    {
+        return storage_.allocator();
+    }
 
     inline uint32_t size() const
     {
-        return Storage.Size << 6;
+        return storage_.size() << 6;
     }
 
     inline bool get(uint32_t index) const
@@ -129,7 +236,7 @@ struct PagedBitSet
             return false;
         } else {
             auto qword = index >> 6;
-            return _bittest64((int64_t const*)&Storage[qword], index & 0x3f);
+            return _bittest64((int64_t const*)&storage_[qword], index & 0x3f);
         }
     }
 
@@ -138,70 +245,33 @@ struct PagedBitSet
         return get(index);
     }
 
+    void resize(uint32_t newSize)
+    {
+        if (newSize > size()) {
+            storage_.resize(newSize / 64 + ((newSize % 64) ? 1 : 0));
+        }
+    }
+
     inline void set(uint32_t index)
     {
-        assert(index < size());
+        if (index >= size()) {
+            resize(index + 1);
+        }
+
         auto qword = index >> 6;
-        Storage[qword] |= (1ull << (index & 0x3f));
+        storage_[qword] |= (1ull << (index & 0x3f));
     }
 
     inline void clear(uint32_t index)
     {
-        assert(index < size());
-        auto qword = index >> 6;
-        Storage[qword] &= ~(1ull << (index & 0x3f));
-    }
-};
-
-
-template <class TKey, class TValue, class TAllocator = DefaultPagedAllocator>
-struct DoubleIndexedPagedArray
-{
-    PagedBitSet<TAllocator> Bitmap;
-    PagedArray<uint16_t, DefaultPagedAllocator> LookupTable;
-    PagedArray<TKey, TAllocator> Keys;
-    PagedArray<TValue, TAllocator> Values;
-
-    int FindIndex(TKey const& key) const
-    {
-        auto hash = (uint32_t)SparseHashMapHash(key);
-        if (!Bitmap[hash]) return -1;
-
-        auto keyIndex = LookupTable[hash];
-        if (keyIndex == 0xFFFF || Keys[keyIndex] != key) return -1;
-        return keyIndex;
+        if (index < size()) {
+            auto qword = index >> 6;
+            storage_[qword] &= ~(1ull << (index & 0x3f));
+        }
     }
 
-    TValue const* Find(TKey const& key) const
-    {
-        auto index = FindIndex(key);
-        if (index < 0) return nullptr;
-
-        return &Values[index];
-    }
-};
-
-
-template <class TKey, class TValue, class TAllocator>
-struct PagedHashMap : public PagedHashSet<TKey, TAllocator>
-{
-    PagedArray<TValue, TAllocator> Values;
-
-    TValue* Find(TKey const& key)
-    {
-        auto index = this->FindIndex(key);
-        if (index < 0) return nullptr;
-
-        return &Values[index];
-    }
-
-    TValue const* Find(TKey const& key) const
-    {
-        auto index = this->FindIndex(key);
-        if (index < 0) return nullptr;
-
-        return &Values[index];
-    }
+private:
+    PagedArray<uint64_t, TAllocator> storage_;
 };
 
 END_SE()

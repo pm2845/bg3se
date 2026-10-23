@@ -1,13 +1,6 @@
 #pragma once
 
-BEGIN_NS(esv::shapeshift)
-
-struct HealthReservationComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(ShapeshiftHealthReservation, "esv::shapeshift::HealthReservationComponent")
-
-    HashMap<Guid, int32_t> Reservations;
-};
+BEGIN_NS(shapeshift)
 
 struct IntOverride
 {
@@ -21,6 +14,71 @@ struct FloatOverride
     ShapeshiftChangeType Type;
 };
 
+struct StateComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ShapeshiftState, "eoc::shapeshift::StateComponent")
+
+    std::optional<uint8_t> BloodSurfaceType;
+    std::optional<FixedString> BloodType;
+    [[bg3::legacy(field_C)]] std::optional<TemplateInfo> Template;
+};
+
+struct RecoveryAnimationComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ShapeshiftRecoveryAnimation, "eoc::shapeshift::RecoveryAnimationComponent")
+
+    FixedString Animation;
+};
+
+struct SourceCacheComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ShapeshiftSourceCache, "eoc::shapeshift::SourceCacheComponent")
+
+    Array<Guid> Source;
+};
+
+struct AnimationComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ShapeshiftAnimation, "eoc::shapeshift::AnimationComponent")
+
+    uint32_t field_0;
+    uint8_t field_4;
+};
+
+struct ReplicatedChangesComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ShapeshiftReplicatedChanges, "eoc::shapeshift::ReplicatedChangesComponent")
+
+    std::array<Array<IntOverride>, 7> Abilities;
+    Array<IntOverride> HP;
+    bool VisualChanged;
+    // Removed? 
+    // bool ForceFinish;
+    uint16_t ItemTooltipFlags;
+    TranslatedString ItemDescription;
+    int32_t GoldAmount;
+    int32_t ItemWeight;
+    bool MuteEquipmentSound;
+    bool DisableEquipment;
+    bool HasWildShapeHotBar;
+    bool HasWeightOverride;
+    int32_t AC;
+};
+
+END_NS()
+
+BEGIN_NS(esv::shapeshift)
+
+using IntOverride = bg3se::shapeshift::IntOverride;
+using FloatOverride = bg3se::shapeshift::FloatOverride;
+
+struct HealthReservationComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ShapeshiftHealthReservation, "esv::shapeshift::HealthReservationComponent")
+
+    HashMap<Guid, int32_t> Reservations;
+};
+
 struct RootTemplateOverride
 {
     FixedString RootTemplate;
@@ -29,7 +87,7 @@ struct RootTemplateOverride
 
 struct State
 {
-    Guid field_0;
+    [[bg3::legacy(field_0)]] Guid StateGuid;
     std::array<std::optional<IntOverride>, 7> Abilities;
     std::optional<IntOverride> Vitality;
     std::optional<IntOverride> VitalityBoost;
@@ -39,11 +97,11 @@ struct State
     std::optional<Guid> Race;
     std::optional<uint8_t> Gender;
     std::optional<bool> UseShapeshiftIdentity;
-    uint8_t field_B4;
-    bool KillEntityAtZeroHP;
+    uint8_t field_B4{ 0 };
+    bool KillEntityAtZeroHP{ false };
     Array<Guid> TagsAdd;
     Array<Guid> TagsRemove;
-    std::optional<bool> RemoveOldTags;
+    bool RemoveOldTags{ false };
     std::optional<uint16_t> ActionCapabilities;
     std::optional<uint16_t> InteractionsCapabilities;
     std::optional<uint16_t> AwarenessCapabilities;
@@ -55,45 +113,45 @@ struct State
     std::optional<FixedString> Icon;
     std::optional<FloatOverride> Scale;
     std::optional<EntityHandle> field_158;
-    bool ApplyVisualInCC;
-    bool MuteEquipmentSound;
-    bool OverrideSpeaker;
+    bool ApplyVisualInCC{ false };
+    bool MuteEquipmentSound{ false };
+    bool OverrideSpeaker{ false };
     HashMap<ShapeshiftSpellSource, Array<FixedString>> SpellsAdd;
     Array<FixedString> SpellsRemove;
-    bool RemovePrevSpells;
+    bool RemovePrevSpells{ false };
     std::optional<Guid> AiHint;
     std::optional<FixedString> CombatArchetype;
     std::optional<int32_t> Armor;
     std::optional<int32_t> ArmorType;
     std::optional<AbilityId> UnarmedAttackAbility;
     std::optional<AbilityId> UnarmedRangedAttackAbility;
-    uint8_t field_1FC;
-    uint8_t field_1FD;
+    uint8_t field_1FC{ 0 };
+    uint8_t field_1FD{ 0 };
     std::optional<bool> CanSeeThrough;
     std::optional<bool> CanShootThrough;
     std::optional<uint8_t> ShootThroughType;
     std::optional<bool> WalkThrough;
     Array<SurfacePathInfluence> SurfacePathInfluences;
-    uint8_t FlagsInheritanceType;
-    uint32_t Flags;
-    uint8_t DefaultBoostsInheritanceType;
+    uint8_t FlagsInheritanceType{ 0 };
+    uint32_t Flags{ 0 };
+    uint8_t DefaultBoostsInheritanceType{ 0 };
     FixedString DefaultBoosts;
-    uint8_t PersonalStatusImmunitiesInheritanceType;
+    uint8_t PersonalStatusImmunitiesInheritanceType{ 0 };
     FixedString PersonalStatusImmunities;
-    uint8_t PassivesInheritanceType;
+    uint8_t PassivesInheritanceType{ 0 };
     FixedString Passives;
-    uint8_t ResistancesInheritanceType;
+    uint8_t ResistancesInheritanceType{ 0 };
     std::array<std::array<ResistanceBoostFlags, 7>, 2> Resistances;
-    uint8_t DifficultyStatusesInheritanceType;
+    uint8_t DifficultyStatusesInheritanceType{ 0 };
     FixedString DifficultyStatuses;
-    uint8_t ProficiencyGroupsInheritanceType;
+    uint8_t ProficiencyGroupsInheritanceType{ 0 };
     ProficiencyGroupFlags ProficiencyGroup;
-    uint8_t BloodSurfaceTypeInheritanceType;
-    uint8_t HitBloodTypeInheritanceType;
-    uint8_t DeathActionsInheritanceType;
+    uint8_t BloodSurfaceTypeInheritanceType{ 0 };
+    uint8_t HitBloodTypeInheritanceType{ 0 };
+    uint8_t DeathActionsInheritanceType{ 0 };
     std::optional<AbilityId> SpellCastingAbility;
     std::optional<Guid> DummyClass;
-    bool BlockLevelUp;
+    bool BlockLevelUp{ false };
 };
 
 struct StatesComponent : public BaseComponent
@@ -103,5 +161,29 @@ struct StatesComponent : public BaseComponent
     int field_0;
     Array<State> States;
 };
+
+struct AddRequest
+{
+    Guid StateGuid;
+    std::optional<TemplateInfo> Template;
+    EntityHandle TargetTemplate;
+    bool field_28{ false };
+    Guid ShapeshiftRule;
+    bool ApplyToDead{ false };
+};
+
+struct System : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerShapeshift, "esv::shapeshift::System")
+
+    [[bg3::hidden]] UnknownSignal field_10;
+    HashMap<EntityHandle, Array<AddRequest>> RequestAddStates;
+    HashMap<EntityHandle, Array<Guid>> RequestDeleteStates;
+    HashSet<EntityHandle> RequestDeleteAllStates;
+    HashMap<EntityHandle, EntityHandle> UpdateRequests;
+    [[bg3::hidden]] void* ShapeshiftRulebook;
+    [[bg3::hidden]] void* RPGStats;
+};
+
 
 END_NS()

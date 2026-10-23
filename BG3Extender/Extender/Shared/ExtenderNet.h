@@ -1,19 +1,28 @@
 #pragma once
 
 #include <GameDefinitions/Net.h>
+#include <concurrent_queue.h>
+#pragma warning(push)
+#pragma warning(disable:4267)
 #include <Extender/Shared/ExtenderProtocol.pb.h>
+#pragma warning(pop)
 
 BEGIN_NS(net)
+
+enum class ProtoVersion : uint32_t
+{
+    VerInitial = 1,
+    VerBinSerializer = 2, // Added binary Lua serializer
+
+    Current = VerBinSerializer
+};
 
 class ExtenderMessage : public Message
 {
 public:
     static constexpr NetMessage MessageId = NetMessage::NETMSG_SCRIPT_EXTENDER;
-    static constexpr uint32_t MaxPayloadLength = 0xfffff;
-
-    static constexpr uint32_t VerInitial = 1;
-    // Version of protocol, increment each time the protobuf changes
-    static constexpr uint32_t ProtoVersion = VerInitial;
+    static constexpr uint32_t MaxPayloadLength = 0xff000;
+    static constexpr uint32_t MaxTotalMessageLength = 0xfffff;
 
     ExtenderMessage();
     ~ExtenderMessage() override;
@@ -63,6 +72,18 @@ public:
 
 protected:
     virtual void ProcessExtenderMessage(net::MessageContext& context, MessageWrapper & msg) = 0;
+    void DoSyncUserVars(MsgUserVars const& msg);
+};
+
+struct LocalMessage
+{
+    STDString Channel;
+    STDString Module;
+    STDString Payload;
+    int32_t RequestId{ 0 };
+    int32_t ReplyId{ 0 };
+    UserId User;
+    bool Binary{ false };
 };
 
 class BaseNetworkManager
@@ -70,6 +91,20 @@ class BaseNetworkManager
 public:
     virtual ExtenderMessage* GetFreeMessage() = 0;
     virtual ExtenderMessage* GetFreeMessage(UserId userId) = 0;
+    virtual void HandleLocalMessage(net::LocalMessage const& msg) = 0;
+    virtual void Update();
+    virtual void OnResetExtensionState();
+    virtual ProtoVersion SharedVersion() = 0;
+
+    inline void PushLocalMessage(LocalMessage&& msg)
+    {
+        localMessages_.push(std::move(msg));
+    }
+
+private:
+    concurrency::concurrent_queue<LocalMessage, GameAllocator<LocalMessage>> localMessages_;
+
+    void ProcessLocalMessages();
 };
 
 END_NS()

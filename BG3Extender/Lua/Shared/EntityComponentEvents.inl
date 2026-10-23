@@ -26,6 +26,7 @@ void EntityComponentEventHooks::BindECS()
 
 void EntityComponentEventHooks::FireDeferredEvents()
 {
+    OPTICK_EVENT();
     for (auto index : deferredUnsubscriptions_) {
         Unsubscribe(index);
     }
@@ -42,20 +43,22 @@ void EntityComponentEventHooks::FireDeferredEvents()
         for (auto& e : events) {
             auto hook = subscriptions_.Find(e.Index);
             if (hook != nullptr) {
-                auto componentType = ecs->GetComponentType(e.Type);
-                auto component = ecs->GetRawComponent(e.Entity, *componentType);
-                CallHandlerUnsafe(e.Entity, e.Type, e.Event, component, *hook, e.Index);
+                auto meta = ecs->GetComponentMeta(e.Type);
+                if (meta) {
+                    auto component = ecs->GetRawComponent(e.Entity, *meta);
+                    CallHandlerUnsafe(e.Entity, e.Type, e.Event, component, *hook, e.Index);
+                }
             }
         }
     }
 }
 
-void EntityComponentEventHooks::OnComponentCreated(ecs::ComponentTypeIndex type, ecs::EntityRef* entity, void* component)
+void EntityComponentEventHooks::OnComponentCreated(ecs::ComponentTypeIndex const& type, ecs::EntityRef* entity, void* component)
 {
     OnEntityEvent(*entity->World, entity->Handle, type, EntityComponentEvent::Create, component);
 }
 
-void EntityComponentEventHooks::OnComponentDestroyed(ecs::ComponentTypeIndex type, ecs::EntityRef* entity, void* component)
+void EntityComponentEventHooks::OnComponentDestroyed(ecs::ComponentTypeIndex const& type, ecs::EntityRef* entity, void* component)
 {
     OnEntityEvent(*entity->World, entity->Handle, type, EntityComponentEvent::Destroy, component);
 }
@@ -93,7 +96,7 @@ EntityComponentEventHooks::SubscriptionIndex EntityComponentEventHooks::Subscrib
     auto& pool = AddComponentType(type);
     pool.Events |= events;
     if (!entity) {
-        pool.GlobalHooks.Add(index);
+        pool.GlobalHooks.push_back(index);
     } else {
         auto entityHooks = pool.EntityHooks.try_get(entity);
         if (entityHooks) {
@@ -180,7 +183,7 @@ void EntityComponentEventHooks::CallHandlerUnsafe(EntityHandle entity, ecs::Comp
 
     auto L = state_.GetState();
     auto componentType = state_.GetEntitySystemHelpers()->GetComponentType(type);
-    hook.Hook.Push();
+    hook.Hook.Push(L);
     Ref func(L, lua_absindex(L, -1));
 
     RawComponentRef componentRef{ component, type };

@@ -39,6 +39,7 @@ struct StaticTypes
     TypeInfo Single;
     TypeInfo Double;
     TypeInfo Bool;
+    TypeInfo Symbol;
     TypeInfo String;
     TypeInfo Uri;
     TypeInfo Color;
@@ -46,7 +47,14 @@ struct StaticTypes
     TypeInfo Vector3;
     TypeInfo Point;
     TypeInfo Rect;
+    TypeInfo Int32Rect;
+    TypeInfo Thickness;
+    TypeInfo CornerRadius;
+    TypeInfo GridLength;
     TypeInfo LocaString;
+    TypeInfo ICommand;
+    TypeInfo IValueConverter;
+    TypeInfo IMultiValueConverter;
     TypeInfo TypeConst;
     TypeInfo TypePointer;
     TypeInfo TypePtr;
@@ -66,6 +74,7 @@ struct StaticTypes
         Single.Setup("Single");
         Double.Setup("Double");
         Bool.Setup("Bool");
+        Symbol.Setup("Symbol");
         String.Setup("String");
         Uri.Setup("Uri");
         Color.Setup("Color");
@@ -73,7 +82,14 @@ struct StaticTypes
         Vector3.Setup("Vector3");
         Point.Setup("Point");
         Rect.Setup("Rect");
+        Int32Rect.Setup("Int32Rect");
+        Thickness.Setup("Thickness");
+        CornerRadius.Setup("CornerRadius");
+        GridLength.Setup("GridLength");
         LocaString.Setup("ls.LocaString");
+        ICommand.Setup("ICommand");
+        IValueConverter.Setup("IValueConverter");
+        IMultiValueConverter.Setup("IMultiValueConverter");
         TypeConst.Setup("TypeConst");
         TypePointer.Setup("TypePointer");
         TypePtr.Setup("TypePtr");
@@ -93,8 +109,13 @@ struct StaticTypeClasses
         {
             Name = MakeNoesisSymbol(name);
             auto type = Reflection::GetType(Name);
-            assert(type->GetClassType()->GetTypeId() == SymbolInfo<Noesis::TypeClass>::Name);
-            Type = static_cast<Noesis::TypeClass const*>(type);
+            if (type) {
+                se_assert(type->GetClassType()->GetTypeId() == SymbolInfo<Noesis::TypeClass>::Name);
+                Type = static_cast<Noesis::TypeClass const*>(type);
+            } else {
+                ERR("Couldn't resolve Noesis type class: %s", name);
+                Type = nullptr;
+            }
         }
     };
 
@@ -104,12 +125,18 @@ struct StaticTypeClasses
     TypeClassInfo BaseCollection;
     TypeClassInfo BaseCommand;
     TypeClassInfo DependencyObject;
+    TypeClassInfo Type;
+    TypeClassInfo TypeMeta;
+    TypeClassInfo TypePointer;
+    TypeClassInfo TypePtr;
     TypeClassInfo TypeClass;
     TypeClassInfo TypeEnum;
     TypeClassInfo BoxedValue;
+    TypeClassInfo BaseObservableCollection;
     TypeClassInfo UIElementData;
     TypeClassInfo DependencyData;
     TypeClassInfo FrameworkElement;
+    TypeClassInfo Visual;
 
     TypeClassInfo InitialSubstate;
     TypeClassInfo StateEvent;
@@ -126,19 +153,25 @@ struct StaticTypeClasses
         BaseCollection.Setup("BaseCollection");
         BaseCommand.Setup("BaseCommand");
         DependencyObject.Setup("DependencyObject");
+        Type.Setup("Type");
+        TypeMeta.Setup("TypeMeta");
+        TypePointer.Setup("TypePointer");
+        TypePtr.Setup("TypePtr");
         TypeClass.Setup("TypeClass");
         TypeEnum.Setup("TypeEnum");
         BoxedValue.Setup("BoxedValue");
+        BaseObservableCollection.Setup("BaseObservableCollection");
         UIElementData.Setup("UIElementData");
         DependencyData.Setup("DependencyData");
         FrameworkElement.Setup("FrameworkElement");
+        Visual.Setup("Visual");
 
         InitialSubstate.Setup("ls.InitialSubstate");
         StateEvent.Setup("ls.StateEvent");
         StateWidget.Setup("ls.StateWidget");
         State.Setup("ls.State");
         Widget.Setup("ls.UIWidget");
-        DCWidget.Setup("ui::DCWidget");
+        DCWidget.Setup("ls.DCWidget");
     }
 };
 
@@ -195,10 +228,14 @@ struct ExtStaticSymbols
     {
         if (Initialized) return;
 
-        auto& strings = Noesis::GetSymbolManager()->Strings;
-        for (uint32_t i = 0; i < strings.Size(); i++) {
-            Symbols.insert(std::make_pair(strings[i], i));
-        }
+        // Resolve LuaDelegateCommand dependencies
+        SymbolInfo<Noesis::TypeClass>::Name = MakeNoesisSymbol("TypeClass");
+        SymbolInfo<Noesis::BaseCommand>::Name = MakeNoesisSymbol("BaseCommand");
+        TypeClasses.BaseCommand.Setup("BaseCommand");
+
+        // Force registration of custom classes before resolving names
+        // (temporarily needed until symbol cache cleanup)
+        Noesis::LuaDelegateCommand::StaticGetClassType((Noesis::TypeTag<Noesis::LuaDelegateCommand>*)nullptr);
 
         #define FOR_NOESIS_TYPE(T) SymbolInfo<T>::Name = MakeNoesisSymbol(#T);
         FOR_EACH_NOESIS_TYPE()
@@ -209,7 +246,7 @@ struct ExtStaticSymbols
         SymbolInfo<ui::UIStateEvent>::Name = MakeNoesisSymbol("ls.StateEvent");
         SymbolInfo<ui::UIState>::Name = MakeNoesisSymbol("ls.State");
         SymbolInfo<ui::UIWidget>::Name = MakeNoesisSymbol("ls.UIWidget");
-        SymbolInfo<ui::DCWidget>::Name = MakeNoesisSymbol("ui::DCWidget");
+        SymbolInfo<ui::DCWidget>::Name = MakeNoesisSymbol("ls.DCWidget");
 
         Types.Setup();
         TypeClasses.Setup();
@@ -225,15 +262,9 @@ struct ExtStaticSymbols
             n = n.substr(8);
         }
 
-        auto it = Symbols.find(n);
-        if (it == Symbols.end()) {
-            return Symbol{};
-        } else {
-            return it->second;
-        }
+        return Symbol(n.c_str());
     }
 
-    std::unordered_map<bg3se::STDString, Symbol> Symbols;
     StaticTypes Types;
     StaticTypeClasses TypeClasses;
     EventNames Events;

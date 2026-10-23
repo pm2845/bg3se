@@ -56,13 +56,13 @@ struct DamageRollAdjustments
     HashMap<uint8_t, HashMap<DamageType, int32_t>> field_40;
     Array<RerollCondition> RerollConditions;
     HashSet<DamageType> DamageTypes;
-    HashSet<DamageType> DamageTypes2;
+    HashSet<DamageType> MaximizeDamage;
 };
 
 
 struct AppliedChange
 {
-    uint8_t Flags;
+    uint8_t Flags{ 0 };
     Array<RollAdjustments> Adjustments;
     HashMap<DamageFunctorKey, DamageRollAdjustments> DamageRollAdjustments;
 };
@@ -89,46 +89,46 @@ struct SpellCastEvent
 
 struct CastHitEvent
 {
-    FixedString Cause;
+    [[bg3::legacy(Cause)]] FixedString CauseSpell;
     Guid SpellCastGuid;
     DamageFlags DamageEffectFlags;
-    uint8_t SpellAttackType;
-    int field_20;
+    SpellAttackType SpellAttackType;
+    [[bg3::legacy(field_20)]] int32_t DamageDone;
     Array<DamagePair> DamageRolls;
-    EntityHandle field_38;
+    [[bg3::legacy(field_38)]] EntityHandle ThrownObject;
     SpellId Spell;
-    uint8_t field_68;
+    [[bg3::legacy(field_68)]] AbilityId AbilitySavingThrow;
     uint8_t HitDescFlags;
 };
 
 struct SpellRollEvent
 {
     Guid RollUuid;
-    FixedString field_10;
+    [[bg3::legacy(field_10)]] FixedString CauseSpell;
     Guid SpellCastGuid;
     ConditionRollType ConditionRollType;
     RollData Roll;
     int Difficulty;
-    std::optional<int> field_48;
+    [[bg3::legacy(field_48)]] std::optional<int> CriticalRollThreshold;
     AbilityId Ability;
     SpellAttackType SpellAttackType;
-    bool field_52;
-    Guid field_58;
+    [[bg3::legacy(field_52), bg3::legacy(WasHit)]] bool ConditionResult;
+    Guid RollUuid2;
     SpellId Spell;
 };
 
 struct ConditionalRollEvent
 {
     Guid RollUuid;
-    Guid field_10;
-    __int64 field_20;
-    EntityHandle field_28;
-    FixedString field_30;
+    [[bg3::legacy(field_10)]] Guid RollUuid2;
+    [[bg3::legacy(field_20)]] uint64_t RollIndex;
+    [[bg3::legacy(field_28)]] EntityHandle Passive;
+    [[bg3::legacy(field_30)]] FixedString PassiveId;
     ConditionRollType ConditionRollType;
     RollData Roll;
-    int field_50;
+    [[bg3::legacy(field_50)]] int DC;
     AbilityId Ability;
-    bool field_55;
+    [[bg3::legacy(field_55)]] bool SwappedSourceAndTarget;
 };
 
 struct EnterAttackRangeEvent
@@ -145,8 +145,8 @@ struct LeaveAttackRangeEvent
 
 struct SpellPreDamageEvent
 {
-    Guid field_0;
-    FixedString Cause;
+    [[bg3::legacy(field_0)]] Guid DamageFunctorId;
+    [[bg3::legacy(Cause)]] FixedString CauseSpell;
     Guid SpellCastGuid;
     DamageType DamageType;
     DamageFlags DamageEffectFlags;
@@ -155,30 +155,30 @@ struct SpellPreDamageEvent
     Dependency Dependency1;
     Dependency Dependency2;
     SpellId Spell;
-    uint8_t field_90;
+    [[bg3::legacy(field_90)]] uint32_t SpellRollIndex;
 };
 
 struct PlaceholderSpellRollEvent
 {
-    Guid field_0;
-    Guid field_10;
-    FixedString field_20;
-    Guid field_28;
+    [[bg3::legacy(field_0)]] Guid RollUuid;
+    [[bg3::legacy(field_10)]] Guid FunctorUuid;
+    [[bg3::legacy(field_20)]] FixedString SpellId;
+    [[bg3::legacy(field_28)]] Guid SpellCastUuid;
     Dependency Dependency;
     stats::PropertyContext StatsFunctorContext;
-    FixedString field_58;
-    int field_5C;
+    [[bg3::legacy(field_58)]] FixedString TextKey;
+    [[bg3::legacy(field_5C)]] stats::ConditionId Conditions;
 };
 
 struct ConditionResultEvent
 {
-    Guid field_0;
-    FixedString field_10;
-    Guid field_18;
-    Guid field_28;
-    int field_38;
+    [[bg3::legacy(field_0)]] Guid RollUuid;
+    [[bg3::legacy(field_10)]] FixedString SpellId;
+    [[bg3::legacy(field_18)]] Guid SpellCastUuid;
+    [[bg3::legacy(field_28)]] Guid FunctorUuid;
+    [[bg3::legacy(field_38)]] stats::ConditionId Conditions;
     stats::PropertyContext StatsFunctorContext;
-    char field_48;
+    [[bg3::legacy(field_48)]] bool ConditionResult;
     DamageFlags DamageEffectFlags;
 };
 
@@ -211,10 +211,10 @@ struct InterruptEvent
     EntityHandle SourceProxy;
     EntityHandle Target;
     EntityHandle TargetProxy;
-    Array<Guid> field_D0;
+    [[bg3::legacy(field_D0)]] Array<Guid> Targets;
     std::optional<glm::vec3> SourcePos;
     std::optional<glm::vec3> TargetPos;
-    uint8_t field_100;
+    [[bg3::legacy(field_100)]] bool SwapSourceTarget{ false };
 
     // FIXME - needs adjustment depending on variant
     inline bool operator == (InterruptEvent const& o) const
@@ -224,41 +224,45 @@ struct InterruptEvent
     }
 };
 
+struct UndecidedEvent
+{
+    InterruptEvent Event;
+    bool HasReplacement;
+    InterruptEvent Replacement;
+    HashMap<EntityHandle, HashSet<EntityHandle>> UndecidedInterrupts;
+};
+
 struct UndecidedEventWithId
 {
-    glm::vec3 field_0;
-    float field_C;
-    InterruptEvent Event;
-    __int64 field_108;
-    InterruptEvent Event2;
-    HashMap<EntityHandle, HashSet<EntityHandle>> field_208;
+    Guid EventUuid;
+    UndecidedEvent Event;
 };
 
 struct DelayedTargetHitInterruptEvent
 {
-    Guid field_0;
-    uint8_t field_10;
+    [[bg3::legacy(field_48)]] Guid EventUuid;
+    bool field_10;
     uint32_t field_14;
     HitDesc Hit;
     AttackDesc Attack;
-    EntityHandle field_1E8;
-    EntityHandle field_1F0;
-    std::optional<glm::vec3> field_1F8;
-    std::optional<glm::vec3> field_208;
+    [[bg3::legacy(field_1E8)]] EntityHandle Target;
+    [[bg3::legacy(field_1F0)]] EntityHandle Source;
+    [[bg3::legacy(field_1F8)]] std::optional<glm::vec3> TargetPos;
+    [[bg3::legacy(field_208)]] std::optional<glm::vec3> SourcePos;
     SpellId Spell;
 };
 
 
 struct PausedAnimationEvent
 {
-    FixedString field_0;
-    int field_4;
+    FixedString TextKey;
+    bool PauseFinishedAnimations;
 };
 
 struct PrecalculatedInterruptEvent : public InterruptEvent
 {
-    HashMap<EntityHandle, HashSet<EntityHandle>> field_F8;
-    HashMap<EntityHandle, HashSet<EntityHandle>> field_138;
+    [[bg3::legacy(field_F8)]] HashMap<EntityHandle, HashSet<EntityHandle>> AutoInterrupts;
+    [[bg3::legacy(field_138)]] HashMap<EntityHandle, HashSet<EntityHandle>> PendingInterrupts;
 };
 
 struct ResolvedData
@@ -277,7 +281,7 @@ struct InterruptUsageEntry
 
 struct ExecutedDependency
 {
-    // UNKNOWN
+    uint32_t field_0;
 };
 
 struct InterruptUsage
@@ -286,21 +290,25 @@ struct InterruptUsage
     HashMap<EntityHandle, HashMap<InterruptEvent, InterruptUsageEntry>> Usage;
 };
 
-struct AnimationInterruptData
+struct PrecalculatedAnimationInterruptData
 {
     Array<InterruptEvent> Events;
     Array<PrecalculatedInterruptEvent> PrecalculatedInterrupts;
-    __int64 field_20;
+    uint8_t field_20;
     HashMap<Guid, ResolvedData> Resolved;
     HashMap<EntityHandle, HashMap<InterruptEvent, InterruptUsageEntry>> Usage;
-    [[bg3::hidden]] HashMap<Guid, ExecutedDependency> ExecutedDependencies;
-    HashMap<InterruptEvent, HashMap<EntityHandle, EntityHandle>> field_E8;
+    HashMap<Guid, ExecutedDependency> ExecutedDependencies;
+};
+
+struct AnimationInterruptData : public PrecalculatedAnimationInterruptData
+{
+    HashMap<InterruptEvent, HashMap<EntityHandle, HashSet<EntityHandle>>> Interruptors;
     int32_t field_128;
     float field_12C;
     HashMap<Guid, RollAdjustments> RollAdjustments;
     HashMap<DamageFunctorKey, DamageRollAdjustments> DamageRollAdjustments;
     HashMap<EntityHandle, InterruptUsage> InterruptUsage;
-    [[bg3::hidden]] HashMap<Guid, ExecutedDependency> ExecutedDependencies2;
+    HashMap<Guid, ExecutedDependency> ExecutedDependencies2;
 };
 
 END_NS()

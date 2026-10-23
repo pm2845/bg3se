@@ -5,6 +5,7 @@
 #include <Extender/Client/ExtensionStateClient.h>
 #include <Extender/Client/ClientNetworking.h>
 #include <Extender/Client/SDLManager.h>
+#include <Extender/Client/VisualHelpers.h>
 #include <GameDefinitions/Symbols.h>
 #include <GameDefinitions/EntitySystemHelpers.h>
 #include <CoreLib/Wrappers.h>
@@ -32,12 +33,18 @@ public:
 
     inline ExtensionState & GetExtensionState() const
     {
+        se_assert(extensionState_);
         return *extensionState_;
     }
 
     inline ecs::ClientEntitySystemHelpers& GetEntityHelpers()
     {
         return entityHelpers_;
+    }
+
+    inline VisualHelpers& GetVisualHelpers()
+    {
+        return visualHelpers_;
     }
 
     inline NetworkManager& GetNetworkManager()
@@ -50,7 +57,6 @@ public:
         return sdl_;
     }
 
-    bool IsInClientThread() const;
     void ResetLuaState();
     void ResetExtensionState();
     void LoadExtensionState(ExtensionStateContext ctx);
@@ -71,6 +77,7 @@ private:
     bool extensionLoaded_{ false };
     bool postStartupDone_{ false };
     ecs::ClientEntitySystemHelpers entityHelpers_;
+    VisualHelpers visualHelpers_;
     STDString serverStatus_;
     STDString clientStatus_;
     NetworkManager network_;
@@ -78,10 +85,13 @@ private:
 
     void OnBaseModuleLoaded(void * self);
     void GameStateWorkerWrapper(void (*wrapped)(void*), void* self);
+    void OnPreUpdate(void* self, GameTime* time);
     void OnUpdate(void* self, GameTime* time);
+    void OnUpdateGuarded(void* self, GameTime* time);
     void OnIncLocalProgress(void* self, int progress, char const* state);
     void ShowLoadingProgress();
     void ShowVersionNumber();
+    void OnUiPredicatesManagerUpdate(ui::DeferredPredicatesManager*);
 };
 
 END_NS()

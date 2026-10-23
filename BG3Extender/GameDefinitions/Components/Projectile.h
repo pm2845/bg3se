@@ -4,70 +4,7 @@
 #include <GameDefinitions/Misc.h>
 #include <GameDefinitions/EntitySystem.h>
 #include <GameDefinitions/Hit.h>
-
-BEGIN_NS(path)
-
-struct Bezier3Trajectory
-{
-    float DistanceMin;
-    float DistanceMax;
-    float OffsetMin[2];
-    float OffsetMax[2];
-    float ShiftMin;
-    float ShiftMax;
-};
-
-struct Bezier4Trajectory
-{
-    float DistanceMin;
-    float DistanceMax;
-    float OffsetAMin[2];
-    float OffsetAMax[2];
-    float OffsetBMin[2];
-    float OffsetBMax[2];
-    float ShiftAMin;
-    float ShiftAMax;
-    float ShiftBMin;
-    float ShiftBMax;
-};
-
-struct ConstantVelocity
-{
-    float ConstantVelocity;
-};
-
-struct LinearVelocity
-{
-    float Acceleration;
-    float InitialSpeed;
-};
-
-struct MappedVelocity
-{
-    FixedString Mapping;
-};
-
-struct Settings
-{
-    std::variant<Bezier3Trajectory, Bezier4Trajectory> Trajectory;
-    [[bg3::hidden]] uint32_t _Pad;
-    uint8_t RotateMode;
-    std::variant<ConstantVelocity, LinearVelocity, MappedVelocity> Velocity;
-};
-
-struct PathMover : public Settings
-{
-    glm::vec3 SourcePosition;
-    glm::quat SourceRotation;
-    glm::vec3 TargetPosition;
-    glm::quat TargetRotation;
-    float InterpolateValue;
-    std::array<float, 32> ComputedTrajectoryValues;
-    Array<glm::vec3> ComputedVelocityValues;
-    bool Initialized;
-};
-
-END_NS()
+#include <GameDefinitions/Components/SpellCastShared.h>
 
 BEGIN_NS(projectile)
 
@@ -76,7 +13,7 @@ struct ProjectileResult : public path::Settings
     [[bg3::legacy(field_50)]] FixedString TemplateId;
     EntityHandle field_58;
     glm::vec3 field_60;
-    float InterpolateValue;
+    float InterpolateValue{ .0f };
 };
 
 struct SourceInfoComponent : public BaseComponent
@@ -127,8 +64,7 @@ struct SpellComponent : public BaseComponent
 
     EntityHandle Spell;
     bg3se::spell_cast::IntermediateTarget Target;
-    int field_B0;
-    uint8_t field_B4;
+    int Index;
 };
 
 struct InitializationData
@@ -176,7 +112,6 @@ struct InitializationComponent : public BaseProxyComponent
 
     [[bg3::hidden]] void* field_0;
     InitializationData Data;
-    [[bg3::hidden]] void* _PAD;
 };
 
 
@@ -199,24 +134,22 @@ struct Projectile : public BaseProxyComponent
     glm::vec3 TargetPos;
     glm::vec3 TargetObjectPos;
     FixedString TextKey;
-    HitDesc Hit;
+    [[bg3::legacy(Hit)]] HitDesc SpellRollResult;
     DamageType MainDamageType;
-    CauseType Cause;
-    float LifeTime;
-    float HitInterpolation;
-    float FallbackTimer;
+    CauseType Cause{ CauseType::Attack };
+    float LifeTime{ 10.0f };
+    float HitInterpolation{ -1.0f };
+    float FallbackTimer{ 15.0f };
     path::PathMover Path;
     path::PathMover Path2;
     float ExplodeRadius;
-    float ExplodeRadius2;
+    [[bg3::legacy(ExplodeRadius2)]] float InfluenceRadius;
     SpellId Spell;
     stats::Functors* HitFunctors;
     AbilityId SpellCastingAbility;
     Guid SpellCastUuid;
     EntityHandle MovingObject;
-    glm::quat MovingObjectRotation;
-    glm::vec3 MovingObjectPosition;
-    glm::vec3 MovingObjectScale;
+    Transform MovingObjectTransform;
     FixedString SpawnEffect;
     bool SpawnFXOverridesImpactFX;
     EntityHandle BeamEffect;
@@ -225,20 +158,21 @@ struct Projectile : public BaseProxyComponent
     bool IsOnHold;
     bool IsTrap;
     bool IsThrown;
-    uint8_t field_51D;
+    [[bg3::legacy(MoveFromOwner)]] bool MoveFromSource{ true };
     bool IsFromItem;
     bool IgnoreTargetChecks;
     bool IgnoreRoof;
-    bool CanDeflect;
+    bool CanDeflect{ true };
     bool IgnoreObjects;
-    uint8_t field_523;
+    bool IgnoreSurfaces;
     bool Used;
     bool Success;
     uint8_t field_526;
     bool DamageMovingObjectOnLand;
-    bool NoMovement;
+    [[bg3::legacy(NoMovement)]] bool ExplodeImmediate;
     bool Reacted;
     bool ItemActivated;
+    bool IsChasmRecovery;
     OnHitActionBase* HitAction;
     int32_t StoryActionId;
     ActionOriginator Originator;
@@ -250,7 +184,6 @@ struct Projectile : public BaseProxyComponent
     [[bg3::hidden]] Array<void*> field_590;
     ecs::EntityRef Owner;
     bool ShouldFall;
-    [[bg3::hidden]] void* _PAD;
 };
 
 struct ImpactEventOneFrameComponent : public BaseComponent
@@ -259,6 +192,7 @@ struct ImpactEventOneFrameComponent : public BaseComponent
 
     bg3se::spell_cast::IntermediateTarget Target;
     EntityHandle field_A8;
+    bool field_B0;
 };
 
 struct RequestTargetTrackingOneFrameComponent : public BaseComponent
@@ -288,12 +222,10 @@ struct ProjectileTargetData
     glm::vec3 field_0;
     IntermediateTarget Target;
     FixedString TextKey;
-    int field_BC;
+    int field_BC{ 0 };
     HitDesc Hit;
-    path::Settings PathSettings;
-    char PathSettingsOpt;
-    projectile::ProjectileResult Result;
-    char ResultOpt;
+    std::optional<path::Settings> PathSettings;
+    std::optional<projectile::ProjectileResult> Result;
     EntityHandle ThrownObject;
 };
 
@@ -314,7 +246,7 @@ struct ProjectileCacheComponent : public BaseComponent
     DEFINE_COMPONENT(ServerProjectileCache, "esv::spell_cast::ProjectileCacheComponent")
 
     std::optional<bg3se::spell_cast::ProjectileTargetData> Target;
-    HashMap<int, float> field_350;
+    HashMap<int, float> ProjectileDelayTimers;
     [[bg3::hidden]] HashMap<int, void*> field_390; // ObjectQueue<ProjectileTargetData>
     Array<ProjectileResultsExtraData> ExtraData;
 };

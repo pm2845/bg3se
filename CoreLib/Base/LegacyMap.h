@@ -58,6 +58,9 @@ public:
     using ValueType = TInternals::ValueType;
     using Node = MapNode<KeyType, ValueType>;
 
+    using key_type = KeyType;
+    using value_type = ValueType;
+
     class Iterator
     {
     public:
@@ -77,38 +80,17 @@ public:
             : CurrentNode(node), NodeListEnd(map.HashTable + map.HashSize), Element(element)
         {}
 
-        Iterator operator ++ ()
+        Iterator& operator ++ ()
         {
-            Iterator it(*this);
-
-            Element = Element->Next;
-            if (Element == nullptr) {
-                do {
-                    CurrentNode++;
-                } while (CurrentNode < NodeListEnd && *CurrentNode == nullptr);
-
-                if (CurrentNode < NodeListEnd && *CurrentNode) {
-                    Element = *CurrentNode;
-                }
-            }
-
-            return it;
+            Advance();
+            return *this;
         }
 
-        Iterator& operator ++ (int)
+        Iterator operator ++ (int)
         {
-            Element = Element->Next;
-            if (Element == nullptr) {
-                do {
-                    CurrentNode++;
-                } while (CurrentNode < NodeListEnd && *CurrentNode == nullptr);
-
-                if (CurrentNode < NodeListEnd && *CurrentNode) {
-                    Element = *CurrentNode;
-                }
-            }
-
-            return *this;
+            Iterator it(*this);
+            Advance();
+            return it;
         }
 
         bool operator == (Iterator const& it)
@@ -136,12 +118,12 @@ public:
             return *Element;
         }
 
-        Node& operator -> () const
+        Node* operator -> () const
         {
-            return *Element;
+            return Element;
         }
 
-        operator bool() const
+        explicit operator bool() const
         {
             return Element != nullptr;
         }
@@ -156,6 +138,20 @@ public:
 
         Node** CurrentNode, ** NodeListEnd;
         Node* Element;
+
+        void Advance()
+        {
+            Element = Element->Next;
+            if (Element == nullptr) {
+                do {
+                    CurrentNode++;
+                } while (CurrentNode < NodeListEnd && *CurrentNode == nullptr);
+
+                if (CurrentNode < NodeListEnd && *CurrentNode) {
+                    Element = *CurrentNode;
+                }
+            }
+        }
     };
 
     class ConstIterator
@@ -177,38 +173,17 @@ public:
             : CurrentNode(node), NodeListEnd(map.HashTable + map.HashSize), Element(element)
         {}
 
-        ConstIterator operator ++ ()
+        ConstIterator& operator ++ ()
         {
-            ConstIterator it(*this);
-
-            Element = Element->Next;
-            if (Element == nullptr) {
-                do {
-                    CurrentNode++;
-                } while (CurrentNode < NodeListEnd && *CurrentNode == nullptr);
-
-                if (CurrentNode < NodeListEnd && *CurrentNode) {
-                    Element = *CurrentNode;
-                }
-            }
-
-            return it;
+            Advance();
+            return *this;
         }
 
-        ConstIterator& operator ++ (int)
+        ConstIterator operator ++ (int)
         {
-            Element = Element->Next;
-            if (Element == nullptr) {
-                do {
-                    CurrentNode++;
-                } while (CurrentNode < NodeListEnd && *CurrentNode == nullptr);
-
-                if (CurrentNode < NodeListEnd && *CurrentNode) {
-                    Element = *CurrentNode;
-                }
-            }
-
-            return *this;
+            ConstIterator it(*this);
+            Advance();
+            return it;
         }
 
         bool operator == (ConstIterator const& it)
@@ -236,12 +211,12 @@ public:
             return *Element;
         }
 
-        Node const& operator -> () const
+        Node const* operator -> () const
         {
-            return *Element;
+            return Element;
         }
 
-        operator bool() const
+        explicit operator bool() const
         {
             return Element != nullptr;
         }
@@ -254,6 +229,20 @@ public:
     private:
         Node* const * CurrentNode, * const * NodeListEnd;
         Node const* Element;
+
+        void Advance()
+        {
+            Element = Element->Next;
+            if (Element == nullptr) {
+                do {
+                    CurrentNode++;
+                } while (CurrentNode < NodeListEnd && *CurrentNode == nullptr);
+
+                if (CurrentNode < NodeListEnd && *CurrentNode) {
+                    Element = *CurrentNode;
+                }
+            }
+        }
     };
 
     LegacyMapBase(uint32_t hashSize = 31)
@@ -270,7 +259,7 @@ public:
         }
     }
 
-    LegacyMapBase(LegacyMapBase<TInternals> && other)
+    LegacyMapBase(LegacyMapBase<TInternals> && other) noexcept
     {
         this->HashTable = other.HashTable;
         this->HashSize = other.HashSize;
@@ -283,10 +272,7 @@ public:
 
     ~LegacyMapBase()
     {
-        if (this->HashTable) {
-            clear();
-            GameFree(this->HashTable);
-        }
+        release();
     }
 
     LegacyMapBase<TInternals>& operator =(LegacyMapBase<TInternals> const& other)
@@ -299,8 +285,10 @@ public:
         return *this;
     }
 
-    LegacyMapBase<TInternals>& operator =(LegacyMapBase<TInternals> && other)
+    LegacyMapBase<TInternals>& operator =(LegacyMapBase<TInternals> && other) noexcept
     {
+        release();
+
         this->HashTable = other.HashTable;
         this->HashSize = other.HashSize;
         this->ItemCount = other.ItemCount;
@@ -433,10 +421,13 @@ public:
 
     void erase(Iterator const& it)
     {
+        se_assert(it);
+
         auto elem = *it.CurrentNode;
         if (elem == it.Element) {
             *it.CurrentNode = it.Element->Next;
             GameDelete(it.Element);
+            this->ItemCount--;
         } else {
             while (elem && elem->Next != it.Element) {
                 elem = elem->Next;
@@ -445,6 +436,7 @@ public:
             if (elem) {
                 elem->Next = it.Element->Next;
                 GameDelete(it.Element);
+                this->ItemCount--;
             }
         }
     }
@@ -511,7 +503,7 @@ public:
         return end();
     }
 
-    ValueType const* try_get_ptr(KeyType const& key) const
+    ValueType const* try_get(KeyType const& key) const
     {
         auto it = find(key);
         if (it) {
@@ -521,7 +513,7 @@ public:
         }
     }
 
-    ValueType* try_get_ptr(KeyType const& key)
+    ValueType* try_get(KeyType const& key)
     {
         auto it = find(key);
         if (it) {
@@ -531,7 +523,7 @@ public:
         }
     }
 
-    ValueType try_get(KeyType const& key, ValueType defaultValue = {}) const
+    ValueType get_or_default(KeyType const& key, ValueType defaultValue = {}) const
     {
         auto it = find(key);
         if (it) {
@@ -574,6 +566,14 @@ private:
             GameDelete(node);
             node = next;
         } while (node != nullptr);
+    }
+
+    void release()
+    {
+        if (this->HashTable) {
+            clear();
+            GameFree(this->HashTable);
+        }
     }
 };
 

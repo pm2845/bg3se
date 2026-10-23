@@ -2,97 +2,23 @@
 #include <Extender/Shared/DWriteWrapper.h>
 #include <Extender/Shared/ExtenderConfig.h>
 #include <Extender/ScriptExtender.h>
-#include "json/json.h"
-#include <ShellAPI.h>
-#include <KnownFolders.h>
-#include <ShlObj.h>
+#include <CoreLib/JsonLibs.h>
 #include <sstream>
 #include <fstream>
+#include <Extender/Shared/ExtenderConfig.inl>
 
 using namespace bg3se;
-
-void ConfigGetBool(Json::Value & node, char const * key, bool & value)
-{
-    auto configVar = node[key];
-    if (!configVar.isNull() && configVar.isBool()) {
-        value = configVar.asBool();
-    }
-}
-
-void ConfigGetInt(Json::Value& node, char const* key, uint32_t& value)
-{
-    auto configVar = node[key];
-    if (!configVar.isNull() && configVar.isUInt()) {
-        value = configVar.asUInt();
-    }
-}
-
-void ConfigGet(Json::Value& node, char const* key, std::string& value)
-{
-    auto configVar = node[key];
-    if (!configVar.isNull() && configVar.isString()) {
-        value = configVar.asString();
-    }
-}
-
-void ConfigGet(Json::Value& node, char const* key, std::wstring& value)
-{
-    auto configVar = node[key];
-    if (!configVar.isNull() && configVar.isString()) {
-        value = FromStdUTF8(StringView(configVar.asString()));
-    }
-}
-
-void LoadConfig(std::wstring const & configPath, ExtenderConfig & config)
-{
-    std::ifstream f(configPath, std::ios::in);
-    if (!f.good()) {
-        return;
-    }
-
-    Json::CharReaderBuilder factory;
-    Json::Value root;
-    std::string errs;
-    if (!Json::parseFromStream(factory, f, &root, &errs)) {
-        std::stringstream err;
-        err << "Failed to load configuration file '" << ToStdUTF8(configPath) << "':\r\n" << errs;
-        Fail(err.str().c_str());
-    }
-
-    ConfigGetBool(root, "CreateConsole", config.CreateConsole);
-    ConfigGetBool(root, "DefaultToClientConsole", config.DefaultToClientConsole);
-    ConfigGetBool(root, "EnableLogging", config.EnableLogging);
-    ConfigGetBool(root, "LogCompile", config.LogCompile);
-    ConfigGetBool(root, "LogFailedCompile", config.LogFailedCompile);
-    ConfigGetBool(root, "LogRuntime", config.LogRuntime);
-    ConfigGetBool(root, "ExtendStory", config.ExtendStory);
-    ConfigGetBool(root, "SendCrashReports", config.SendCrashReports);
-    ConfigGetBool(root, "ForceCrashReporting", config.ForceCrashReporting);
-    ConfigGetBool(root, "EnableDebugger", config.EnableDebugger);
-    ConfigGetBool(root, "EnableLuaDebugger", config.EnableLuaDebugger);
-    ConfigGetBool(root, "DisableModValidation", config.DisableModValidation);
-    ConfigGetBool(root, "DeveloperMode", config.DeveloperMode);
-    ConfigGetBool(root, "ClearOnReset", config.ClearOnReset);
-    ConfigGetBool(root, "ShowPerfWarnings", config.ShowPerfWarnings);
-    ConfigGetBool(root, "EnableAchievements", config.EnableAchievements);
-    ConfigGetBool(root, "DisableLauncher", config.DisableLauncher);
-    ConfigGetBool(root, "DisableStoryPatching", config.DisableStoryPatching);
-    ConfigGetBool(root, "DisableStoryCompilation", config.DisableStoryCompilation);
-
-    ConfigGetInt(root, "DebuggerPort", config.DebuggerPort);
-    ConfigGetInt(root, "LuaDebuggerPort", config.LuaDebuggerPort);
-    ConfigGetInt(root, "DebugFlags", config.DebugFlags);
-
-    ConfigGet(root, "LogDirectory", config.LogDirectory);
-    ConfigGet(root, "LuaBuiltinResourceDirectory", config.LuaBuiltinResourceDirectory);
-    ConfigGet(root, "CustomProfile", config.CustomProfile);
-}
 
 void SetupScriptExtender(HMODULE hModule)
 {
     gExtender = std::make_unique<ScriptExtender>();
     auto & config = gExtender->GetConfig();
     LoadConfig(L"ScriptExtenderSettings.json", config);
+
+    // Enable console if shift is down when the game is launched
+    if (GetAsyncKeyState(VK_SHIFT) < 0) {
+        config.CreateConsole = true;
+    }
 
     DisableThreadLibraryCalls(hModule);
     if (config.CreateConsole) {

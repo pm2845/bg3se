@@ -10,11 +10,10 @@
 #include <GameDefinitions/GuidResources.h>
 #include <GameDefinitions/Resources.h>
 #include <GameDefinitions/Net.h>
+#include <GameDefinitions/Level.h>
 
 #include <Lua/LevelIteratorFunctions.inl>
-#include <Lua/Server/ServerStatus.inl>
 #include <Lua/Server/FunctorEvents.inl>
-#include <Lua/Server/ServerFunctors.inl>
 #include <Lua/Server/ServerEntityReplicationEvents.inl>
 
 
@@ -23,7 +22,7 @@ namespace bg3se::lua
 {
     LifetimeHandle GetCurrentLifetime()
     {
-        if (gExtender->GetServer().IsInServerThread()) {
+        if (gExtender->GetServer().IsInContext()) {
             return esv::lua::GetServerLifetime();
         } else {
             return ecl::lua::GetClientLifetime();
@@ -32,7 +31,7 @@ namespace bg3se::lua
 
     LifetimePool& GetLifetimePool()
     {
-        if (gExtender->GetServer().IsInServerThread()) {
+        if (gExtender->GetServer().IsInContext()) {
             return esv::lua::GetServerLifetimePool();
         } else {
             return ecl::lua::GetClientLifetimePool();
@@ -46,13 +45,13 @@ namespace bg3se::esv::lua
 
     LifetimeHandle GetServerLifetime()
     {
-        assert(gExtender->GetServer().IsInServerThread());
+        se_assert(gExtender->GetServer().IsInContext());
         return esv::ExtensionState::Get().GetLua()->GetCurrentLifetime();
     }
 
     LifetimePool& GetServerLifetimePool()
     {
-        assert(gExtender->GetServer().IsInServerThread());
+        se_assert(gExtender->GetServer().IsInContext());
         return esv::ExtensionState::Get().GetLua()->GetLifetimePool();
     }
 
@@ -129,7 +128,7 @@ namespace bg3se::esv::lua
 
     ServerState* ServerState::FromLua(lua_State* L)
     {
-        return *reinterpret_cast<ServerState**>(lua_getextraspace(L));
+        return *static_cast<ServerState**>(lua_getextraspace(L));
     }
 
     ServerState::ServerState(ExtensionState& state, uint32_t generationId)
@@ -141,12 +140,10 @@ namespace bg3se::esv::lua
     ServerState::~ServerState()
     {
         if (gExtender) {
-#if !defined(OSI_NO_DEBUGGER)
             auto debugger = gExtender->GetLuaDebugger();
             if (debugger) {
                 debugger->ServerStateDeleted();
             }
-#endif
 
             // FIXME - HANDLE IN SERVER LOGIC!
             gExtender->GetServer().Osiris().GetCustomFunctionManager().ClearDynamicEntries();
@@ -170,12 +167,10 @@ namespace bg3se::esv::lua
         // Ext is not writeable after loading SandboxStartup!
         gExtender->GetServer().GetExtensionState().LuaLoadBuiltinFile("SandboxStartup.lua");
 
-#if !defined(OSI_NO_DEBUGGER)
         auto debugger = gExtender->GetLuaDebugger();
         if (debugger) {
             debugger->ServerStateCreated(this);
         }
-#endif
     }
 
 
@@ -208,7 +203,7 @@ namespace bg3se::esv::lua
 
     ecs::EntityWorld* ServerState::GetEntityWorld()
     {
-        return GetStaticSymbols().GetServerEntityWorld();
+        return gExtender->GetServer().GetEntityHelpers().GetEntityWorld();
     }
 
 
@@ -252,7 +247,11 @@ namespace bg3se::esv
 
     ExtensionState::~ExtensionState()
     {
-        if (Lua) Lua->Shutdown();
+        if (Lua) {
+            IncLuaRefs();
+            ShutdownLuaState();
+            DecLuaRefs(false);
+        }
     }
 
     lua::State * ExtensionState::GetLua()
@@ -279,10 +278,14 @@ namespace bg3se::esv
         return GetStaticSymbols().GetServerLevelManager();
     }
 
+    void ExtensionState::OnUpdate(GameTime const& time)
+    {
+        OPTICK_EVENT("Server update");
+        ExtensionStateBase::OnUpdate(time);
+    }
+
     void ExtensionState::OnGameSessionLoading()
     {
-        dynamicStats_.clear();
-        persistentStats_.clear();
         cachedPersistentVars_.clear();
         bg3se::ExtensionStateBase::OnGameSessionLoading();
     }
@@ -292,27 +295,30 @@ namespace bg3se::esv
         ExtensionStateBase::Reset();
     }
 
-    void ExtensionState::DoLuaReset()
+    void ExtensionState::ShutdownLuaState()
     {
+        EnteredCheck();
         if (Lua) {
-            // Keep around a fake reference during the reset callback
-            luaRefs_++;
             Lua->OnShutdown();
-            luaRefs_--;
             Lua->Shutdown();
         }
         Lua.reset();
-
-        context_ = nextContext_;
-        Lua = std::make_unique<lua::ServerState>(*this, nextGenerationId_++);
-        LuaStatePin<ExtensionState, lua::ServerState> pin(*this);
-        pin->Initialize();
-        pin->StoryFunctionMappingsUpdated();
     }
 
-    void ExtensionState::LuaStartup()
+    void ExtensionState::InitializeLuaState()
     {
-        ExtensionStateBase::LuaStartup();
+        se_assert(!Lua);
+        context_ = nextContext_;
+        EnteredCheck();
+
+        Lua = std::make_unique<lua::ServerState>(*this, nextGenerationId_++);
+        Lua->Initialize();
+        Lua->StoryFunctionMappingsUpdated();
+    }
+
+    void ExtensionState::BootstrapLua()
+    {
+        ExtensionStateBase::BootstrapLua();
 
         LuaServerPin lua(*this);
         auto gameState = GetStaticSymbols().GetServerState();
@@ -325,24 +331,6 @@ namespace bg3se::esv
                 || *gameState == esv::GameState::Running)) {
             lua->OnModuleResume();
         }
-    }
-
-    void ExtensionState::MarkPersistentStat(FixedString const& statId)
-    {
-        persistentStats_.insert(statId);
-    }
-
-    void ExtensionState::UnmarkPersistentStat(FixedString const& statId)
-    {
-        auto it = persistentStats_.find(statId);
-        if (it != persistentStats_.end()) {
-            persistentStats_.erase(it);
-        }
-    }
-
-    void ExtensionState::MarkDynamicStat(FixedString const& statId)
-    {
-        dynamicStats_.insert(statId);
     }
 
 
@@ -376,10 +364,12 @@ namespace bg3se::esv
 
         auto modTable = GetModTable(mod);
         if (modTable) {
-            DEBUG("Restoring persistent vars for mod %s (%ld bytes)", mod.GetString(), vars.size());
             LuaServerPin lua(*this);
             if (lua) {
                 lua->RestoreModPersistentVars(*modTable, vars);
+                if (vars.size() > 3) {
+                    WARN("Mod %s: PersistentVars is deprecated; consider using ModVars/UserVars instead", mod.GetString());
+                }
             }
         } else {
             WARN("Savegame has persistent variables for mod %s, but it is not loaded or has no ModTable! Variables may be lost on next save!", mod.GetString());

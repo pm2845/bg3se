@@ -4,6 +4,151 @@
 
 BEGIN_SE()
 
+template <class T> class Queue;
+
+template <class T>
+class QueueIterator
+{
+public:
+    using value_type = T;
+    using reference = T&;
+    using pointer = T*;
+    using difference_type = int32_t;
+    using size_type = uint32_t;
+    using iterator_category = std::random_access_iterator_tag;
+
+    QueueIterator(Queue<T>& q, int32_t i) : queue_(q), index_(i) {}
+
+    QueueIterator& operator ++ ()
+    {
+        index_++;
+        return *this;
+    }
+
+    QueueIterator operator ++ (int)
+    {
+        QueueIterator<T> it(queue_, index_);
+        index_++;
+        return it;
+    }
+
+    bool operator == (QueueIterator const& it) const
+    {
+        return it.index_ == index_;
+    }
+
+    bool operator != (QueueIterator const& it) const
+    {
+        return it.index_ != index_;
+    }
+
+    QueueIterator operator + (difference_type n) const
+    {
+        return QueueIterator(queue_, index_ + n);
+    }
+
+    QueueIterator operator - (difference_type n) const
+    {
+        return QueueIterator(queue_, index_ - n);
+    }
+
+    difference_type operator - (QueueIterator const& o) const
+    {
+        return (difference_type)(index_ - o.index_);
+    }
+
+    T& operator * () const
+    {
+        return queue_[index_];
+    }
+
+    T* operator -> () const
+    {
+        return &queue_[index_];
+    }
+
+    T* get () const
+    {
+        return &queue_[index_];
+    }
+
+private:
+    Queue<T>& queue_;
+    int32_t index_;
+};
+
+
+template <class T>
+class QueueConstIterator
+{
+public:
+    using value_type = T;
+    using reference = T const&;
+    using pointer = T const*;
+    using difference_type = int32_t;
+    using size_type = uint32_t;
+    using iterator_category = std::random_access_iterator_tag;
+
+    QueueConstIterator(Queue<T> const& q, int32_t i) : queue_(q), index_(i) {}
+
+    QueueConstIterator& operator ++ ()
+    {
+        index_++;
+        return *this;
+    }
+
+    QueueConstIterator operator ++ (int)
+    {
+        QueueConstIterator<T> it(queue_, index_);
+        index_++;
+        return it;
+    }
+
+    bool operator == (QueueConstIterator const& it) const
+    {
+        return it.index_ == index_;
+    }
+
+    bool operator != (QueueConstIterator const& it) const
+    {
+        return it.index_ != index_;
+    }
+
+    QueueConstIterator operator + (difference_type n) const
+    {
+        return QueueConstIterator(queue_, index_ + n);
+    }
+
+    QueueConstIterator operator - (difference_type n) const
+    {
+        return QueueConstIterator(queue_, index_ - n);
+    }
+
+    difference_type operator - (QueueConstIterator const& o) const
+    {
+        return (difference_type)(index_ - o.index_);
+    }
+
+    T const& operator * () const
+    {
+        return queue_[index_];
+    }
+
+    T const* operator -> () const
+    {
+        return &queue_[index_];
+    }
+
+    T const* get() const
+    {
+        return &queue_[index_];
+    }
+
+private:
+    Queue<T> const& queue_;
+    uint32_t index_;
+};
+
 template <class T>
 class Queue
 {
@@ -11,8 +156,10 @@ public:
     using value_type = T;
     using reference = T&;
     using const_reference = T const&;
+    using iterator = QueueIterator<T>;
+    using const_iterator = QueueConstIterator<T>;
     using difference_type = int32_t;
-    using size_type = int32_t;
+    using size_type = uint32_t;
 
     inline Queue() {}
 
@@ -30,6 +177,7 @@ public:
     {
         o.buf_ = nullptr;
         o.capacity_ = 0;
+        o.size_ = 0;
         o.readIndex_ = -1;
         o.writeIndex_ = 0;
     }
@@ -49,17 +197,24 @@ public:
 
     Queue& operator =(Queue&& o)
     {
-        buf_ = o.buf_;
-        capacity_ = o.capacity_;
-        size_ = o.size_;
-        readIndex_ = o.readIndex_;
-        writeIndex_ = o.writeIndex_;
+        if (this != &o) {
+            if (buf_) {
+                GameDeleteArray<T>(buf_, capacity_);
+            }
 
-        o.buf_ = nullptr;
-        o.capacity_ = 0;
-        o.size_ = 0;
-        o.readIndex_ = -1;
-        o.writeIndex_ = 0;
+            buf_ = o.buf_;
+            capacity_ = o.capacity_;
+            size_ = o.size_;
+            readIndex_ = o.readIndex_;
+            writeIndex_ = o.writeIndex_;
+
+            o.buf_ = nullptr;
+            o.capacity_ = 0;
+            o.size_ = 0;
+            o.readIndex_ = -1;
+            o.writeIndex_ = 0;
+        }
+
         return *this;
     }
 
@@ -88,6 +243,26 @@ public:
         return buf_[(readIndex_ + index) % capacity_];
     }
 
+    iterator begin()
+    {
+        return iterator(*this, 0);
+    }
+
+    const_iterator begin() const
+    {
+        return const_iterator(*this, 0);
+    }
+
+    iterator end()
+    {
+        return iterator(*this, size());
+    }
+
+    const_iterator end() const
+    {
+        return const_iterator(*this, size());
+    }
+
     void push_back(T const& value)
     {
         if (capacity_ == 0 || (size_ > 0 && readIndex_ == writeIndex_)) {
@@ -112,7 +287,7 @@ public:
 
     T pop()
     {
-        assert(size_ > 0);
+        se_assert(size_ > 0);
 
         T val = buf_[readIndex_];
         size_--;
@@ -131,26 +306,24 @@ public:
     void resize(size_type newCapacity)
     {
         auto newBuf = GameAllocArray<T>(newCapacity);
+        auto itemsToCopy = (int32_t)std::min(size_, newCapacity);
 
-        if (readIndex_ < writeIndex_) {
-            auto wr = 0;
-            for (size_type i = readIndex_ + 1; i < writeIndex_; i++, wr++) {
-                newBuf[wr] = buf_[i];
-            }
-        } else {
-            auto wr = 0;
-            for (size_type i = readIndex_ + 1; i < capacity_; i++, wr++) {
-                newBuf[wr] = buf_[i];
-            }
+        if (itemsToCopy > 0) {
+            if (readIndex_ < writeIndex_) {
+                int32_t wr = 0;
+                for (int32_t i = readIndex_; i < writeIndex_ && wr < itemsToCopy; i++, wr++) {
+                    newBuf[wr] = buf_[i];
+                }
+            } else {
+                int32_t wr = 0;
+                for (int32_t i = readIndex_; i < (int32_t)capacity_ && wr < itemsToCopy; i++, wr++) {
+                    newBuf[wr] = buf_[i];
+                }
 
-            for (size_type i = 0; i < writeIndex_; i++, wr++) {
-                newBuf[wr] = buf_[i];
+                for (int32_t i = 0; i < writeIndex_ && wr < itemsToCopy; i++, wr++) {
+                    newBuf[wr] = buf_[i];
+                }
             }
-        }
-
-        size_ = std::min(size_, capacity_);
-        for (size_type i = 0; i < std::min(size_, newCapacity); i++) {
-            newBuf[i] = buf_[i];
         }
 
         if (buf_ != nullptr) {
@@ -159,8 +332,9 @@ public:
 
         buf_ = newBuf;
         capacity_ = newCapacity;
+        size_ = std::min(size_, capacity_);
         readIndex_ = 0;
-        writeIndex_ = size_;
+        writeIndex_ = (size_ < capacity_) ? (difference_type)size_ : 0;
     }
 
     void clear()
@@ -168,6 +342,11 @@ public:
         size_ = 0; 
         readIndex_ = 0;
         writeIndex_ = 0;
+    }
+
+    T const* raw_buf() const
+    {
+        return buf_;
     }
 
 private:

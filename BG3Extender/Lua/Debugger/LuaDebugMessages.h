@@ -1,9 +1,10 @@
 #pragma once
 
-#if !defined(OSI_NO_DEBUGGER)
-
 #include <cstdint>
+#pragma warning(push)
+#pragma warning(disable:4267)
 #include <Lua/Debugger/LuaDebug.pb.h>
+#pragma warning(pop)
 #include <GameDefinitions/Module.h>
 #include <Osiris/Debugger/DebugInterface.h>
 
@@ -20,6 +21,12 @@ namespace bg3se::lua::dbg
 {
     struct DebuggerEvaluateRequest;
     struct DebuggerGetVariablesRequest;
+
+    enum class EvalFlags : uint32_t
+    {
+        EvaluateAsStatement = 1 << 0,
+        DisallowVariableRefs = 1 << 1
+    };
 
     enum class ResultCode
     {
@@ -38,7 +45,7 @@ namespace bg3se::lua::dbg
     class DebugMessageHandler
     {
     public:
-        static const uint32_t ProtocolVersion = 4;
+        static const uint32_t ProtocolVersion = 5;
 
         DebugMessageHandler(LuaDebugInterface& intf);
 
@@ -90,6 +97,3 @@ namespace bg3se::lua::dbg
         void Send(dbg::BackendToDebugger& msg);
     };
 }
-
-#endif
-#pragma once

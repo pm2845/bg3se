@@ -7,9 +7,8 @@
 
 BEGIN_NS(net)
 
-void ExtenderProtocolBase::SyncUserVars(MsgUserVars const& msg)
+void ExtenderProtocolBase::DoSyncUserVars(MsgUserVars const& msg)
 {
-    USER_VAR_DBG("Received sync message from peer");
     auto state = gExtender->GetCurrentExtensionState();
     for (auto const& var : msg.vars()) {
         if (var.type() == UserVarType::MODULE_VAR) {
@@ -17,6 +16,27 @@ void ExtenderProtocolBase::SyncUserVars(MsgUserVars const& msg)
         } else {
             state->GetUserVariables().NetworkSync(var);
         }
+    }
+}
+
+void ExtenderProtocolBase::SyncUserVars(MsgUserVars const& msg)
+{
+    USER_VAR_DBG("Received sync message from peer");
+    auto state = gExtender->GetCurrentExtensionState();
+    if (!state) {
+        ERR("Tried to sync user vars without the extension state being initialized!");
+        return;
+    }
+
+    if (state->GetUserVariables().HasCache()) {
+        LuaVirtualPin lua(state);
+        if (lua) {
+            DoSyncUserVars(msg);
+        }
+    } else {
+        // If the Lua state was not yet initialized, it is safe to write uservars without a lock,
+        // since we won't enter the Lua VM
+        DoSyncUserVars(msg);
     }
 }
 
@@ -64,7 +84,14 @@ void UserVariable::SavegameVisit(ObjectVisitor* visitor)
         {
             STDString value;
             visitor->VisitSTDString(GFS.strValue, value, STDString{});
-            Value = value;
+            Value = std::move(value);
+            break;
+        }
+        case UserVariableType::CompositeBinary:
+        {
+            ScratchBuffer value;
+            visitor->VisitBuffer(GFS.strValue, value);
+            Value = STDString((char const*)value.Buffer.Buffer, (uint32_t)value.Size);
             break;
         }
         }
@@ -92,14 +119,21 @@ void UserVariable::SavegameVisit(ObjectVisitor* visitor)
         }
         case UserVariableType::String:
         {
-            auto value = std::get<FixedString>(Value);
+            auto& value = std::get<FixedString>(Value);
             visitor->VisitFixedString(GFS.strValue, value, GFS.strEmpty);
             break;
         }
         case UserVariableType::Composite:
         {
-            auto value = std::get<STDString>(Value);
+            auto& value = std::get<STDString>(Value);
             visitor->VisitSTDString(GFS.strValue, value, STDString{});
+            break;
+        }
+        case UserVariableType::CompositeBinary:
+        {
+            auto& value = std::get<STDString>(Value);
+            ScratchBuffer scratch(std::span(value.data(), value.size()));
+            visitor->VisitBuffer(GFS.strValue, scratch);
             break;
         }
         }
@@ -134,6 +168,13 @@ void UserVariable::ToNetMessage(net::UserVar& var) const
         var.set_luaval(s.c_str(), s.size());
         break;
     }
+
+    case UserVariableType::CompositeBinary:
+    {
+        auto const& s = std::get<STDString>(Value);
+        var.set_binaryval(s.c_str(), s.size());
+        break;
+    }
     }
 }
 
@@ -165,6 +206,11 @@ void UserVariable::FromNetMessage(net::UserVar const& var)
         Value = STDString(var.luaval());
         break;
 
+    case net::UserVar::kBinaryval:
+        Type = UserVariableType::CompositeBinary;
+        Value = STDString(var.binaryval().data(), (uint32_t)var.binaryval().size());
+        break;
+
     case net::UserVar::VAL_NOT_SET:
     default:
         Type = UserVariableType::Null;
@@ -182,7 +228,9 @@ size_t UserVariable::Budget() const
     case UserVariableType::Int64: budget += 8; break;
     case UserVariableType::Double: budget += 8; break;
     case UserVariableType::String: budget += std::get<FixedString>(Value).GetLength(); break;
-    case UserVariableType::Composite: budget += std::get<STDString>(Value).size(); break;
+    case UserVariableType::Composite:
+    case UserVariableType::CompositeBinary:
+        budget += std::get<STDString>(Value).size(); break;
     }
 
     return budget;
@@ -210,6 +258,35 @@ bool UserVariablePrototype::NeedsRebroadcast(bool server) const
     return false;
 }
 
+void UserVariablePrototype::SanityCheckFlags(FixedString const& name)
+{
+    if (!Has(UserVariableFlags::IsOnServer) || !Has(UserVariableFlags::IsOnClient)) {
+        if (Has(UserVariableFlags::SyncServerToClient)) {
+            Flags &= ~UserVariableFlags::SyncServerToClient;
+            WARN("Variable '%s' marked for server to client sync, but it is not present on both sides!", name.GetString());
+        }
+
+        if (Has(UserVariableFlags::SyncClientToServer)) {
+            Flags &= ~UserVariableFlags::SyncClientToServer;
+            WARN("Variable '%s' marked for client to server sync, but it is not present on both sides!", name.GetString());
+        }
+    }
+    
+    if (!Has(UserVariableFlags::IsOnServer) && Has(UserVariableFlags::WriteableOnServer)) {
+        Flags &= ~UserVariableFlags::WriteableOnServer;
+        WARN("Variable '%s' marked as writeable on server, but is not present on the server!", name.GetString());
+    }
+    
+    if (!Has(UserVariableFlags::IsOnClient) && Has(UserVariableFlags::WriteableOnClient)) {
+        Flags &= ~UserVariableFlags::WriteableOnClient;
+        WARN("Variable '%s' marked as writeable on client, but is not present on the client!", name.GetString());
+    }
+    
+    if (!Has(UserVariableFlags::IsOnServer) && Has(UserVariableFlags::Persistent)) {
+        Flags &= ~UserVariableFlags::Persistent;
+        WARN("Variable '%s' marked as persistent, but is not present on the server!", name.GetString());
+    }
+}
 
 void UserVariableSyncWriter::Flush(bool force)
 {
@@ -420,6 +497,7 @@ void UserVariableManager::BindCache(lua::CachedUserVariableManager* cache)
 
 void UserVariableManager::Update()
 {
+    OPTICK_EVENT();
     Flush(true);
 }
 
@@ -440,6 +518,7 @@ void UserVariableManager::RegisterPrototype(FixedString const& key, UserVariable
 
 void UserVariableManager::SavegameVisit(ObjectVisitor* visitor)
 {
+    OPTICK_EVENT(Optick::Category::IO);
     if (visitor->IsReading()) {
         vars_.clear();
     }
@@ -747,6 +826,7 @@ void ModVariableManager::BindCache(lua::CachedModVariableManager* cache)
 
 void ModVariableManager::Update()
 {
+    OPTICK_EVENT();
     Flush(true);
 }
 
@@ -757,7 +837,7 @@ void ModVariableManager::OnSessionLoading()
     auto modManager = isServer_ ? GetStaticSymbols().GetModManagerServer() : GetStaticSymbols().GetModManagerClient();
     if (modManager != nullptr) {
         uint32_t nextIndex{ 0 };
-        for (auto const& mod : modManager->BaseModule.LoadOrderedModules) {
+        for (auto const& mod : modManager->LoadOrderedModules) {
             modIndices_.set(mod.Info.ModuleUUID, nextIndex++);
         }
     } else {
@@ -772,6 +852,7 @@ void ModVariableManager::RegisterPrototype(Guid const& modUuid, FixedString cons
 
 void ModVariableManager::SavegameVisit(ObjectVisitor* visitor)
 {
+    OPTICK_EVENT(Optick::Category::IO);
     if (visitor->IsReading()) {
         for (auto& mod : vars_) {
             mod.Value().ClearVars();
@@ -884,7 +965,11 @@ CachedUserVariable::CachedUserVariable(lua_State* L, UserVariable const& v)
         break;
 
     case UserVariableType::Composite:
-        ParseReference(L, std::get<STDString>(v.Value));
+        ParseReference(L, std::get<STDString>(v.Value), false);
+        break;
+
+    case UserVariableType::CompositeBinary:
+        ParseReference(L, std::get<STDString>(v.Value), true);
         break;
 
     case UserVariableType::Null:
@@ -939,25 +1024,25 @@ CachedUserVariable::CachedUserVariable(lua_State* L, Ref const& v)
     }
 }
 
-CachedUserVariable::CachedUserVariable(CachedUserVariable&& o)
+CachedUserVariable::CachedUserVariable(CachedUserVariable&& o) noexcept
 {
     Type = o.Type;
     Dirty = o.Dirty;
     Value = std::move(o.Value);
 }
 
-CachedUserVariable& CachedUserVariable::operator = (CachedUserVariable&& o)
+CachedUserVariable& CachedUserVariable::operator = (CachedUserVariable&& o) noexcept
 {
     Type = o.Type;
     Dirty = o.Dirty;
-    Value = o.Value;
+    Value = std::move(o.Value);
 
     return *this;
 }
 
-void CachedUserVariable::ParseReference(lua_State* L, StringView json)
+void CachedUserVariable::ParseReference(lua_State* L, StringView json, bool binary)
 {
-    if (json::Parse(L, json)) {
+    if (json::Parse(L, json, binary)) {
         Value = RegistryEntry(L, -1);
         lua_pop(L, 1);
         Type = CachedUserVariableType::Reference;
@@ -1006,7 +1091,7 @@ bool CachedUserVariable::LikelyChanged(CachedUserVariable const& o) const
     }
 }
 
-UserVariable CachedUserVariable::ToUserVariable(lua_State* L) const
+UserVariable CachedUserVariable::ToUserVariable(lua_State* L, bool binary) const
 {
     UserVariable var;
     switch (Type) {
@@ -1035,9 +1120,13 @@ UserVariable CachedUserVariable::ToUserVariable(lua_State* L) const
         break;
         
     case CachedUserVariableType::Reference:
-        var.Value = StringifyReference(L);
+        var.Value = StringifyReference(L, binary);
         if (!std::get<STDString>(var.Value).empty()) {
-            var.Type = UserVariableType::Composite;
+            if (binary) {
+                var.Type = UserVariableType::CompositeBinary;
+            } else {
+                var.Type = UserVariableType::Composite;
+            }
         } else {
             var.Type = UserVariableType::Null;
         }
@@ -1048,11 +1137,12 @@ UserVariable CachedUserVariable::ToUserVariable(lua_State* L) const
     return var;
 }
 
-STDString CachedUserVariable::StringifyReference(lua_State* L) const
+STDString CachedUserVariable::StringifyReference(lua_State* L, bool binary) const
 {
-    std::get<RegistryEntry>(Value).Push();
+    std::get<RegistryEntry>(Value).Push(L);
     json::StringifyContext ctx;
     ctx.Beautify = false;
+    ctx.Binary = binary;
 
     STDString str;
     try {
@@ -1291,9 +1381,9 @@ CachedModVariableManager::~CachedModVariableManager()
 Guid CachedModVariableManager::ModIndexToGuid(uint32_t modIndex)
 {
     if (isServer_) {
-        return GetStaticSymbols().GetModManagerServer()->BaseModule.LoadOrderedModules[modIndex].Info.ModuleUUID;
+        return GetStaticSymbols().GetModManagerServer()->LoadOrderedModules[modIndex].Info.ModuleUUID;
     } else {
-        return GetStaticSymbols().GetModManagerClient()->BaseModule.LoadOrderedModules[modIndex].Info.ModuleUUID;
+        return GetStaticSymbols().GetModManagerClient()->LoadOrderedModules[modIndex].Info.ModuleUUID;
     }
 }
 

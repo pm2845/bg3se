@@ -8,11 +8,15 @@
 #define CHECKR(expr) if (!(expr)) return false;
 
 #if defined(_DEBUG)
-#define ENABLE_FLAKY_HEURISTICS
+// Extra checks for debugging purposes
+#undef ENABLE_FLAKY_HEURISTICS
 #undef ENABLE_GUESSWORK_HEURISTICS
 #endif
 
 BEGIN_NS(lua)
+
+// Max plausible string length
+static constexpr unsigned MaxStringLengthHeuristic = 0x1000000;
 
 template <class T>
 bool ValidateAny(T const* v);
@@ -27,8 +31,8 @@ inline bool Validate(bool const* b, Overload<bool>)
 }
 
 // No validation needed/possible for numeric types
-template <class T>
-inline typename std::enable_if_t<std::is_integral_v<T>, bool> Validate(T const*, Overload<T>)
+template <class T> requires std::is_integral_v<T>
+inline bool Validate(T const*, Overload<T>)
 {
     return true;
 }
@@ -57,7 +61,8 @@ inline bool Validate(float const* v, Overload<float>)
     CHECK((*v > -100000000.0f && *v < 100000000.0f) 
         // Various max boundary values seen in the game
         || *v == 3.06254467e+38f // max LOD distance
-        || *v == 3.40282347e+38f 
+        || *v == 3.40282347e+38f
+        || *v == -3.40282347e+38f
         || *v == 3.78091496e+37f);
 #endif
     return true;
@@ -70,6 +75,7 @@ inline bool Validate(double const*, Overload<double>)
 
 // No validation possible for vector types
 inline bool Validate(glm::ivec2 const* b, Overload<glm::ivec2>) {return true; }
+inline bool Validate(glm::ivec3 const* b, Overload<glm::ivec3>) {return true; }
 inline bool Validate(glm::ivec4 const* b, Overload<glm::ivec4>) { return true; }
 inline bool Validate(glm::i16vec2 const* b, Overload<glm::i16vec2>) { return true; }
 
@@ -155,6 +161,7 @@ inline bool Validate(ComponentHandle const* b, Overload<ComponentHandle>) { retu
 inline bool Validate(NetId const* b, Overload<NetId>) { return true; }
 inline bool Validate(UserId const* b, Overload<UserId>) { return true; }
 inline bool Validate(Version const* b, Overload<Version>) { return true; }
+inline bool Validate(lua::ImguiHandle const* b, Overload<lua::ImguiHandle>) { return true; }
 
 struct STDStringInternals
 {
@@ -170,8 +177,7 @@ inline bool Validate(STDString const* s, Overload<STDString>)
 {
     auto i = reinterpret_cast<STDStringInternals const*>(s);
     CHECK(i->Size <= i->Capacity);
-    // Sanity check for very large values
-    CHECK(i->Capacity <= 0x1000000);
+    CHECK(i->Capacity <= MaxStringLengthHeuristic);
 
     if (i->Capacity > 0xF) {
         CHECK(!IsBadReadPtr(i->Ptr, (uint64_t)i->Capacity + 1));
@@ -187,9 +193,62 @@ inline bool Validate(STDString const* s, Overload<STDString>)
 inline bool Validate(Noesis::String const* s, Overload<Noesis::String>)
 {
     CHECK(s->Size() <= s->Capacity());
-    // Sanity check for very large values
-    CHECK(s->Capacity() <= 0x1000000);
+    CHECK(s->Capacity() <= MaxStringLengthHeuristic);
     CHECK(!IsBadReadPtr(s->Str(), (uint64_t)s->Capacity()));
+
+    return true;
+}
+
+inline bool Validate(StringView const* s, Overload<StringView>)
+{
+    CHECK(s->size() <= MaxStringLengthHeuristic);
+    CHECK(!IsBadReadPtr(s->data(), (uint64_t)s->size()));
+
+    return true;
+}
+
+inline bool Validate(LSStringView const* s, Overload<LSStringView>)
+{
+    CHECK(s->size() <= MaxStringLengthHeuristic);
+    CHECK(!IsBadReadPtr(s->data(), (uint64_t)s->size()));
+
+    return true;
+}
+
+inline bool Validate(WStringView const* s, Overload<WStringView>)
+{
+    CHECK(s->size() <= MaxStringLengthHeuristic);
+    CHECK(!IsBadReadPtr(s->data(), (uint64_t)s->size() * 2));
+
+    return true;
+}
+
+inline bool Validate(MemBuffer const* s, Overload<MemBuffer>)
+{
+    CHECK(s->Size <= MaxStringLengthHeuristic);
+    CHECK(!IsBadReadPtr(s->Buffer, s->Size));
+
+    return true;
+}
+
+inline bool Validate(ScratchBuffer const* s, Overload<ScratchBuffer>)
+{
+    CHECKR(Validate(&s->Buffer, Overload<MemBuffer>{}));
+    CHECK(s->Size <= s->Buffer.Size);
+    CHECK(s->Write.Buffer == s->Buffer.Buffer);
+    CHECK(s->Read.Buffer == s->Read.Buffer);
+
+    return true;
+}
+
+inline bool Validate(ScratchString const* s, Overload<ScratchString>)
+{
+    CHECK(s->Capacity <= MaxStringLengthHeuristic);
+    CHECK(s->Size <= s->Capacity);
+    CHECK(s->Position <= s->Size);
+    CHECKR(Validate(&s->Managed, Overload<bool>{}));
+    CHECKR(Validate(&s->CanGrow, Overload<bool>{}));
+    CHECK(!IsBadReadPtr(s->Buffer, s->Capacity));
 
     return true;
 }
@@ -221,6 +280,7 @@ inline bool Validate(TranslatedString const* ts, Overload<TranslatedString>)
 
 inline bool Validate(Guid const* g, Overload<Guid>)
 {
+#if defined(ENABLE_FLAKY_HEURISTICS)
     // Heuristic: Consider non-null GUIDs with zero lower/higher dwords to be sus
     CHECK(!*g
         || (
@@ -229,6 +289,7 @@ inline bool Validate(Guid const* g, Overload<Guid>)
             && (g->Val[1] & 0xffffffff) != 0
             && (g->Val[1] >> 32) != 0
         ));
+#endif
     return true;
 }
 
@@ -238,11 +299,11 @@ inline bool Validate(bg3se::stats::ConditionId const* s, Overload<bg3se::stats::
     return true;
 }
 
-template <class T>
-typename std::enable_if_t<std::is_enum_v<T>, bool> Validate(T const* v, Overload<T>)
+template <class T> requires std::is_enum_v<T>
+typename bool Validate(T const* v, Overload<T>)
 {
 #if defined(ENABLE_FLAKY_HEURISTICS)
-    if constexpr (IsBitfieldV<T>) {
+    if constexpr (IsBitfield<T>) {
         // Disabled for now as it causes unmapped enum elements to be flagged all the time
         //CHECK(((uint64_t)*v & ~BitfieldInfo<T>::GetStore().AllowedFlags) == 0);
     } else {
@@ -256,8 +317,7 @@ typename std::enable_if_t<std::is_enum_v<T>, bool> Validate(T const* v, Overload
 inline bool Validate(ecs::EntityRef const* g, Overload<ecs::EntityRef>)
 {
     // TODO - check if World points to a valid EntityWorld?
-    CHECK((g->World == nullptr && !g->Handle)
-        || (g->World != nullptr && (bool)g->Handle));
+    CHECK(!g->Handle || (g->World != nullptr && (bool)g->Handle));
     return true;
 }
 
@@ -285,7 +345,6 @@ inline bool ValidatePointer(T const* p)
 inline bool ValidateRef(TypeInformationRef const* b, Overload<TypeInformationRef>) { return true; }
 inline bool Validate(TypeInformationRef const* b, Overload<TypeInformationRef>) { return true; }
 inline bool Validate(Ref const* b, Overload<Ref>) { return true; }
-inline bool Validate(PersistentRef const* b, Overload<PersistentRef>) { return true; }
 inline bool Validate(RegistryEntry const* b, Overload<RegistryEntry>) { return true; }
 inline bool Validate(PersistentRegistryEntry const* b, Overload<PersistentRegistryEntry>) { return true; }
 
@@ -303,7 +362,38 @@ inline bool ValidateRef(TranslatedString const* h, Overload<TranslatedString>)
 }
 
 template <class TE>
+bool ValidateLinearContainer(TE const* buf, uint64_t size, uint64_t capacity)
+{
+    if (buf == nullptr) {
+        CHECK(size == 0);
+        CHECK(capacity == 0);
+    } else {
+        CHECK(size <= capacity);
+        CHECK(capacity <= 0x1000000);
+        CHECK(!IsBadReadPtr(buf, capacity * sizeof(TE)));
+
+        if constexpr (!std::is_pointer_v<TE>) {
+            for (auto i = 0; i < size; i++) {
+                CHECKR(ValidateAny<TE>(buf + i));
+            }
+        } else {
+            for (auto i = 0; i < size; i++) {
+                CHECKR(ValidatePointer(buf[i]));
+            }
+        }
+    }
+
+    return true;
+}
+
+template <class TE>
 bool ValidateRef(Array<TE> const* v, Overload<Array<TE>>)
+{
+    return ValidateLinearContainer(v->data(), v->size(), v->capacity());
+}
+
+template <class TE>
+bool ValidateRef(Queue<TE> const* v, Overload<Queue<TE>>)
 {
     if (v->raw_buf() == nullptr) {
         CHECK(v->size() == 0);
@@ -337,53 +427,28 @@ bool ValidateRef(LegacyArray<TE> const* v, Overload<LegacyArray<TE>>)
 template <class TE, class TAllocator>
 bool ValidateRef(std::vector<TE, TAllocator> const* v, Overload<std::vector<TE, TAllocator>>)
 {
-    CHECK(v->size() <= v->capacity());
-    CHECK(v->capacity() <= 0x1000000);
-    if (v->capacity() > 0) {
-        CHECK(!IsBadReadPtr(v->data(), v->capacity() * sizeof(TE)));
-
-        if constexpr (!std::is_pointer_v<TE>) {
-            for (auto& ele : *v) {
-                CHECKR(ValidateAny<TE>(&ele));
-            }
-        } else {
-            for (auto& ele : *v) {
-                CHECKR(ValidatePointer(ele));
-            }
-        }
-    }
-
-    return true;
+    return ValidateLinearContainer(v->data(), v->size(), v->capacity());
 }
 
 template <class TE>
 bool ValidateRef(ObjectSet<TE> const* v, Overload<ObjectSet<TE>>)
 {
     CHECK(v->CapacityIncrementSize <= 0x100000);
-
-    if (v->Buf == nullptr) {
-        CHECK(v->Size == 0);
-        CHECK(v->Capacity == 0);
-    } else {
-        CHECK(v->Size <= v->Capacity);
-        CHECK(v->Capacity <= 0x1000000);
-        CHECK(!IsBadReadPtr(v->Buf, v->Capacity * sizeof(TE)));
-
-        if constexpr (!std::is_pointer_v<TE>) {
-            for (auto& ele : *v) {
-                CHECKR(ValidateAny<TE>(&ele));
-            }
-        } else {
-            for (auto& ele : *v) {
-                CHECKR(ValidatePointer(ele));
-            }
-        }
-    }
-
-    return true;
+    return ValidateLinearContainer(v->Buf, v->Size, v->Capacity);
 }
 
-#if defined(ENABLE_UI)
+template <class TE>
+bool ValidateRef(TrackedCompactSet<TE> const* v, Overload<TrackedCompactSet<TE>>)
+{
+    return ValidateLinearContainer(v->Buf, v->Size, v->Capacity);
+}
+
+template <class TE>
+bool ValidateRef(MiniCompactSet<TE> const* v, Overload<MiniCompactSet<TE>>)
+{
+    return ValidateLinearContainer(v->Buf, v->Size, v->Capacity);
+}
+
 template <class TE, unsigned N>
 bool ValidateRef(Noesis::Vector<TE, N> const* v, Overload<Noesis::Vector<TE, N>>)
 {
@@ -413,54 +478,17 @@ bool ValidateRef(Noesis::Vector<TE, N> const* v, Overload<Noesis::Vector<TE, N>>
 
     return true;
 }
-#endif
 
 template <class TE>
 bool ValidateRef(StaticArray<TE> const* v, Overload<StaticArray<TE>>)
 {
-    if (v->raw_buf() == nullptr) {
-        CHECK(v->size() == 0);
-    } else {
-        CHECK(v->size() <= 0x1000000);
-        CHECK(!IsBadReadPtr(v->raw_buf(), v->size() * sizeof(TE)));
-
-        if constexpr (!std::is_pointer_v<TE>) {
-            for (auto& ele : *v) {
-                CHECKR(ValidateAny<TE>(&ele));
-            }
-        } else {
-            for (auto& ele : *v) {
-                CHECKR(ValidatePointer(ele));
-            }
-        }
-    }
-
-    return true;
+    return ValidateLinearContainer(v->data(), v->size(), v->size());
 }
 
 template <class TE>
 bool ValidateRef(UninitializedStaticArray<TE> const* v, uint32_t initializedSize, Overload<UninitializedStaticArray<TE>>)
 {
-    if (v->raw_buf() == nullptr) {
-        CHECK(v->size() == 0);
-        CHECK(initializedSize == 0);
-    } else {
-        CHECK(v->size() <= 0x1000000);
-        CHECK(initializedSize <= v->size());
-        CHECK(!IsBadReadPtr(v->raw_buf(), v->size() * sizeof(TE)));
-
-        if constexpr (!std::is_pointer_v<TE>) {
-            for (uint32_t i = 0; i < initializedSize; i++) {
-                CHECKR(ValidateAny<TE>(&(*v)[i]));
-            }
-        } else {
-            for (uint32_t i = 0; i < initializedSize; i++) {
-                CHECKR(ValidatePointer((*v)[i]));
-            }
-        }
-    }
-
-    return true;
+    return ValidateLinearContainer(v->data(), initializedSize, v->size());
 }
 
 template <class TK, class TV>
@@ -575,6 +603,28 @@ bool ValidateRef(T const* v, Overload<T>)
     return GetStaticPropertyMap<T>().ValidateObject(v);
 }
 
+inline bool Validate(StatsExpressionRef const* s, Overload<StatsExpressionRef>)
+{
+    auto p = s->Get();
+    if (p) {
+        CHECK(ValidatePointer(p));
+        CHECK(ValidateRef(p, Overload<StatsExpressionPooled>{}));
+    }
+    return true;
+}
+
+inline bool Validate(EntityOrVec3Variant const* v, Overload<EntityOrVec3Variant>)
+{
+    CHECK(v->Type == 0 || v->Type == 1);
+    if (v->Type == 0) {
+        CHECK(Validate(&v->Entity, Overload<EntityHandle>{}));
+    } else {
+        CHECK(Validate(&v->Position, Overload<glm::vec3>{}));
+    }
+
+    return true;
+}
+
 template <class... Args>
 bool ValidateRef(std::variant<Args...> const* v, Overload<std::variant<Args...>>)
 {
@@ -594,13 +644,23 @@ bool Validate(ObjectSet<TE> const* v, Overload<ObjectSet<TE>>)
     return ValidateRef(v, Overload<ObjectSet<TE>>{});
 }
 
-#if defined(ENABLE_UI)
+template <class TE>
+bool Validate(TrackedCompactSet<TE> const* v, Overload<TrackedCompactSet<TE>>)
+{
+    return ValidateRef(v, Overload<TrackedCompactSet<TE>>{});
+}
+
+template <class TE>
+bool Validate(MiniCompactSet<TE> const* v, Overload<MiniCompactSet<TE>>)
+{
+    return ValidateRef(v, Overload<MiniCompactSet<TE>>{});
+}
+
 template <class TE, unsigned N>
 bool Validate(Noesis::Vector<TE, N> const* v, Overload<Noesis::Vector<TE, N>>)
 {
     return ValidateRef(v, Overload<Noesis::Vector<TE, N>>{});
 }
-#endif
 
 template <class TK, class TV>
 bool Validate(LegacyMap<TK, TV> const* v, Overload<LegacyMap<TK, TV>>)
@@ -629,6 +689,10 @@ bool Validate(HashMap<TK, TV> const* v, Overload<HashMap<TK, TV>>)
 template <class T>
 bool Validate(std::optional<T> const* v, Overload<std::optional<T>>)
 {
+    // Ensure that _Has_Value is a bool
+    auto hasValue = (uint8_t const*)v + sizeof(T);
+    CHECK(*hasValue == 0 || *hasValue == 1);
+
     if (v->has_value()) {
         return Validate(&v->value(), Overload<T>{});
     } else {
@@ -642,6 +706,10 @@ bool ValidateRef(std::array<TE, Size> const* v, Overload<std::array<TE, Size>>);
 template <class T>
 bool ValidateRef(std::optional<T> const* v, Overload<std::optional<T>>)
 {
+    // Ensure that _Has_Value is a bool
+    auto hasValue = (uint8_t const*)v + sizeof(T);
+    CHECK(*hasValue == 0 || *hasValue == 1);
+
     if (v->has_value()) {
         return ValidateRef(&v->value(), Overload<T>{});
     } else {

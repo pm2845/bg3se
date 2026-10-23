@@ -20,15 +20,18 @@ class NetworkManager : public net::BaseNetworkManager
 public:
     void Reset();
 
+    bool LocalPeerOnly() const;
     bool CanSendExtenderMessages(PeerId peerId) const;
-    std::optional<uint32_t> GetPeerVersion(PeerId peerId) const;
-    void AllowExtenderMessages(PeerId peerId, uint32_t version);
+    std::optional<net::ProtoVersion> GetPeerVersion(PeerId peerId) const;
+    void AllowExtenderMessages(PeerId peerId, net::ProtoVersion version);
     void OnClientConnectMessage(net::MessageContext* context, net::ClientConnectMessage* msg);
 
     void ExtendNetworking();
 
     net::ExtenderMessage * GetFreeMessage(UserId userId) override;
     net::ExtenderMessage * GetFreeMessage() override;
+    net::ProtoVersion SharedVersion() override;
+    void HandleLocalMessage(net::LocalMessage const& msg) override;
     net::GameServer* GetServer() const;
 
     void Send(net::ExtenderMessage * msg, UserId userId);
@@ -38,7 +41,7 @@ public:
 private:
     ExtenderProtocol * protocol_{ nullptr };
     // List of clients that support the extender protocol
-    std::unordered_map<PeerId, uint32_t> peerVersions_;
+    std::unordered_map<PeerId, net::ProtoVersion> peerVersions_;
 };
 
 END_NS()

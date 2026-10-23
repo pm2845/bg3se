@@ -3,6 +3,8 @@
 #include <GameDefinitions/Base/Base.h>
 #include <GameDefinitions/EntitySystem.h>
 #include <GameDefinitions/Misc.h>
+#include <GameDefinitions/Components/Status.h>
+#include <GameDefinitions/Components/Spell.h>
 
 BEGIN_SE()
 
@@ -32,12 +34,12 @@ struct BoostInfoComponent : public BaseComponent
     DEFINE_COMPONENT(BoostInfo, "eoc::BoostInfoComponent")
 
     [[bg3::legacy(field_10)]] Guid CauseUuid;
-    uint8_t field_20;
+    bool field_20;
     BoostSource Cause;
     EntityHandle Owner;
-    BoostParameters Params;
-    uint8_t field_44;
-    Guid field_80;
+    BoostDescription Params;
+    [[bg3::legacy(field_44)]] BoostType Type;
+    [[bg3::legacy(field_80)]] Guid Prototype;
 };
 
 DEFN_BOOST(ArmorClass, AC, {
@@ -48,12 +50,12 @@ DEFN_BOOST(Ability, Ability, {
     AbilityId Ability;
     int32_t Value;
     [[bg3::legacy(field_8)]] int32_t ValueCap;
-    bool field_C;
+    [[bg3::legacy(field_C)]] bool DontAdjustHealth;
 })
 
 DEFN_BOOST(RollBonus, RollBonus, {
     stats::RollType RollType;
-    StatsExpressionParam Amount;
+    StatsExpressionInternal Amount;
     AbilityId Ability;
     SkillId Skill;
 })
@@ -68,14 +70,14 @@ DEFN_BOOST(Advantage, Advantage, {
 
 DEFN_BOOST(ActionResourceValue, ActionResource, {
     Guid ResourceUUID;
-    int Amount2;
+    [[bg3::legacy(Amount2)]] int Level;
     double Amount;
     DiceSizeId DiceSize;
 })
 
 DEFN_BOOST(CriticalHit, CriticalHit, {
-    CriticalHitBoostFlags Flags;
-    uint8_t field_1;
+    CriticalHitAttackFlags Flags;
+    [[bg3::legacy(field_1)]] CriticalHitSuccessFlags SuccessFlags;
     float Value;
 })
 
@@ -94,7 +96,7 @@ DEFN_BOOST(WeaponDamageResistance, WeaponDamageResistance, {
 })
 
 DEFN_BOOST(ProficiencyBonusOverride, ProficiencyBonusOverride, {
-    StatsExpressionParam Value;
+    StatsExpressionInternal Value;
 })
 
 DEFN_BOOST(JumpMaxDistanceMultiplier, JumpMaxDistanceMultiplier, {
@@ -132,7 +134,7 @@ struct IncreaseMaxHPComponent : public BaseComponent
 {
     DEFINE_COMPONENT(IncreaseMaxHPBoost, "eoc::IncreaseMaxHPBoostComponent")
 
-    std::variant<int32_t, StatsExpressionParam> Amount;
+    std::variant<int32_t, StatsExpressionInternal> Amount;
     int32_t field_30;
 };
 
@@ -143,14 +145,14 @@ DEFN_BOOST(ActionResourceBlock, ActionResourceBlock, {
 
 DEFN_BOOST(StatusImmunity, StatusImmunity, {
     FixedString StatusID;
-    Array<Guid> UnknownUUIDs;
+    [[bg3::legacy(UnknownUUIDs)]] Array<Guid> Tags;
 })
 
 struct UseBoostsComponent : public BaseComponent
 {
     DEFINE_COMPONENT(UseBoosts, "eoc::UseBoostsComponent")
 
-    Array<BoostParameters> Boosts;
+    Array<BoostDescription> Boosts;
 };
 
 DEFN_BOOST(CannotHarmCauseEntity, CannotHarmCauseEntity, {
@@ -158,7 +160,7 @@ DEFN_BOOST(CannotHarmCauseEntity, CannotHarmCauseEntity, {
 })
 
 DEFN_BOOST(TemporaryHP, TemporaryHP, {
-    StatsExpressionParam HP;
+    StatsExpressionInternal HP;
 })
 
 DEFN_BOOST(Weight, Weight, {
@@ -212,12 +214,12 @@ DEFN_BOOST(IgnoreDamageThresholdMin, IgnoreDamageThreshold, {
 
 DEFN_BOOST(Skill, Skill, {
     SkillId Skill;
-    StatsExpressionParam Amount;
+    StatsExpressionInternal Amount;
 })
 
 DEFN_BOOST(WeaponDamage, WeaponDamage, {
     DamageType DamageType;
-    StatsExpressionParam Amount;
+    StatsExpressionInternal Amount;
     bool field_30;
 })
 
@@ -250,9 +252,9 @@ DEFN_BOOST(Attribute, Attribute, {
 })
 
 DEFN_BOOST(GameplayLight, GameplayLight, {
-    [[bg3::legacy(field_0)]] int Distance;
-    bool field_4;
-    int field_8;
+    [[bg3::legacy(field_0)]] float Radius;
+    bool LOS;
+    float Sharpening;
     [[bg3::legacy(field_C)]] uint8_t Sunlight;
 })
 
@@ -270,7 +272,7 @@ DEFN_BOOST(MinimumRollResult, MinimumRollResult, {
 })
 
 DEFN_BOOST(CharacterWeaponDamage, CharacterWeaponDamage, {
-    StatsExpressionParam Amount;
+    StatsExpressionInternal Amount;
     DamageType DamageType;
 })
 
@@ -315,7 +317,7 @@ DEFN_BOOST(WeaponProperty, WeaponProperty, {
 })
 
 DEFN_BOOST(WeaponAttackRollAbilityOverride, WeaponAttackRollAbilityOverride, {
-    AbilityId Ability;
+    AttackRoll Ability;
 })
 
 DEFN_BOOST(SightRangeAdditive, SightRangeAdditive, {
@@ -365,7 +367,7 @@ struct DamageReductionBoostComponent : public BaseComponent
     static constexpr auto BoostType = BoostType::DamageReduction;
 
     DamageType DamageType;
-    std::variant<int32_t, StatsExpressionParam> Amount;
+    std::variant<int32_t, StatsExpressionInternal> Amount;
     bool Flat;
     bool Half;
 };
@@ -408,13 +410,13 @@ DEFN_BOOST(WeaponDamageTypeOverride, WeaponDamageTypeOverride, {
 
 DEFN_BOOST(MaximizeHealing, MaximizeHealing, {
     HealDirection Direction;
-    stats::TargetTypeFlags TargetTypes;
+    [[bg3::legacy(TargetTypes)]] HealingType HealingTypes;
 })
 
 DEFN_BOOST(DamageBonus, DamageBonus, {
-    StatsExpressionParam Amount;
+    StatsExpressionInternal Amount;
     DamageType DamageType;
-    uint8_t field_31;
+    [[bg3::legacy(field_31)]] bool CriticalHit;
 })
 
 DEFN_BOOST(AdvanceSpells, AdvanceSpells, {
@@ -427,7 +429,7 @@ DEFN_BOOST(SpellResistance, SpellResistance, {
 })
 
 DEFN_BOOST(WeaponAttackRollBonus, WeaponAttackRollBonus, {
-    StatsExpressionParam Amount;
+    StatsExpressionInternal Amount;
 })
 
 DEFN_BOOST(SpellSaveDC, SpellSaveDC, {
@@ -462,7 +464,7 @@ DEFN_BOOST(HorizontalFOVOverride, HorizontalFOVOverride, {
 })
 
 DEFN_BOOST(CharacterUnarmedDamage, CharacterUnarmedDamage, {
-    StatsExpressionParam Amount;
+    StatsExpressionInternal Amount;
     DamageType DamageType;
 })
 
@@ -550,9 +552,9 @@ DEFN_BOOST(ProficiencyBonusIncrease, ProficiencyBonusIncrease, {
 })
 
 DEFN_BOOST(DamageTakenBonus, DamageTakenBonus, {
-    StatsExpressionParam Amount;
+    StatsExpressionInternal Amount;
     DamageType DamageType;
-    bool Arg3;
+    [[bg3::legacy(Arg3)]] bool CriticalHit;
 })
 
 DEFN_BOOST(ReceivingCriticalDamageOnHit, ReceivingCriticalDamageOnHit, {
@@ -595,6 +597,34 @@ struct ChangedEventOneFrameComponent : public BaseComponent
     Array<BoostChangedEvent> Events;
 };
 
+struct ChangedEventsSingletonComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(BoostChangedEventsSingleton, "esv::boost::ChangedEventsSingletonComponent")
+
+    HashMap<EntityHandle, Array<BoostChangedEvent>> Events;
+};
+
+struct ConditionalState
+{
+    EntityHandle Boost;
+    bool ConditionResult;
+};
+
+struct ConditionalStateComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(BoostConditionalState, "esv::boost::ConditionalStateComponent")
+
+    Array<ConditionalState> States;
+};
+
+struct ProviderComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(BoostProvider, "esv::boost::ProviderComponent")
+
+    Array<EntityHandle> field_0;
+    Array<EntityHandle> field_10;
+};
+
 
 struct StatusBoostsRefreshedOneFrameComponent : public BaseComponent
 {
@@ -604,5 +634,56 @@ struct StatusBoostsRefreshedOneFrameComponent : public BaseComponent
 };
 
 DEFINE_ONEFRAME_TAG_COMPONENT(esv::boost, BaseUpdatedOneFrameComponent, BoostBaseUpdated)
+
+struct AddBoostRequest
+{
+    EntityHandle Entity;
+    Array<BoostDescription> BoostDescriptions;
+    BoostSource Source;
+    BoostParameters Parameters;
+};
+
+struct RemoveBoostRequest
+{
+    EntityHandle Entity;
+    Array<BoostDescription> BoostDescriptions;
+    BoostSource Source;
+    BoostParameters Params;
+    uint8_t field_48{ 0 };
+};
+
+struct EquipmentBoostAddRemoveRequest
+{
+    int Action{ 0 };
+    EntityHandle Boost;
+};
+
+struct BoostSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerBoost, "esv::BoostSystem")
+
+    [[bg3::hidden]] UnknownSignal OnBoostChangedEvent;
+    [[bg3::hidden]] void* ThothShared;
+    [[bg3::hidden]] void* BoostPrototypes;
+    [[bg3::hidden]] void* ImmutableData;
+    [[bg3::hidden]] void* StatusPrototypes;
+    [[bg3::hidden]] void* StatusFactory;
+    [[bg3::hidden]] void* StatsExpressionManager;
+    [[bg3::hidden]] void* Stats;
+    HashSet<EntityHandle> CharacterCreationUpdates;
+    HashSet<EntityHandle> ProgressionUpdates;
+    HashSet<EntityHandle> ReloadBaseBoost;
+    HashSet<EntityHandle> DetachAndDestroyBoost;
+    Array<int32_t> ReleaseConditionHandles;
+    HashMap<EntityHandle, Array<EquipmentBoostAddRemoveRequest>> ItemBoostChanges;
+    HashSet<EntityHandle> field_170;
+    Array<AddBoostRequest> AddDebugBoost;
+    Array<RemoveBoostRequest> RemoveDebugBoosts;
+    Array<AddBoostRequest> AddStoryBoosts;
+    Array<RemoveBoostRequest> RemoveStoryBoosts;
+    HashSet<EntityHandle> ClearStoryBoosts;
+    bool ReloadStatusBoosts;
+    [[bg3::hidden]] UnknownFunction field_218;
+};
 
 END_NS()

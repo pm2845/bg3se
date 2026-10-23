@@ -28,8 +28,8 @@ public:
         EntityComponentEventFlags flags, RegistryEntry&& hook);
     bool Unsubscribe(SubscriptionIndex index);
 
-    void OnComponentCreated(ecs::ComponentTypeIndex type, ecs::EntityRef* entity, void* component);
-    void OnComponentDestroyed(ecs::ComponentTypeIndex type, ecs::EntityRef* entity, void* component);
+    void OnComponentCreated(ecs::ComponentTypeIndex const& type, ecs::EntityRef* entity, void* component);
+    void OnComponentDestroyed(ecs::ComponentTypeIndex const& type, ecs::EntityRef* entity, void* component);
     void OnEntityEvent(ecs::EntityWorld& world, EntityHandle entity, ecs::ComponentTypeIndex type, EntityComponentEvent events, void* component);
 
 private:
@@ -72,11 +72,5 @@ private:
     void DeferHandler(EntityHandle entity, ecs::ComponentTypeIndex type, EntityComponentEvent events, SubscriptionIndex index);
     ComponentHooks& AddComponentType(ecs::ComponentTypeIndex type);
 };
-
-END_SE()
-
-BEGIN_SE()
-
-MARK_AS_BITFIELD(lua::EntityComponentEvent)
 
 END_SE()

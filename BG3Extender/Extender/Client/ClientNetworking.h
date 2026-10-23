@@ -23,6 +23,8 @@ public:
     void ExtendNetworking();
     net::ExtenderMessage* GetFreeMessage() override;
     net::ExtenderMessage* GetFreeMessage(UserId userId) override;
+    net::ProtoVersion SharedVersion() override;
+    void HandleLocalMessage(net::LocalMessage const& msg) override;
     void Send(net::ExtenderMessage* msg);
     void OnClientConnectMessage(net::ClientConnectMessage* msg);
     void OnExtenderHello(net::MsgC2SExtenderHello const& hello);
@@ -33,6 +35,8 @@ private:
     // Indicates that the client can support extender messages to the server
     // (i.e. the server supports the message ID and won't crash)
     bool extenderSupport_{ false };
+    // Assume old host until we receive the exact version number
+    net::ProtoVersion hostVersion_{ net::ProtoVersion::VerInitial };
 
     net::GameClient* GetClient() const;
 };

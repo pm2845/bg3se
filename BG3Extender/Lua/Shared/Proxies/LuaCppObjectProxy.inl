@@ -3,7 +3,7 @@
 
 BEGIN_NS(lua)
 
-int CppObjectProxyHelpers::Next(lua_State* L, GenericPropertyMap const& pm, void* object, LifetimeHandle const& lifetime, FixedString const& key)
+int CppObjectProxyHelpers::Next(lua_State* L, GenericPropertyMap const& pm, void* object, LifetimeHandle lifetime, FixedStringId const& key)
 {
     if (!key) {
         if (!pm.IterableProperties.empty()) {
@@ -18,7 +18,8 @@ int CppObjectProxyHelpers::Next(lua_State* L, GenericPropertyMap const& pm, void
             return 2;
         }
     } else {
-        auto it = pm.IterableProperties.find(key);
+        auto const& k = reinterpret_cast<FixedStringUnhashed const&>(key);
+        auto it = pm.IterableProperties.find(k);
         if (it != pm.IterableProperties.end()) {
             ++it;
             if (it != pm.IterableProperties.end()) {
@@ -48,13 +49,13 @@ CppMetatableManager::CppMetatableManager()
 
 void CppMetatableManager::RegisterMetatable(MetatableTag tag, CMetatable* mt)
 {
-    assert(tag <= MetatableTag::Max);
+    se_assert(tag <= MetatableTag::Max);
     metatables_[(int)tag] = mt;
 }
 
 CMetatable* CppMetatableManager::GetMetatable(MetatableTag tag)
 {
-    assert(tag <= MetatableTag::Max);
+    se_assert(tag <= MetatableTag::Max);
     return metatables_[(int)tag];
 }
 
@@ -79,7 +80,7 @@ void* ObjectProxy::GetRaw(lua_State* L, int index, GenericPropertyMap const& pm)
         return obj;
 
     } else if (meta.MetatableTag == MetatableTag::ObjectRef) {
-        auto& objPm = *gStructRegistry.Get(meta.PropertyMapTag);
+        auto& objPm = *gStructRegistry.Get(StructTypeId(meta.PropertyMapTag));
         if (!objPm.IsA(pm.RegistryIndex)) {
             luaL_error(L, "Argument %d: Expected object of type '%s', got '%s'", index,
                 pm.Name.GetString(), objPm.Name.GetString());
@@ -99,17 +100,17 @@ void* ObjectProxy::GetRaw(lua_State* L, int index, GenericPropertyMap const& pm)
 
 GenericPropertyMap& LightObjectProxyMetatable::GetPropertyMap(CppObjectMetadata const& meta)
 {
-    assert(meta.MetatableTag == MetaTag);
-    return *gStructRegistry.Get(meta.PropertyMapTag);
+    se_assert(meta.MetatableTag == MetaTag);
+    return *gStructRegistry.Get(StructTypeId(meta.PropertyMapTag));
 }
 
 
-void* LightObjectProxyMetatable::TryGetGeneric(lua_State* L, int index, int propertyMapIndex)
+void* LightObjectProxyMetatable::TryGetGeneric(lua_State* L, int index, StructTypeId typeId)
 {
     CppObjectMetadata meta;
     if (lua_try_get_lightcppobject(L, index, MetaTag, meta)) {
-        auto& pm = *gStructRegistry.Get(meta.PropertyMapTag);
-        if (pm.IsA(meta.PropertyMapTag) && meta.Lifetime.IsAlive(L)) {
+        auto& pm = *gStructRegistry.Get(StructTypeId(meta.PropertyMapTag));
+        if (pm.IsA(StructTypeId(meta.PropertyMapTag)) && meta.Lifetime.IsAlive(L)) {
             return meta.Ptr;
         }
     }
@@ -117,12 +118,12 @@ void* LightObjectProxyMetatable::TryGetGeneric(lua_State* L, int index, int prop
     return nullptr;
 }
 
-void* LightObjectProxyMetatable::GetGeneric(lua_State* L, int index, int propertyMapIndex)
+void* LightObjectProxyMetatable::GetGeneric(lua_State* L, int index, StructTypeId typeId)
 {
     CppObjectMetadata meta;
     if (lua_try_get_lightcppobject(L, index, meta)) {
-        auto& pm = *gStructRegistry.Get(meta.PropertyMapTag);
-        if (pm.IsA(propertyMapIndex)) {
+        auto& pm = *gStructRegistry.Get(StructTypeId(meta.PropertyMapTag));
+        if (pm.IsA(typeId)) {
             if (!meta.Lifetime.IsAlive(L)) {
                 luaL_error(L, "Attempted to fetch '%s' whose lifetime has expired", GetTypeName(L, meta));
                 return 0;
@@ -131,35 +132,40 @@ void* LightObjectProxyMetatable::GetGeneric(lua_State* L, int index, int propert
             return meta.Ptr;
         } else {
             luaL_error(L, "Argument %d: Expected object of type '%s', got '%s'", index,
-                gStructRegistry.Get(propertyMapIndex)->Name.GetString(),
+                gStructRegistry.Get(typeId)->Name.GetString(),
                 pm.Name.GetString());
             return nullptr;
         }
     } else {
         luaL_error(L, "Argument %d: Expected object of type '%s', got '%s'", index,
-            gStructRegistry.Get(propertyMapIndex)->Name.GetString(),
+            gStructRegistry.Get(typeId)->Name.GetString(),
             GetDebugName(L, index));
         return nullptr;
     }
 }
 
-int LightObjectProxyMetatable::Index(lua_State* L, CppObjectMetadata& self)
+inline GenericPropertyMap* GetValuePropertyMap(CppObjectOpaque* obj)
 {
-    auto pm = gStructRegistry.Get(self.PropertyMapTag);
-    auto prop = get<FixedString>(L, 2);
-    auto result = pm->GetRawProperty(L, self.Lifetime, self.Ptr, prop);
+    return gStructRegistry.Get(StructTypeId(lua_get_opaque_property_map(obj)));
+}
+
+int LightObjectProxyMetatable::Index(lua_State* L, CppObjectOpaque* self)
+{
+    auto pm = GetValuePropertyMap(self);
+    auto prop = get<FixedStringNoRef>(L, 2);
+    auto result = pm->GetRawProperty(L, lua_get_opaque_lifetime(self), lua_get_opaque_ptr(self), prop);
     switch (result) {
     case PropertyOperationResult::Success:
         break;
 
     case PropertyOperationResult::NoSuchProperty:
-        luaL_error(L, "Property does not exist: %s::%s - property does not exist", GetTypeName(L, self), prop.GetString());
+        luaL_error(L, "Property does not exist: %s::%s - property does not exist", GetTypeName(L, self), get<char const*>(L, 2));
         push(L, nullptr);
         break;
 
     case PropertyOperationResult::Unknown:
     default:
-        luaL_error(L, "Cannot get property %s::%s - unknown error", GetTypeName(L, self), prop.GetString());
+        luaL_error(L, "Cannot get property %s::%s - unknown error", GetTypeName(L, self), get<char const*>(L, 2));
         push(L, nullptr);
         break;
     }
@@ -167,30 +173,30 @@ int LightObjectProxyMetatable::Index(lua_State* L, CppObjectMetadata& self)
     return 1;
 }
 
-int LightObjectProxyMetatable::NewIndex(lua_State* L, CppObjectMetadata& self)
+int LightObjectProxyMetatable::NewIndex(lua_State* L, CppObjectOpaque* self)
 {
-    auto pm = gStructRegistry.Get(self.PropertyMapTag);
-    auto prop = get<FixedString>(L, 2);
-    auto result = pm->SetRawProperty(L, self.Ptr, prop, 3);
+    auto pm = GetValuePropertyMap(self);
+    auto prop = get<FixedStringNoRef>(L, 2);
+    auto result = pm->SetRawProperty(L, lua_get_opaque_ptr(self), prop, 3);
     switch (result) {
     case PropertyOperationResult::Success:
         break;
 
     case PropertyOperationResult::NoSuchProperty:
-        luaL_error(L, "Cannot set property %s::%s - property does not exist", GetTypeName(L, self), prop.GetString());
+        luaL_error(L, "Cannot set property %s::%s - property does not exist", GetTypeName(L, self), get<char const*>(L, 2));
         break;
 
     case PropertyOperationResult::ReadOnly:
-        luaL_error(L, "Cannot set property %s::%s - property is read-only", GetTypeName(L, self), prop.GetString());
+        luaL_error(L, "Cannot set property %s::%s - property is read-only", GetTypeName(L, self), get<char const*>(L, 2));
         break;
 
     case PropertyOperationResult::UnsupportedType:
-        luaL_error(L, "Cannot set property %s::%s - cannot write properties of this type", GetTypeName(L, self), prop.GetString());
+        luaL_error(L, "Cannot set property %s::%s - cannot write properties of this type", GetTypeName(L, self), get<char const*>(L, 2));
         break;
 
     case PropertyOperationResult::Unknown:
     default:
-        luaL_error(L, "Cannot set property %s::%s - unknown error", GetTypeName(L, self), prop.GetString());
+        luaL_error(L, "Cannot set property %s::%s - unknown error", GetTypeName(L, self), get<char const*>(L, 2));
         break;
     }
 
@@ -210,25 +216,40 @@ int LightObjectProxyMetatable::ToString(lua_State* L, CppObjectMetadata& self)
     return 1;
 }
 
+int LightObjectProxyMetatable::GC(lua_State* L, CppObjectMetadata& self)
+{
+    auto pm = gStructRegistry.Get(StructTypeId(self.PropertyMapTag));
+    pm->Destroy(self.Ptr);
+    return 0;
+}
+
 bool LightObjectProxyMetatable::IsEqual(lua_State* L, CppObjectMetadata& self, CppObjectMetadata& other)
 {
     return self.Ptr == other.Ptr && self.PropertyMapTag == other.PropertyMapTag;
 }
 
-int LightObjectProxyMetatable::Next(lua_State* L, CppObjectMetadata& self)
+int LightObjectProxyMetatable::Next(lua_State* L, CppObjectOpaque* self)
 {
-    auto pm = gStructRegistry.Get(self.PropertyMapTag);
+    auto pm = GetValuePropertyMap(self);
+    auto object = lua_get_opaque_ptr(self);
+    auto lifetime = lua_get_opaque_lifetime(self);
     if (lua_type(L, 2) == LUA_TNIL) {
-        return CppObjectProxyHelpers::Next(L, *pm, self.Ptr, self.Lifetime, FixedString{});
+        return CppObjectProxyHelpers::Next(L, *pm, object, lifetime, FixedStringId{});
     } else {
-        auto key = get<FixedString>(L, 2);
-        return CppObjectProxyHelpers::Next(L, *pm, self.Ptr, self.Lifetime, key);
+        auto key = get<FixedStringNoRef>(L, 2);
+        return CppObjectProxyHelpers::Next(L, *pm, object, lifetime, key);
     }
 }
 
 char const* LightObjectProxyMetatable::GetTypeName(lua_State* L, CppObjectMetadata& self)
 {
-    auto pm = gStructRegistry.Get(self.PropertyMapTag);
+    auto pm = gStructRegistry.Get(StructTypeId(self.PropertyMapTag));
+    return pm->Name.GetString();
+}
+
+char const* LightObjectProxyMetatable::GetTypeName(lua_State* L, CppObjectOpaque* self)
+{
+    auto pm = GetValuePropertyMap(self);
     return pm->Name.GetString();
 }
 

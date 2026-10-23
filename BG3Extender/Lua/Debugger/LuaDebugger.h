@@ -1,10 +1,11 @@
 #pragma once
 
-#if !defined(OSI_NO_DEBUGGER)
-
 #include <cstdint>
 #include <concurrent_queue.h>
-#include "LuaDebug.pb.h"
+#pragma warning(push)
+#pragma warning(disable:4267)
+#include <Lua/Debugger/LuaDebug.pb.h>
+#pragma warning(pop)
 #include <GameDefinitions/Osiris.h>
 #include <Lua/Debugger/LuaDebugMessages.h>
 
@@ -34,6 +35,8 @@ namespace bg3se::lua::dbg
         BackendToDebugger* Msg;
         BkEvaluateResponse* Response;
         int32_t Frame;
+        bool EvalStatement;
+        bool AllowRefs;
         STDString Expression;
         std::function<void(DebuggerEvaluateRequest const&, ResultCode)> CompletionCallback;
     };
@@ -142,6 +145,11 @@ namespace bg3se::lua::dbg
         void TriggerBreakpoint(lua_State* L, BkBreakpointTriggered_Reason reason, char const* msg);
 
         ResultCode EvaluateInContext(DebuggerEvaluateRequest const& req);
+        ResultCode EvaluateInContextGuarded(lua_State* L, DebuggerEvaluateRequest const& req);
+        ResultCode EvaluateStatement(lua_State* L, DebuggerEvaluateRequest const& req);
+        ResultCode EvaluateExpression(lua_State* L, DebuggerEvaluateRequest const& req);
+        void FetchReturnValue(lua_State* L, DebuggerEvaluateRequest const& req, int numValues);
+        ResultCode EvalSyntaxCheck(lua_State* L, DebuggerEvaluateRequest const& req);
         bool PushVariableContext(lua_State* L, DebuggerGetVariablesRequest const& req);
 
         ResultCode GetVariablesInContext(DebuggerGetVariablesRequest const& req);
@@ -183,5 +191,3 @@ namespace bg3se::lua::dbg
         ContextDebugger client_;
     };
 }
-
-#endif

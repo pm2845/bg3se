@@ -16,12 +16,11 @@ std::optional<STDString> GetCppObjectTypeName(lua_State * L, int index)
     case MetatableTag::ModVariableHolder:
     case MetatableTag::Entity:
     case MetatableTag::OsiFunctionName:
+    case MetatableTag::SystemMap:
         return GetDebugName(meta);
 
-#if defined(ENABLE_IMGUI)
     case MetatableTag::ImguiObject:
         return ImguiObjectProxyMetatable::GetTypeName(L, meta);
-#endif
 
     default:
         return {};
@@ -35,7 +34,7 @@ TypeInformation const* GetCppObjectType(lua_State * L, int index)
     switch (meta.MetatableTag) {
     case MetatableTag::ObjectRef:
     {
-        auto propertyMap = gStructRegistry.Get(meta.PropertyMapTag);
+        auto propertyMap = gStructRegistry.Get(StructTypeId(meta.PropertyMapTag));
         return propertyMap->TypeInfo;
     }
 
@@ -57,17 +56,15 @@ TypeInformation const* GetCppObjectType(lua_State * L, int index)
         return &impl->GetContainerType();
     }
 
-#if defined(ENABLE_IMGUI)
     case MetatableTag::ImguiObject:
     {
-        auto obj = ImguiObjectProxyMetatable::GetRenderable(meta);
+        auto obj = ImguiObjectProxyMetatable::GetRenderable(L, meta);
         if (obj != nullptr) {
             return obj->GetRTTI().TypeInfo;
         } else {
             return nullptr;
         }
     }
-#endif
 
     case MetatableTag::EnumValue:
     case MetatableTag::BitfieldValue:
@@ -108,6 +105,7 @@ bool IsA(lua_State* L, AnyRef object, FixedString typeName)
     auto expectedType = TypeInformationRepository::GetInstance().TryGetType(typeName);
     if (expectedType == nullptr) {
         luaL_error(L, "No such type: %s", typeName.GetString());
+        return false;
     }
 
     auto type = TypeOf(L, object);
@@ -138,6 +136,7 @@ TypeInformation* GetTypeInfo(FixedString const& typeName)
 
 Array<FixedString> GetAllTypes()
 {
+    OPTICK_EVENT();
     Array<FixedString> types;
     auto const& allTypes = TypeInformationRepository::GetInstance().GetAllTypes();
     for (auto const& type : allTypes) {
@@ -308,6 +307,11 @@ std::optional<STDString> GetValueType(lua_State* L, AnyRef object)
     return GetDebugName(L, object.Index);
 }
 
+std::optional<STDString> GetBaseValueType(lua_State* L, AnyRef object)
+{
+    return GetDebugBaseName(L, object.Index);
+}
+
 UserReturn GetHashSetValueAt(lua_State* L, AnyRef object, uint32_t index)
 {
     auto meta = lua_get_lightcppobject(L, object.Index, MetatableTag::Set);
@@ -319,11 +323,60 @@ UserReturn GetHashSetValueAt(lua_State* L, AnyRef object, uint32_t index)
     return 1;
 }
 
+std::tuple<char const*, int> GetFunctionLocation(lua_State* L, AnyRef func)
+{
+    int line;
+    auto loc = lua_get_function_location(L, func.Index, line);
+    return std::make_tuple(loc, line);
+}
+
+bool AddCustomFunction(lua_State* L, FixedString const& typeName, FixedString const& property, FunctionRef func)
+{
+    auto const& type = TypeInformationRepository::GetInstance().GetType(typeName);
+    if (type.Kind == LuaTypeId::Unknown) {
+        luaL_error(L, "Type not found: %s", typeName.GetString());
+        return false;
+    }
+    
+    if (type.Kind != LuaTypeId::Object 
+        || type.PropertyMap == nullptr 
+        || (int32_t)type.PropertyMap->RegistryIndex == -1) {
+        luaL_error(L, "Cannot extend non-object type: %s", typeName.GetString());
+        return false;
+    }
+
+    return State::FromLua(L)->GetCustomProperties().RegisterProperty(
+        L, *type.PropertyMap, FixedStringUnhashed(property), Ref{ L, func.Index });
+}
+
+bool AddCustomProperty(lua_State* L, FixedString const& typeName, FixedString const& property, FunctionRef getter, std::optional<FunctionRef> setter)
+{
+    auto const& type = TypeInformationRepository::GetInstance().GetType(typeName);
+    if (type.Kind == LuaTypeId::Unknown) {
+        luaL_error(L, "Type not found: %s", typeName.GetString());
+        return false;
+    }
+    
+    if (type.Kind != LuaTypeId::Object 
+        || type.PropertyMap == nullptr 
+        || (int32_t)type.PropertyMap->RegistryIndex == -1) {
+        luaL_error(L, "Cannot extend non-object type: %s", typeName.GetString());
+        return false;
+    }
+
+    return State::FromLua(L)->GetCustomProperties().RegisterProperty(
+        L, *type.PropertyMap, FixedStringUnhashed(property), 
+        Ref{ L, getter.Index },
+        setter ? Ref{ L, setter->Index } : Ref{}
+    );
+}
+
 void RegisterTypesLib()
 {
     DECLARE_MODULE(Types, Both)
     BEGIN_MODULE()
     MODULE_FUNCTION(GetValueType)
+    MODULE_FUNCTION(GetBaseValueType)
     MODULE_FUNCTION(GetObjectType)
     MODULE_FUNCTION(GetTypeInfo)
     MODULE_FUNCTION(TypeOf)
@@ -334,6 +387,9 @@ void RegisterTypesLib()
     MODULE_FUNCTION(Unserialize)
     MODULE_FUNCTION(Construct)
     MODULE_FUNCTION(GetHashSetValueAt)
+    MODULE_FUNCTION(GetFunctionLocation)
+    MODULE_FUNCTION(AddCustomFunction)
+    MODULE_FUNCTION(AddCustomProperty)
     END_MODULE()
 }
 

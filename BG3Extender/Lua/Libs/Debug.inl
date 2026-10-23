@@ -44,7 +44,7 @@ void DumpStack(lua_State* L)
     for (int idx = 1; idx <= top; idx++) {
         switch (lua_type(L, idx)) {
         case LUA_TNIL:
-            INFO("<%d> nil");
+            INFO("<%d> nil", idx);
             break;
 
         case LUA_TBOOLEAN:
@@ -190,7 +190,7 @@ void GenerateIdeHelpers(lua_State* L, std::optional<bool> builtinOnly)
     if (gExtender->GetConfig().DeveloperMode) {
 #endif
         auto lua = State::FromLua(L);
-        if ((lua->RestrictionFlags & State::RestrictOsiris) || !gExtender->GetServer().IsInServerThread()) {
+        if ((lua->RestrictionFlags & State::RestrictOsiris) || !gExtender->GetServer().IsInContext()) {
             luaL_error(L, "GenerateIdeHelpers() can only be called when Osiris is available");
         }
 
@@ -222,12 +222,10 @@ bool IsDeveloperMode()
 
 void LuaDebugBreak(lua_State* L)
 {
-#if !defined(OSI_NO_DEBUGGER)
     auto debugger = gExtender->GetLuaDebugger();
     if (debugger) {
         debugger->DebugBreak(L);
     }
-#endif
 }
 
 // Development-only function for testing crash reporting
@@ -266,20 +264,24 @@ void SetEntityRuntimeCheckLevel(int level)
     }
 }
 
-void Reset()
+void Reset(std::optional<bool> server, std::optional<bool> client)
 {
     if (!gExtender->GetConfig().DeveloperMode) {
         ERR("Reset() only available in developer mode");
         return;
     }
 
-    gExtender->GetServer().EnqueueTask([]() {
-        gExtender->GetServer().ResetLuaState();
-    });
+    if (server.value_or(true)) {
+        gExtender->GetServer().EnqueueTask([] () {
+            gExtender->GetServer().ResetLuaState();
+        });
+    }
 
-    gExtender->GetClient().EnqueueTask([]() {
-        gExtender->GetClient().ResetLuaState();
-    });
+    if (client.value_or(true)) {
+        gExtender->GetClient().EnqueueTask([] () {
+            gExtender->GetClient().ResetLuaState();
+        });
+    }
 }
 
 void RegisterDebugLib()

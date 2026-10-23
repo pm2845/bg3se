@@ -9,10 +9,14 @@ void ExtenderProtocol::ProcessExtenderMessage(net::MessageContext& context, net:
     switch (msg.msg_case()) {
     case net::MessageWrapper::kPostLua:
     {
-        auto & postMsg = msg.post_lua();
-        ecl::LuaClientPin pin(ecl::ExtensionState::Get());
-        if (pin) {
-            pin->OnNetMessageReceived(postMsg.channel_name().c_str(), postMsg.payload().c_str(), postMsg.module().c_str(), postMsg.request_id(), postMsg.reply_id(), ReservedUserId);
+        if (gExtender->GetClient().HasExtensionState()) {
+            auto& postMsg = msg.post_lua();
+            ecl::LuaClientPin pin(ecl::ExtensionState::Get());
+            if (pin) {
+                pin->OnNetMessageReceived(postMsg.channel_name(), postMsg.payload(), 
+                    postMsg.module(), postMsg.request_id(), postMsg.reply_id(), 
+                    ReservedUserId, postMsg.serializer() == net::SerializerType::SERIALIZER_BINARY);
+            }
         }
         break;
     }
@@ -34,15 +38,7 @@ void ExtenderProtocol::ProcessExtenderMessage(net::MessageContext& context, net:
             ext.OnGameSessionLoaded();
             ext.OnResetCompleted();
         });
-        ext.LuaReset(resetMsg.bootstrap_scripts());
-        break;
-    }
-
-    case net::MessageWrapper::kS2CSyncStat:
-    {
-        // FIXME - not supported for now
-        // auto stats = GetStaticSymbols().GetStats();
-        // stats->SyncObjectFromServer(msg.s2c_sync_stat());
+        ext.RequestLuaReset(resetMsg.bootstrap_scripts());
         break;
     }
 
@@ -118,11 +114,12 @@ void NetworkManager::OnExtenderHello(net::MsgC2SExtenderHello const& hello)
 {
     DEBUG("Got extender support notification from host (version %d)", hello.version());
     AllowExtenderMessages();
+    hostVersion_ = (net::ProtoVersion)hello.version();
 
     auto helloMsg = GetFreeMessage();
     if (helloMsg != nullptr) {
         auto hello = helloMsg->GetMessage().mutable_c2s_extender_hello();
-        hello->set_version(net::ExtenderMessage::ProtoVersion);
+        hello->set_version((uint32_t)net::ProtoVersion::Current);
         Send(helloMsg);
     } else {
         OsiErrorS("Could not get free message!");
@@ -156,6 +153,20 @@ net::ExtenderMessage* NetworkManager::GetFreeMessage(UserId userId)
     }
 
     return GetFreeMessage();
+}
+
+net::ProtoVersion NetworkManager::SharedVersion()
+{
+    // Never use a version number more recent than ours, even if the host is newer
+    return std::min(hostVersion_, net::ProtoVersion::Current);
+}
+
+void NetworkManager::HandleLocalMessage(net::LocalMessage const& msg)
+{
+    ecl::LuaClientPin pin(ecl::ExtensionState::Get());
+    if (pin) {
+        pin->OnNetMessageReceived(msg.Channel, msg.Payload, msg.Module, msg.RequestId, msg.ReplyId, msg.User, msg.Binary);
+    }
 }
 
 void NetworkManager::Send(net::ExtenderMessage* msg)

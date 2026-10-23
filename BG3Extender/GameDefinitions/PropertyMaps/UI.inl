@@ -1,5 +1,3 @@
-#if defined(ENABLE_UI)
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 /// BASE CLASSES
 
@@ -10,6 +8,8 @@ P_FUN(ToString, Noesis::ObjectHelpers::ToString)
 // For both TypeProperty & DependencyProperty
 P_FUN(GetProperty, Noesis::ObjectHelpers::GetNamedProperty)
 P_FUN(GetAllProperties, Noesis::ObjectHelpers::GetAllProperties)
+P_FUN(DirectProperties, Noesis::ObjectHelpers::GetDirectProperties)
+P_FUN(DependencyProperties, Noesis::ObjectHelpers::GetDependencyProperties)
 P_FUN(SetProperty, Noesis::ObjectHelpers::SetNamedProperty)
 P_FALLBACK(&Noesis::ObjectHelpers::FallbackGetProperty, &Noesis::ObjectHelpers::FallbackSetProperty, nullptr)
 END_CLS()
@@ -26,11 +26,6 @@ INHERIT(Noesis::BaseRefCounted)
 END_CLS()
 
 
-BEGIN_CLS(Noesis::TypeMetaData)
-INHERIT(Noesis::BaseObject)
-END_CLS()
-
-
 BEGIN_CLS(Noesis::Type)
 INHERIT(Noesis::BaseObject)
 P_FREE_GETTER(Name, Noesis::TypeHelpers::GetName)
@@ -42,26 +37,33 @@ INHERIT(Noesis::Type)
 // FindMeta, GetMeta
 END_CLS()
 
+BEGIN_CLS(Noesis::TypeMetaData)
+INHERIT(Noesis::BaseComponent)
+END_CLS()
+
+BEGIN_CLS(Noesis::DependencyData)
+INHERIT(Noesis::TypeMetaData)
+END_CLS()
+
+BEGIN_CLS(Noesis::UIElementData)
+INHERIT(Noesis::DependencyData)
+END_CLS()
+
 BEGIN_CLS(Noesis::TypeProperty)
 P_FREE_GETTER(Name, Noesis::TypePropertyHelpers::GetName)
 P_FREE_GETTER(ContentType, Noesis::TypePropertyHelpers::GetContentType)
-P_FREE_GETTER(Meta, Noesis::TypePropertyHelpers::GetMeta)
+P_FREE_GETTER(Meta, Noesis::TypePropertyHelpers::GetMetaLua)
 P_FREE_GETTER(IsReadOnly, Noesis::TypePropertyHelpers::IsReadOnly)
 END_CLS()
 
 
 BEGIN_CLS(Noesis::TypeClass)
-INHERIT(Noesis::TypeMeta)
+// Not inheriting anything from parent for type descriptors
 P_FREE_GETTER(Base, Noesis::TypeHelpers::GetBase)
 P_FREE_GETTER(IsInterface, Noesis::TypeHelpers::IsInterface)
 P_FREE_GETTER(Properties, Noesis::TypeHelpers::GetProperties)
-P_FREE_GETTER(Events, Noesis::TypeHelpers::GetEvents)
-P_FREE_GETTER(Dependency, Noesis::TypeHelpers::GetDependencyData)
-P_FREE_GETTER(UIElement, Noesis::TypeHelpers::GetUIElementData)
-P_FUN(GetDependencyProperties, Noesis::TypeHelpers::GetDependencyProperties)
-P_FUN(GetRoutedEvents, Noesis::TypeHelpers::GetRoutedEvents)
-// FindProperty
-// FindEvent
+P_FREE_GETTER(DependencyProperties, Noesis::TypeHelpers::GetDependencyProperties)
+P_FREE_GETTER(RoutedEvents, Noesis::TypeHelpers::GetRoutedEvents)
 END_CLS()
 
 
@@ -84,11 +86,6 @@ INHERIT(Noesis::DispatcherObject)
 END_CLS()
 
 
-BEGIN_CLS(Noesis::DependencyData)
-INHERIT(Noesis::TypeMetaData)
-END_CLS()
-
-
 BEGIN_CLS(Noesis::RoutedEvent)
 INHERIT(Noesis::BaseComponent)
 P_FREE_GETTER(Name, Noesis::RoutedEventHelpers::GetName)
@@ -96,10 +93,22 @@ P_FREE_GETTER(OwnerType, Noesis::RoutedEventHelpers::GetOwnerType)
 END_CLS()
 
 
+BEGIN_CLS(Noesis::ICommand)
+P_FUN(CanExecute, Noesis::CommandHelpers::InterfaceCanExecute)
+P_FUN(Execute, Noesis::CommandHelpers::InterfaceExecute)
+END_CLS()
+
+
 BEGIN_CLS(Noesis::BaseCommand)
 INHERIT(Noesis::BaseComponent)
 P_FUN(CanExecute, Noesis::CommandHelpers::CanExecute)
 P_FUN(Execute, Noesis::CommandHelpers::Execute)
+END_CLS()
+
+
+BEGIN_CLS(Noesis::LuaDelegateCommand)
+INHERIT(Noesis::BaseCommand)
+P_FUN(SetHandler, Noesis::LuaDelegateCommand::BindHandler)
 END_CLS()
 
 
@@ -112,13 +121,9 @@ INHERIT(Noesis::DependencyObject)
 P_FREE_GETTER(VisualParent, Noesis::VisualHelpers::GetVisualParent)
 P_FREE_GETTER(VisualChildrenCount, Noesis::VisualHelpers::GetVisualChildrenCount)
 P_FUN(VisualChild, Noesis::VisualHelpers::GetVisualChild)
-END_CLS()
-
-
-BEGIN_CLS(Noesis::UIElementData)
-INHERIT(Noesis::DependencyData)
-P_FUN(GetEvent, Noesis::UIElementDataHelpers::GetEvent)
-P_FUN(GetAllEvents, Noesis::UIElementDataHelpers::GetAllEvents)
+P_FUN(PointFromScreen, Noesis::VisualHelpers::PointFromScreen)
+P_FUN(PointToScreen, Noesis::VisualHelpers::PointToScreen)
+P_FUN(HitTest, Noesis::VisualHelpers::HitTest)
 END_CLS()
 
 
@@ -153,12 +158,39 @@ PN(Y, y)
 END_CLS()
 
 
+BEGIN_CLS(Noesis::Thickness)
+PN(Left, left)
+PN(Top, top)
+PN(Right, right)
+PN(Bottom, bottom)
+END_CLS()
+
+
+BEGIN_CLS(Noesis::CornerRadius)
+PN(TopLeft, topLeft)
+PN(TopRight, topRight)
+PN(BottomRight, bottomRight)
+PN(BottomLeft, bottomLeft)
+END_CLS()
+
+
+BEGIN_CLS(Noesis::GridLengthHelper)
+P(GridUnitType)
+P(Value)
+END_CLS()
+
+
 BEGIN_CLS(ui::UIWidget)
 INHERIT(Noesis::FrameworkElement)
 P(WidgetData)
-P(StateGuid)
-P(WidgetContainerGrid)
-P(XAMLPath)
+P(StateId)
+P(LayerIndex)
+P(IndexInLayer)
+P(FileName)
+P(Flags)
+P(Flags2)
+P(Flags3)
+P(PlayerId)
 END_CLS()
 
 
@@ -248,9 +280,16 @@ END_CLS()
 
 BEGIN_CLS(ui::DCWidget)
 INHERIT(ui::ViewModel)
-P_RO(Name)
-P(Layout)
-P(PlayerId)
+//P_RO(Name)
+//P(Layout)
+//P(PlayerId)
+END_CLS()
+
+BEGIN_CLS(ui::CustomPropertyDefn)
+P(Name)
+P(Type)
+P(Notify)
+P(WriteCallback)
 END_CLS()
 
 
@@ -376,5 +415,3 @@ PN(KeyStates, keyStates)
 PN(AllowedEffects, allowedEffects)
 PN(Effects, effects)
 END_CLS()
-
-#endif

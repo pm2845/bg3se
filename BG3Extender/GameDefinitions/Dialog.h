@@ -1,6 +1,7 @@
 #pragma once
 
 #include <GameDefinitions/Base/Base.h>
+#include <GameDefinitions/EntitySystem.h>
 
 BEGIN_NS(dlg)
 
@@ -50,7 +51,7 @@ struct ScriptFlag
 {
     Guid Uuid;
     STDString Script;
-    uint64_t field_28;
+    uint64_t KeywordConditionList;
 #if 0
     //STDString Name;
     //STDString Description;
@@ -93,7 +94,7 @@ struct TextLine
     Guid CustomSequenceId;
     TranslatedFSString TagText;
     TranslatedFSString OldText;
-    Array<FixedString> DialogVariables;
+    TrackedCompactSet<FixedString> DialogVariables;
     bool HasOverrideText;
     STDString Content;
     uint8_t field_70;
@@ -105,7 +106,7 @@ struct TextLine
 struct TaggedText
 {
     TagRuleGroup* RootRule;
-    Array<TextLine> Lines;
+    TrackedCompactSet<TextLine> Lines;
 };
 
 
@@ -154,10 +155,10 @@ struct DialogGameData : public ProtectedGameObject<DialogGameData>
     virtual void Clone(DialogGameData const*) = 0;
 
     DialogNode* ParentNode;
-    Array<FixedString> AiPersonality;
+    TrackedCompactSet<FixedString> AiPersonality;
     Array<LookAtInfo> LookAt;
     STDString SoundEvent;
-    STDString SoundPerMusicInstrument[4];
+    std::array<STDString, 4> SoundPerMusicInstrument;
     FixedString OriginTheme;
     FixedString OriginOnly;
     bool OriginThemeAddInstrument;
@@ -192,8 +193,8 @@ struct Dialog : public ProtectedGameObject<Dialog>
     LegacyRefMap<FixedString, DialogNode*> Nodes;
     [[bg3::hidden]] DialogManager* DialogManager;
     STDString Category;
-    Array<STDString> SpeakerGroups;
-    Array<STDString> SpeakerTags;
+    TrackedCompactSet<STDString> SpeakerGroups;
+    TrackedCompactSet<STDString> SpeakerTags;
     Array<Guid> SpeakerMappingIds;
     HashMap<int, int> DefaultAddressedSpeakers;
     HashSet<int> PeanutSlots;
@@ -265,7 +266,7 @@ struct DialogNode : public ProtectedGameObject<DialogNode>
     FlagCollection CheckFlags;
     Dialog* ParentDialog;
     [[bg3::hidden]] void* GameData;
-    Array<FixedString> Children;
+    TrackedCompactSet<FixedString> Children;
     float WaitTime;
     Array<Guid> Tags;
     Guid ApprovalRatingID;
@@ -429,10 +430,10 @@ struct DialogInstance : public ProtectedGameObject<DialogInstance>
     int DialogId;
     int TimeAccumulator;
     __int64 field_8;
-    Array<FixedString> PopLevels;
+    TrackedCompactSet<FixedString> PopLevels;
     Array<NodeSelectionInfo> NodeSelection;
     Array<EntityHandle> Speakers;
-    Array<VisitedNode> VisitedNodes;
+    TrackedCompactSet<VisitedNode> VisitedNodes;
     Array<QueuedActor> QueuedActors;
     HashMap<FixedString, uint32_t> NodeCustomData;
     HashSet<FixedString> PlayedDialogs;
@@ -462,7 +463,7 @@ struct DialogInstance : public ProtectedGameObject<DialogInstance>
     bool WorldHadTriggered;
     bool IsPlayerWatchingTimeline;
     bool TimelineConfirmed;
-    // bool IsPreview; - maybe?
+    bool IsPreview;
     int8_t LocalHighlightedAnswer;
     int8_t HostHighlightedAnswer;
     uint8_t Flags;
@@ -586,12 +587,10 @@ struct [[bg3::hidden]] DialogGameInterface : public dlg::SharedDialogGameInterfa
 };
 
 
-struct [[bg3::hidden]] DialogSystem : public ProtectedGameObject<DialogSystem>
+struct [[bg3::hidden]] DialogSystem : public BaseSystem
 {
-    static constexpr auto SystemType = ExtSystemType::ServerDialogSystem;
+    DEFINE_SYSTEM(ServerDialog, "esv::DialogSystem")
 
-    void* VMT;
-    void* field_8;
     void* TimelineSystem;
     void* CombatLogSystem;
     void* RollSystem;

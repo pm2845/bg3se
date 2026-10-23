@@ -204,6 +204,7 @@ namespace bg3se {
             gRegisteredTrampolines.insert(ResolveRealFunctionAddress(wrapper));
             hook_ = &NoContextHook;
             func_ = wrapper;
+            func2_ = nullptr;
             context_ = nullptr;
         }
 
@@ -218,6 +219,7 @@ namespace bg3se {
             gRegisteredTrampolines.insert(ResolveRealFunctionAddress(wrapper));
             hook_ = reinterpret_cast<HookFuncType*>(wrapper);
             func_ = nullptr;
+            func2_ = nullptr;
             context_ = context;
         }
 
@@ -233,6 +235,7 @@ namespace bg3se {
             gRegisteredTrampolines.insert(ResolveRealFunctionAddress(fun));
             hook_ = reinterpret_cast<HookFuncType*>(fun);
             func_ = nullptr;
+            func2_ = nullptr;
             context_ = context;
         }
 
@@ -247,6 +250,7 @@ namespace bg3se {
             gRegisteredTrampolines.insert(ResolveRealFunctionAddress(&StaticPreHook));
             hook_ = &StaticPreHook;
             func_ = MethodPtrHelpers<TContext, void (Params...)>::ToFunction(wrapper);
+            func2_ = nullptr;
             context_ = context;
         }
 
@@ -265,6 +269,26 @@ namespace bg3se {
             } else {
                 func_ = MethodPtrHelpers<TContext, void(Params..., R)>::ToFunction(wrapper);
             }
+            func2_ = nullptr;
+            context_ = context;
+        }
+
+        template <class TContext>
+        void SetPrePostHook(void (TContext::* preHook)(Params...), PostHookCallbackSignature<TContext, R, Params...>::Type postHook, TContext* context)
+        {
+            if (hook_ != nullptr) {
+                ERR("[%s] Function already wrapped", typeid(*this).name());
+                return;
+            }
+
+            gRegisteredTrampolines.insert(ResolveRealFunctionAddress(&StaticPrePostHook));
+            hook_ = &StaticPrePostHook;
+            func_ = MethodPtrHelpers<TContext, void(Params...)>::ToFunction(preHook);
+            if constexpr (std::is_same_v<R, void>) {
+                func2_ = MethodPtrHelpers<TContext, void(Params...)>::ToFunction(postHook);
+            } else {
+                func2_ = MethodPtrHelpers<TContext, void(Params..., R)>::ToFunction(postHook);
+            }
             context_ = context;
         }
 
@@ -272,6 +296,7 @@ namespace bg3se {
         {
             hook_ = nullptr;
             func_ = nullptr;
+            func2_ = nullptr;
             context_ = nullptr;
         }
 
@@ -296,9 +321,10 @@ namespace bg3se {
 
     private:
         WrappedFunction<R(Params...)> wrapped_;
-        HookFuncType* hook_;
-        void* func_;
-        void* context_;
+        HookFuncType* hook_{ nullptr };
+        void* func_{ nullptr };
+        void* func2_{ nullptr };
+        void* context_{ nullptr };
 
         static R CallToTrampoline(Params... Args)
         {
@@ -307,26 +333,42 @@ namespace bg3se {
 
         static R NoContextHook(void* ctx, BaseFuncType* fun, Params... args)
         {
-            auto hook = reinterpret_cast<NoContextHookFuncType*>(gHook->func_);
+            auto hook = static_cast<NoContextHookFuncType*>(gHook->func_);
             return hook(fun, std::forward<Params>(args)...);
         }
 
         static R StaticPreHook(void* ctx, BaseFuncType* fun, Params... args)
         {
-            auto hook = reinterpret_cast<PreHookFuncType*>(gHook->func_);
+            auto hook = static_cast<PreHookFuncType*>(gHook->func_);
             hook(ctx, std::forward<Params>(args)...);
             return gHook->CallOriginal(std::forward<Params>(args)...);
         }
 
         static R StaticPostHook(void* ctx, BaseFuncType* fun, Params... args)
         {
-            auto hook = reinterpret_cast<PostHookFuncType*>(gHook->func_);
+            auto hook = static_cast<PostHookFuncType*>(gHook->func_);
             if constexpr (std::is_same_v<R, void>) {
                 gHook->CallOriginal(std::forward<Params>(args)...);
                 hook(ctx, std::forward<Params>(args)...);
             } else {
                 auto retval = gHook->CallOriginal(std::forward<Params>(args)...);
                 hook(ctx, std::forward<Params>(args)..., retval);
+                return retval;
+            }
+        }
+
+        static R StaticPrePostHook(void* ctx, BaseFuncType* fun, Params... args)
+        {
+            auto preHook = static_cast<PreHookFuncType*>(gHook->func_);
+            preHook(ctx, std::forward<Params>(args)...);
+
+            auto postHook = static_cast<PostHookFuncType*>(gHook->func2_);
+            if constexpr (std::is_same_v<R, void>) {
+                gHook->CallOriginal(std::forward<Params>(args)...);
+                postHook(ctx, std::forward<Params>(args)...);
+            } else {
+                auto retval = gHook->CallOriginal(std::forward<Params>(args)...);
+                postHook(ctx, std::forward<Params>(args)..., retval);
                 return retval;
             }
         }

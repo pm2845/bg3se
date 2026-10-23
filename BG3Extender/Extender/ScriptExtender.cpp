@@ -1,14 +1,20 @@
 #include "stdafx.h"
 #include <Extender/ScriptExtender.h>
 #include <Extender/Shared/Console.h>
+#include <GameDefinitions/Stats/Cache.h>
 #include "Version.h"
 #include "resource.h"
 #include <iomanip>
+#include <chrono>
 
+#include <Extender/Shared/UpdaterAPI.inl>
 #include <Extender/Shared/StatLoadOrderHelper.inl>
 #include <Extender/Shared/UserVariables.inl>
 #include <Extender/Shared/UseActions.inl>
 #include <Extender/Shared/VirtualTextures.inl>
+#if USE_OPTICK
+#include <optick_server.h>
+#endif
 
 #undef DEBUG_SERVER_CLIENT
 
@@ -24,12 +30,10 @@ decltype(ScriptExtender::AppLoadGraphicSettings)* decltype(ScriptExtender::AppLo
 
 std::unique_ptr<ScriptExtender> gExtender;
 
-#if !defined(OSI_NO_DEBUGGER)
 void LuaDebugThreadRunner(LuaDebugInterface& intf)
 {
     intf.Run();
 }
-#endif
 
 ScriptExtender::ScriptExtender()
     : server_(config_),
@@ -67,14 +71,15 @@ void ScriptExtender::Initialize()
         InitCrashReporting();
     }
 
-    GameVersionInfo gameVersion;
-    if (Libraries.GetGameVersion(gameVersion)) {
-        if (gameVersion.IsSupported()) {
-            INFO("Game version v%d.%d.%d.%d OK", gameVersion.Major, gameVersion.Minor, gameVersion.Revision, gameVersion.Build);
+    startTime_ = GetTickCount64();
+
+    if (Libraries.GetGameVersion(gameVersion_)) {
+        if (gameVersion_.IsSupported()) {
+            INFO("Game version v%d.%d.%d.%d OK", gameVersion_.Major, gameVersion_.Minor, gameVersion_.Revision, gameVersion_.Build);
         } else {
-            ERR("Game version v%d.%d.%d.%d is not supported, please upgrade!", gameVersion.Major, gameVersion.Minor, gameVersion.Revision, gameVersion.Build);
+            ERR("Game version v%d.%d.%d.%d is not supported, please upgrade!", gameVersion_.Major, gameVersion_.Minor, gameVersion_.Revision, gameVersion_.Build);
             // Hard exit below a certain version as the EoCClient error display UI won't work anymore
-            Fail("Script Extender doesn't support game versions below v4.57, please upgrade!");
+            Fail("Script Extender doesn't support game versions below v4.68, please upgrade!");
         }
     } else {
         ERR("Failed to retrieve game version info.");
@@ -87,15 +92,14 @@ void ScriptExtender::Initialize()
 
     InitStaticSymbols();
 
-    if (!Libraries.FindLibraries(gameVersion.Revision)) {
+    if (!Libraries.FindLibraries(gameVersion_.Revision)) {
         ERR("ScriptExtender::Initialize: Could not load libraries; skipping scripting extension initialization.");
     }
 
-#if defined(ENABLE_IMGUI)
     if (!Libraries.CriticalInitializationFailed()) {
         imgui_.EnableHooks();
+        updaterApi_.MarkReadyToDisplayErrors();
     }
-#endif
 
     server_.Initialize();
     client_.Initialize();
@@ -120,7 +124,17 @@ void ScriptExtender::Initialize()
 
     DetourTransactionCommit();
 
-#if !defined(OSI_NO_DEBUGGER)
+#if USE_OPTICK
+    if (config_.Optick) {
+        ::Optick::Server::Enable();
+        if (::Optick::Server::Get().IsListening()) {
+            DEBUG("Optick profiler listening on port %d", ::Optick::Server::Get().GetPort());
+        } else {
+            ERR("Optick profiler startup failed");
+        }
+    }
+#endif
+
     if (config_.EnableLuaDebugger && luaDebuggerThread_ == nullptr) {
         DEBUG("Starting Lua debugger server");
         try {
@@ -134,11 +148,10 @@ void ScriptExtender::Initialize()
             ERR("Lua debugger startup failed: %s", e.what());
         }
     }
-#endif
 
     auto initEnd = std::chrono::high_resolution_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(initEnd - initStart).count();
-    DEBUG("Library startup took %d ms", ms);
+    DEBUG("Library startup took %lld ms", ms);
 
     auto app = GetStaticSymbols().AppInstance;
     if (app && *app) {
@@ -170,11 +183,9 @@ void ScriptExtender::LogOsirisError(std::string_view msg)
     gCoreLibPlatformInterface.GlobalConsole->Print(DebugMessageType::Error, msg.data());
     server_.Osiris().LogError(msg);
 
-#if !defined(OSI_NO_DEBUGGER)
     if (luaDebugger_) {
         luaDebugger_->OnGenericError(msg.data());
     }
-#endif
 }
 
 void ScriptExtender::LogOsirisWarning(std::string_view msg)
@@ -227,10 +238,10 @@ std::wstring ScriptExtender::MakeLogFilePath(std::wstring const & Type, std::wst
     return ss.str();
 }
 
-void ScriptExtender::OnStatsLoadGuarded(stats::RPGStats::LoadProc* wrapped, stats::RPGStats* mgr, Array<STDString>* paths)
+void ScriptExtender::OnStatsLoadGuarded(stats::RPGStats__LoadProc* wrapped, stats::RPGStats* mgr, Array<STDString>* paths)
 {
     // Stats load is scheduled from the client on the shared worker pool
-    client_.AddThread(GetCurrentThreadId());
+    ContextGuard _(ContextType::Client);
 
     // Ensure that we have an empty extension state ready in case OnStatsLoad() is the first callback
     // due to late load
@@ -242,42 +253,46 @@ void ScriptExtender::OnStatsLoadGuarded(stats::RPGStats::LoadProc* wrapped, stat
     client_.LoadExtensionState(ExtensionStateContext::Load);
 
     {
+        ecl::LuaClientPin lua(client_.GetExtensionState());
+        if (lua) {
+            lua->OnModuleLoadStarted();
+        }
+    }
+
+    {
         DisableCrashReporting _;
         wrapped(mgr, paths);
     }
 
+    stats::gStatStructureCache.OnStatsLoaded();
     client_.LoadExtensionState(ExtensionStateContext::Game);
 
     if (client_.HasExtensionState()) {
         client_.GetExtensionState().OnStatsLoaded();
     }
 
-#if defined(ENABLE_IMGUI)
     imgui_.EnableUI(true);
-#endif
-
-    client_.RemoveThread(GetCurrentThreadId());
 }
 
-void ScriptExtender::OnStatsLoad(stats::RPGStats::LoadProc* wrapped, stats::RPGStats* mgr, Array<STDString>* paths)
+void ScriptExtender::OnStatsLoad(stats::RPGStats__LoadProc* wrapped, stats::RPGStats* mgr, Array<STDString>* paths)
 {
     BEGIN_GUARDED()
     OnStatsLoadGuarded(wrapped, mgr, paths);
     END_GUARDED()
 }
 
-void ScriptExtender::OnECSUpdate(ecs::EntityWorld::UpdateProc* wrapped, ecs::EntityWorld* entityWorld, GameTime const& time)
+void ScriptExtender::OnECSUpdate(ecs::EntityWorld__UpdateProc* wrapped, ecs::EntityWorld* entityWorld, GameTime const& time)
 {
     BEGIN_GUARDED()
     OnECSUpdateGuarded(wrapped, entityWorld, time);
     END_GUARDED()
 }
 
-void ScriptExtender::OnECSUpdateGuarded(ecs::EntityWorld::UpdateProc* wrapped, ecs::EntityWorld* entityWorld, GameTime const& time)
+void ScriptExtender::OnECSUpdateGuarded(ecs::EntityWorld__UpdateProc* wrapped, ecs::EntityWorld* entityWorld, GameTime const& time)
 {
     auto ecs = GetECS(entityWorld);
     if (ecs != nullptr) {
-        ecs->Update();
+        ecs->PreUpdate();
         
         {
             DisableCrashReporting _;
@@ -286,11 +301,15 @@ void ScriptExtender::OnECSUpdateGuarded(ecs::EntityWorld::UpdateProc* wrapped, e
 
         ecs->PostUpdate();
 
-        if (entityWorld->Replication) {
+        auto ctx = GetCurrentContextType();
+        se_assert(ctx != ContextType::None);
+
+        if (ctx == ContextType::Server) {
             if (GetServer().HasExtensionState()) {
                 esv::LuaServerPin lua(GetServer().GetExtensionState());
                 if (lua) {
                     lua->GetComponentEventHooks().FireDeferredEvents();
+                    lua->GetSystemEventHooks().FireDeferredEvents();
                     lua->GetServerReplicationEventHooks().OnEntityReplication(*entityWorld, entityWorld->Replication);
                 }
             }
@@ -299,6 +318,7 @@ void ScriptExtender::OnECSUpdateGuarded(ecs::EntityWorld::UpdateProc* wrapped, e
                 ecl::LuaClientPin lua(GetClient().GetExtensionState());
                 if (lua) {
                     lua->GetComponentEventHooks().FireDeferredEvents();
+                    lua->GetSystemEventHooks().FireDeferredEvents();
                 }
             }
         }
@@ -319,14 +339,16 @@ void ScriptExtender::OnECSFlushECBs(ecs::EntityWorld* entityWorld)
 
 void ScriptExtender::OnFindPath(AiGrid* self, AiPathId pathId)
 {
-    if (server_.IsInServerThread()) {
+    auto ctx = GetCurrentContextType();
+
+    if (ctx == ContextType::Server) {
         if (server_.HasExtensionState()) {
             esv::LuaServerPin lua(GetServer().GetExtensionState());
             if (lua) {
                 lua->OnFindPath(self, pathId);
             }
         }
-    } else if (client_.IsInClientThread()) {
+    } else if (ctx == ContextType::Client) {
         if (GetClient().HasExtensionState()) {
             ecl::LuaClientPin lua(GetClient().GetExtensionState());
             if (lua) {
@@ -344,20 +366,23 @@ bool ScriptExtender::HasFeatureFlag(char const * flag) const
 
 ExtensionStateBase* ScriptExtender::GetCurrentExtensionState()
 {
-    if (server_.IsInServerThread()) {
+    auto ctx = GetCurrentContextType();
+
+    if (ctx == ContextType::Server) {
         if (server_.HasExtensionState()) {
             return &server_.GetExtensionState();
         } else {
             return nullptr;
         }
-    } else if (client_.IsInClientThread()) {
+    } else if (ctx == ContextType::Client) {
         if (client_.HasExtensionState()) {
             return &client_.GetExtensionState();
         } else {
+            ERR("GetCurrentExtensionState() called from client thread %d, but no client state is available!", GetCurrentThreadId());
             return nullptr;
         }
     } else {
-        WARN("Called from unknown thread %d?", GetCurrentThreadId());
+        ERR("GetCurrentExtensionState() called from thread %d that is not bound to any context!", GetCurrentThreadId());
         if (client_.HasExtensionState()) {
             return &client_.GetExtensionState();
         } else {
@@ -368,11 +393,12 @@ ExtensionStateBase* ScriptExtender::GetCurrentExtensionState()
 
 ecs::EntitySystemHelpersBase* ScriptExtender::GetECS(ecs::EntityWorld* world)
 {
-    if (world == GetStaticSymbols().GetClientEntityWorld()) {
+    if (client_.GetEntityHelpers().HasEntityWorld() && world == client_.GetEntityHelpers().GetEntityWorld()) {
         return &client_.GetEntityHelpers();
-    } else if (world == GetStaticSymbols().GetServerEntityWorld()) {
+    } else if (server_.GetEntityHelpers().HasEntityWorld() && world == server_.GetEntityHelpers().GetEntityWorld()) {
         return &server_.GetEntityHelpers();
-    } else  {
+    } else {
+        // This can happen if we're not yet past server/client setup phase
         return nullptr;
     }
 }
@@ -382,7 +408,7 @@ void ScriptExtender::OnCoreLibInit(void * self)
     PostStartup();
 }
 
-void ScriptExtender::OnAppUpdatePaths(void * self)
+void ScriptExtender::OnAppUpdatePaths(App* self)
 {
     if (!config_.CustomProfile.empty() && GetStaticSymbols().ls__PathRoots) {
         auto& gameLocalPath = GetStaticSymbols().ls__PathRoots[4];
@@ -474,11 +500,6 @@ void ScriptExtender::HookStateMachineUpdates()
     updateHooksAdded_ = true;
 }
 
-void ScriptExtender::OnBaseModuleLoaded(void * self)
-{
-}
-
-
 void ScriptExtender::ClearPathOverrides()
 {
     std::unique_lock lock(pathOverrideMutex_);
@@ -508,7 +529,7 @@ std::optional<STDString> ScriptExtender::GetPathOverride(STDString const & path)
     }
 }
 
-FileReader * ScriptExtender::OnFileReaderCreate(FileReader::CtorProc* next, FileReader * self, Path const& path, unsigned int type, unsigned int unknown)
+FileReader * ScriptExtender::OnFileReaderCreate(FileReader__CtorProc* next, FileReader * self, Path const& path, unsigned int type, unsigned int unknown)
 {
     if (!pathOverrides_.empty()) {
         std::shared_lock lock(pathOverrideMutex_);
@@ -541,9 +562,15 @@ void ScriptExtender::PostStartup()
     std::lock_guard _(globalStateLock_);
     // We need to initialize the function library here, as GlobalAllocator isn't available in Init().
     if (Libraries.PostStartupFindLibraries()) {
-        lua::RegisterLibraries();
         lua::InitObjectProxyPropertyMaps();
         TypeInformationRepository::GetInstance().Initialize();
+        lua::RegisterLibraries();
+        TypeInformationRepository::GetInstance().Finalize();
+
+        // Jank workaround to game bug where the reference count for FixedString 0 (the "Cast" key)
+        // gets erroneously decremented during module load.
+        FixedString cast("Cast");
+        const_cast<FixedStringBase::Header*>(cast.GetMetadata())->RefCount = 100000;
 
         engineHooks_.HookAll();
         hooks_.Startup();

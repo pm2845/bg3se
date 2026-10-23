@@ -70,7 +70,7 @@ namespace NSE.DebuggerFrontend
     public class DAPMessageHandler
     {
         // DBG protocol version (game/editor backend to debugger frontend communication)
-        private const UInt32 DBGProtocolVersion = 4;
+        private const UInt32 DBGProtocolVersion = 5;
 
         // DAP protocol version (VS Code to debugger frontend communication)
         private const int DAPProtocolVersion = 1;
@@ -102,6 +102,7 @@ namespace NSE.DebuggerFrontend
 
         private ExpressionEvaluator Evaluator;
         private DAPRequest PendingLaunchRequest;
+        private DAPRequest PendingLoadedSourcesRequest;
 
 
         public DAPMessageHandler(DAPStream stream)
@@ -170,6 +171,11 @@ namespace NSE.DebuggerFrontend
                 {
                     LogError(e.ToString());
                     Stream.SendReply(message as DAPRequest, e.ToString());
+                    Stream.SendEvent("output", new DAPOutputMessage
+                    {
+                        category = "important",
+                        output = $"Error while handling request '{(message as DAPRequest).command}':\r\n{e.ToString()}"
+                    });
                 }
             }
             else if (message is DAPEvent)
@@ -266,8 +272,16 @@ namespace NSE.DebuggerFrontend
                 }
                 else
                 {
-                    stkFrame.Source = Path.GetFileName(frame.Source);
-                    stkFrame.Path = frame.Path.Replace("/", "\\");
+                    if (stkFrame.Path == "")
+                    {
+                        stkFrame.Source = "(Inline Code)";
+                        stkFrame.Path = null;
+                    }
+                    else
+                    {
+                        stkFrame.Source = Path.GetFileName(frame.Source);
+                        stkFrame.Path = frame.Path.Replace("/", "\\");
+                    }
                     stkFrame.Line = frame.Line;
                     stkFrame.ScopeFirstLine = frame.ScopeFirstLine;
                     stkFrame.ScopeLastLine = frame.ScopeLastLine;
@@ -338,6 +352,12 @@ namespace NSE.DebuggerFrontend
                     Name = source.Name
                 }
             ).ToList();
+
+            if (PendingLoadedSourcesRequest != null)
+            {
+                SendLoadedSources(PendingLoadedSourcesRequest);
+                PendingLoadedSourcesRequest = null;
+            }
         }
 
         private void OnDebugOutput(BkDebugOutput msg)
@@ -767,6 +787,18 @@ namespace NSE.DebuggerFrontend
         }
 
         private void HandleLoadedSourcesRequest(DAPRequest request, DAPLoadedSourcesRequest req)
+        {
+            if (SourceFiles == null)
+            {
+                PendingLoadedSourcesRequest = request;
+            }
+            else
+            {
+                SendLoadedSources(request);
+            }
+        }
+
+        private void SendLoadedSources(DAPRequest request)
         {
             var reply = new DAPLoadedSourcesResponse
             {

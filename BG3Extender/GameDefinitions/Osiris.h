@@ -587,12 +587,14 @@ struct SomeDbItem
     SomeDbItem * Next;
 };
 
+enum class OsiStringHandle : uint64_t {};
+
 union ValueUnion
 {
     int64_t Int64;
     float Float;
     int32_t Int32;
-    char * String;
+    OsiStringHandle StringHandle;
 };
 
 struct RawValue
@@ -602,64 +604,62 @@ struct RawValue
     OsiString Str;
 };
 
+enum class ValueFlags : uint8_t
+{
+    NoneValue = 0,
+    SimpleValue = 0x1,
+    TypedValue = 0x2,
+    Variable = 0x3,
+
+    IsValid = 0x8,
+    OutParam = 0x10,
+    IsAType = 0x20,
+    Unused = 0x40,
+    Adapted = 0x80
+};
+
 class TypedValue
 {
 public:
-    /*virtual bool Serialize(void * SmartBuf);
-    virtual ~TypedValue() {};
-    virtual bool SetType(ValueType type);
-    virtual ValueType GetType();
-    virtual bool IsValid();
-    virtual void DebugDump(char * log);
-    virtual void SetValue(TValue * value);
-    virtual TValue * GetValue();
-    virtual bool IsVariable();
-    virtual void SetOutParam(bool OutParam);
-    virtual void SetOutParam2(bool OutParam);
-    virtual bool IsOutParam();
-    virtual uint8_t Index();
-    virtual bool IsUnused();
-    virtual bool IsAdapted();*/
+    inline TypedValue()
+        : Value{ .Int64 = 0 }
+    {}
 
-    void * VMT{ nullptr };
+    ~TypedValue();
+    
+    TypedValue(TypedValue &);
+    TypedValue(TypedValue &&) noexcept;
+
+    TypedValue& operator = (TypedValue const&);
+    TypedValue& operator = (TypedValue &&) noexcept;
+
+    char const* GetString() const;
+    void ClearValue();
+    void SetValue(ValueType typeId, int32_t v);
+    void SetValue(ValueType typeId, float v);
+    void SetValue(ValueType typeId, int64_t v);
+    void SetValue(ValueType typeId, OsiStringHandle s);
+    void SetValue(ValueType typeId, char const* s);
+
+    inline bool HasValue() const
+    {
+        return (Flags & ValueFlags::IsValid) == ValueFlags::IsValid;
+    }
+
     ValueUnion Value;
-    uint16_t TypeId{ 0 };
-};
+    ValueType TypeId{ ValueType::None };
+    int8_t Index{ -1 };
+    ValueFlags Flags{ ValueFlags::TypedValue };
 
-struct DatabaseParam
-{
-    uint64_t A;
-    uint64_t B;
-};
-
-struct TypedValueList
-{
-    uint64_t Size;
-    TypedValue Values[1];
+private:
+    void ReleaseValue();
 };
 
 class TupleVec
 {
 public:
-    virtual ~TupleVec() {};
-
-    // Ptr to (&TypedValueList->Values)
     TypedValue * Values{ nullptr };
-    uint8_t Size{ 0 };
-    uint8_t __Padding[7];
-    uint32_t Unknown{ 0 };
-};
-
-class SmallTuple
-{
-public:
-    virtual ~SmallTuple();
-    virtual void DebugDump();
-
-    void Resize(uint32_t size);
-
-    TypedValue * Values{ nullptr };
-    uint8_t Size{ 0 };
+    uint64_t Size{ 0 };
 };
 
 struct TuplePtrLL
@@ -668,35 +668,73 @@ struct TuplePtrLL
     List<TypedValue*> Items;
 };
 
-struct TupleLL
-{
-    struct Item
-    {
-        uint8_t Index;
-        TypedValue Value;
-    };
-
-    List<Item> Items;
-};
-
-class VirtTupleLL
+class SmallTuple
 {
 public:
-    virtual ~VirtTupleLL() {}
+    static constexpr uint32_t InlineSize = 8;
 
-    TupleLL Data;
+    SmallTuple();
+    ~SmallTuple();
+
+    SmallTuple(SmallTuple const&) = delete;
+    SmallTuple& operator =(SmallTuple const&) = delete;
+
+    void Reserve(uint32_t size);
+    TypedValue& Add();
+
+    inline uint32_t Size() const
+    {
+        return size_;
+    }
+
+    inline TypedValue* Buf()
+    {
+        if (capacity_ <= InlineSize) {
+            return inline_;
+        } else {
+            return values_;
+        }
+    }
+
+    inline TypedValue const* Buf() const
+    {
+        if (capacity_ <= InlineSize) {
+            return inline_;
+        } else {
+            return values_;
+        }
+    }
+
+    TypedValue& operator [] (uint32_t index)
+    {
+        se_assert(index < size_);
+        return Buf()[index];
+    }
+
+    TypedValue const& operator [] (uint32_t index) const
+    {
+        se_assert(index < size_);
+        return Buf()[index];
+    }
+
+private:
+    union
+    {
+        TypedValue inline_[InlineSize];
+        TypedValue* values_;
+    };
+    uint32_t size_{ 0 };
+    uint32_t capacity_{ 8 };
+
 };
 
 struct Database : public ProtectedGameObject<Database>
 {
     uint32_t DatabaseId;
-    SomeDbItem Items[16];
-    uint64_t C;
     void * FactsVMT;
     List<TupleVec> Facts;
     Vector<uint32_t> ParamTypes;
     uint8_t NumParams;
-    Vector<DatabaseParam> OrderedFacts;
 };
 
 class RuleActionArguments
@@ -744,12 +782,9 @@ struct TypedDb
 
 struct GoalDb : public TypeDb<Goal*>
 {
-    uint32_t Unknown;
-    TMap<uint32_t, Goal*> Goals;
-    void* Unknown2;
+    Vector<Goal*> Goals;
 };
 
-class VirtTupleLL;
 class Node;
 
 struct Adapter : public ProtectedGameObject<Adapter>
@@ -758,7 +793,7 @@ struct Adapter : public ProtectedGameObject<Adapter>
     TMap<uint8_t, uint8_t> VarToColumnMaps;
     uint64_t VarToColumnMapCount;
     Vector<int8_t> ColumnToVarMaps;
-    VirtTupleLL Constants;
+    SmallTuple Constants;
 };
 
 using DatabaseDb = TypedDb<Database>;
@@ -837,7 +872,7 @@ struct FuncSigOutParamList
 
     inline bool isOutParam(unsigned i) const
     {
-        assert(i < Count*8);
+        se_assert(i < Count*8);
         return ((Params[i >> 3] << (i & 7)) & 0x80) == 0x80;
     }
 };
@@ -896,14 +931,14 @@ struct NodeVMT
     using DestroyProc = void (*)(Node * self, bool free);
     using GetDatabaseRefProc = DatabaseRef * (*)(Node * self, DatabaseRef * ref);
     using IsDataNodeProc = bool (*)(Node * self);
-    using IsValidProc = bool(*)(Node * self, VirtTupleLL * Values, uint32_t Adapter);
+    using IsValidProc = bool(*)(Node * self, SmallTuple* Values, uint32_t Adapter);
     using IsProcProc = bool(*)(Node * self);
     using IsPartOfAProcProc = bool(*)(Node * self);
     using GetParentProc = NodeRef * (*)(Node * self, NodeRef * ref);
     using SetNextNodeProc = void (*)(Node * self, NodeEntryRef * ref);
     using GetAdapterProc = Adapter * (*)(Node * self, EntryPoint which);
     using InsertTupleProc = void (*)(Node * self, TuplePtrLL * tuple);
-    using PushDownTupleProc = void(*)(Node * self, VirtTupleLL * tuple, uint32_t adapter, EntryPoint entryPoint);
+    using PushDownTupleProc = void(*)(Node * self, SmallTuple* tuple, uint32_t adapter, EntryPoint entryPoint);
     using TriggerInsertEventProc = void (*)(Node * self, TupleVec * tuple);
     using GetLowDatabaseRefProc = NodeRef * (*)(Node * self, NodeRef * ref);
     using GetLowDatabaseProc = NodeEntryRef * (*)(Node * self, NodeEntryRef * ref);
@@ -951,16 +986,16 @@ public:
     virtual DatabaseRef * GetDatabaseRef(DatabaseRef * Db) = 0;
     virtual DatabaseRef * GetDatabaseRef2(DatabaseRef * Db) = 0;
     virtual bool IsDataNode() = 0;
-    virtual bool IsValid(VirtTupleLL* Tuple, uint32_t Adapter) = 0;
+    virtual bool IsValid(SmallTuple* Tuple, uint32_t Adapter) = 0;
     virtual bool IsProc() = 0;
     virtual bool IsPartOfAProc() = 0;
     virtual NodeRef * GetParent(NodeRef * Node) = 0;
     virtual void SetNextNode(NodeEntryRef * Node) = 0;
     virtual Adapter * GetAdapter(EntryPoint Which) = 0;
     virtual void InsertTuple(TuplePtrLL* Tuple) = 0;
-    virtual void PushDownTuple(VirtTupleLL * Tuple, uint32_t Adapter, EntryPoint Which) = 0;
+    virtual void PushDownTuple(SmallTuple* Tuple, uint32_t Adapter, EntryPoint Which) = 0;
     virtual void DeleteTuple(TuplePtrLL* Tuple) = 0;
-    virtual void PushDownTupleDelete(VirtTupleLL * Tuple, uint32_t Adapter, EntryPoint Which) = 0;
+    virtual void PushDownTupleDelete(SmallTuple* Tuple, uint32_t Adapter, EntryPoint Which) = 0;
     virtual void TriggerInsertEvent(TupleVec * Tuple) = 0;
     virtual void TriggerInsertEvent2(TupleVec * Tuple) = 0;
     virtual NodeRef * GetLowDatabaseRef(NodeRef * Node) = 0;
@@ -1193,8 +1228,41 @@ struct OsiTypeDb : public TypeDb<OsirisTypeInfo>
     }
 };
 
+struct COsiString
+{
+    const char* Str;
+    uint64_t field_8;
+    uint32_t SomeRef;
+    int field_14;
+    int RefCount;
+    int field_1C;
+};
+
+
+struct COsiStringPool
+{
+    float field_0;
+    std::unordered_map<char const*, uint32_t> Values;
+    OsiVector<COsiString> Strings;
+    OsiVector<uint32_t> FreeList;
+};
+
+
+struct COsiStringTable
+{
+    COsiStringPool GlobalPool;
+    COsiStringPool UnknownPool;
+    COsiStringPool GuidPool;
+};
+
+using COsiStringTableGetStringProc = char const* (COsiStringTable** a1, OsiStringHandle handle);
+using COsiStringTableAddStringProc = OsiStringHandle* (COsiStringTable** a1, OsiStringHandle& pHandle, const char* str, bool isGuidString);
+using COsiStringTableAddStringRefProc = void (COsiStringTable** a1, OsiStringHandle handle);
+using COsiStringTableRemoveStringProc = void (COsiStringTable** a1, OsiStringHandle handle);
+
 struct OsirisStaticGlobals
 {
+    COsiStringTable *** StringTable{ nullptr };
     VariableDb ** Variables{ nullptr };
     OsiTypeDb ** Types{ nullptr };
     EnumDb ** Enums{ nullptr };
@@ -1205,7 +1273,11 @@ struct OsirisStaticGlobals
     DatabaseDb ** Databases{ nullptr };
     NodeDb ** Nodes{ nullptr };
     DebugFlag * DebugFlags{ nullptr };
-    void * TypedValueVMT{ nullptr };
+
+    COsiStringTableGetStringProc* GetString{ nullptr };
+    COsiStringTableAddStringProc* AddString{ nullptr };
+    COsiStringTableAddStringRefProc* AddStringRef{ nullptr };
+    COsiStringTableRemoveStringProc* RemoveString{ nullptr };
 };
 
 struct OsirisDynamicGlobals

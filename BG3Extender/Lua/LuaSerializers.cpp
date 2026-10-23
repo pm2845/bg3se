@@ -44,20 +44,28 @@ namespace bg3se::lua
         return s;
     }
 
-    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureTable* v)
+    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureTable*& v)
     {
         serialize(s, *v);
         return s;
     }
 
-    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureSubTable* v)
+    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureSubTable*& v)
     {
+        if (!s.IsWriting && !v) {
+            v = GameAlloc<stats::TreasureSubTable>();
+        }
+
         serialize(s, *v);
         return s;
     }
 
-    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureCategory* v)
+    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureCategory*& v)
     {
+        if (!s.IsWriting && !v) {
+            v = GameAlloc<stats::TreasureCategory>();
+        }
+
         serialize(s, *v);
         return s;
     }
@@ -85,12 +93,12 @@ namespace bg3se::lua
 
         if (s.IsWriting) {
             if (v.IsTreasureTable) {
-                auto refTable = stats->TreasureTables.Find(v.Index);
+                auto refTable = stats->TreasureTables.GetByHandle(v.Index);
                 if (refTable) {
                     s.VisitProperty("TreasureTable", refTable->Name);
                 }
             } else {
-                auto refCategory = stats->TreasureCategories.Find(v.Index);
+                auto refCategory = stats->TreasureCategories.GetByHandle(v.Index);
                 if (refCategory) {
                     s.VisitProperty("TreasureCategory", refCategory->Category);
                 }
@@ -101,9 +109,9 @@ namespace bg3se::lua
             s.VisitOptionalProperty("TreasureCategory", treasureCategory, GFS.strEmpty);
 
             if (treasureTable && treasureTable != GFS.strEmpty) {
-                auto idx = stats->TreasureTables.FindIndex(treasureTable);
-                if (idx) {
-                    v.Index = *idx;
+                auto idx = stats->TreasureTables.GetHandleByName(treasureTable);
+                if (idx != -1) {
+                    v.Index = idx;
                 } else {
                     luaL_error(s.L, "Treasure table '%s' does not exist!", treasureTable.GetString());
                 }
@@ -111,9 +119,9 @@ namespace bg3se::lua
                 v.IsTreasureTable = true;
                 v.IsTreasureTable2 = true;
             } else {
-                auto idx = stats->TreasureCategories.FindIndex(treasureCategory);
-                if (idx) {
-                    v.Index = *idx;
+                auto idx = stats->TreasureCategories.GetHandleByName(treasureCategory);
+                if (idx != -1) {
+                    v.Index = idx;
                 } else {
                     luaL_error(s.L, "Treasure category '%s' does not exist!", treasureCategory.GetString());
                 }
@@ -131,8 +139,12 @@ namespace bg3se::lua
         return s;
     }
 
-    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureSubTableCategory* v)
+    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureSubTableCategory*& v)
     {
+        if (!s.IsWriting && !v) {
+            v = GameAlloc<stats::TreasureSubTableCategory>();
+        }
+
         serialize(s, *v);
         return s;
     }
@@ -157,7 +169,7 @@ namespace bg3se::lua
 
         if (!s.IsWriting) {
             v.TotalFrequency = 0;
-            v.CategoryFrequencies.Reallocate(v.Categories.Size());
+            v.CategoryFrequencies.resize(v.Categories.Size());
             for (uint32_t i = 0; i < v.Categories.Size(); i++) {
                 v.CategoryFrequencies[i] = v.Categories[i]->Frequency;
                 v.TotalFrequency += v.Categories[i]->Frequency;
@@ -171,7 +183,7 @@ namespace bg3se::lua
                 }
             }
 
-            v.Amounts.Reallocate(v.DropCounts.Size());
+            v.Amounts.resize(v.DropCounts.Size());
             for (uint32_t i = 0; i < v.DropCounts.Size(); i++) {
                 v.Amounts[i] = v.DropCounts[i].Amount;
             }

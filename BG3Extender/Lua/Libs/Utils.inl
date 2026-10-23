@@ -93,29 +93,6 @@ std::optional<STDString> GameVersion()
     }
 }
 
-int64_t MonotonicTime()
-{
-    using namespace std::chrono;
-    return (int64_t)time_point_cast<milliseconds>(steady_clock::now()).time_since_epoch().count();
-}
-
-// Keep a reference for game start to reduce precision loss caused by casting an uint64 to double
-LARGE_INTEGER AppStartCounter;
-
-double MicrosecTime()
-{
-    LARGE_INTEGER perf, freq;
-    QueryPerformanceCounter(&perf);
-    QueryPerformanceFrequency(&freq);
-
-    return (perf.QuadPart - AppStartCounter.QuadPart) / (double(freq.QuadPart) / 1000000.0);
-}
-
-double GameTime(lua_State* L)
-{
-    return ExtensionStateBase::FromLua(L).Time().Time;
-}
-
 bool IsValidHandle(lua_State* L)
 {
     switch (lua_type(L, 1))
@@ -149,9 +126,14 @@ EntityHandle IntegerToHandle(int64_t i)
     return EntityHandle(i);
 }
 
+Guid GenerateGuid()
+{
+    return Guid::Generate();
+}
+
 STDString GetValueType(lua_State* L)
 {
-    return lua_typename(L, 1);
+    return GetDebugName(L, 1);
 }
 
 void ShowErrorAndExitGame(STDString message)
@@ -193,7 +175,7 @@ Array<STDString> GetCommandLineParams()
 
 dlg::DialogManager* GetDialogManager(lua_State* L)
 {
-    if (gExtender->GetServer().IsInServerThread()) {
+    if (gExtender->GetServer().IsInContext()) {
         auto ds = State::FromLua(L)->GetEntitySystemHelpers()->GetSystem<esv::DialogSystem>();
         return ds ? ds->GameInterface.DialogManager : nullptr;
     } else {
@@ -201,28 +183,69 @@ dlg::DialogManager* GetDialogManager(lua_State* L)
     }
 }
 
+UserReturn GetGameState(lua_State* L)
+{
+    if (gExtender->GetServer().IsInContext()) {
+        push(L, GetStaticSymbols().GetServerState());
+    } else {
+        push(L, GetStaticSymbols().GetClientState());
+    }
+
+    return 1;
+}
+
+int64_t GetMemoryUsage(lua_State* L)
+{
+    return State::FromLua(L)->GetStateWrapper().AllocatedMemory;
+}
+
+void ProfileBegin(lua_State* L, Ref arg)
+{
+#if USE_OPTICK
+    if (arg) {
+        if (lua_type(L, arg.Index()) == LUA_TSTRING) {
+            auto desc = get<StringView>(L, arg.Index());
+            State::FromLua(L)->GetProfiler().Begin(desc);
+        } else {
+            auto desc = lua_get_function_optick_desc(L, arg.Index());
+            State::FromLua(L)->GetProfiler().Begin(desc);
+        }
+    } else {
+        State::FromLua(L)->GetProfiler().Begin("");
+    }
+#endif
+}
+
+void ProfileEnd(lua_State* L)
+{
+#if USE_OPTICK
+    State::FromLua(L)->GetProfiler().End();
+#endif
+}
+
 void RegisterUtilsLib()
 {
-    QueryPerformanceCounter(&AppStartCounter);
-
     DECLARE_MODULE(Utils, Both)
     BEGIN_MODULE()
     MODULE_NAMED_FUNCTION("Version", GetExtensionVersion)
     MODULE_FUNCTION(GameVersion)
-    MODULE_FUNCTION(MonotonicTime)
-    MODULE_FUNCTION(MicrosecTime)
-    MODULE_FUNCTION(GameTime)
     MODULE_FUNCTION(Include)
     MODULE_FUNCTION(LoadString)
     MODULE_FUNCTION(GetValueType)
     MODULE_FUNCTION(IsValidHandle)
     MODULE_FUNCTION(HandleToInteger)
     MODULE_FUNCTION(IntegerToHandle)
+    MODULE_FUNCTION(GenerateGuid)
     MODULE_FUNCTION(ShowErrorAndExitGame)
     MODULE_FUNCTION(ShowError)
     MODULE_FUNCTION(GetGlobalSwitches)
     MODULE_FUNCTION(GetCommandLineParams)
     MODULE_FUNCTION(GetDialogManager)
+    MODULE_FUNCTION(GetGameState)
+    MODULE_FUNCTION(GetMemoryUsage)
+
+    MODULE_FUNCTION(ProfileBegin)
+    MODULE_FUNCTION(ProfileEnd)
     END_MODULE()
 }
 

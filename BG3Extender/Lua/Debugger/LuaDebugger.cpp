@@ -6,12 +6,8 @@
 #include <lobject.h>
 #include <lgc.h>
 #include <regex>
-#if defined(ENABLE_IMGUI)
 #include <Extender/Client/IMGUI/Objects.h>
-#endif
 #include <Lua/Osiris/FunctionProxy.h>
-
-#if !defined(OSI_NO_DEBUGGER)
 
 namespace bg3se::lua::dbg
 {
@@ -94,8 +90,13 @@ namespace bg3se::lua::dbg
             break;
 
         case LUA_TNUMBER:
-            value->set_type_id(MsgValueType::FLOAT);
-            value->set_floatval((float)lua_tonumber(L, idx));
+            if (lua_isinteger(L, idx)) {
+                value->set_type_id(MsgValueType::INTEGER);
+                value->set_intval(lua_tointeger(L, idx));
+            } else {
+                value->set_type_id(MsgValueType::FLOAT);
+                value->set_floatval(lua_tonumber(L, idx));
+            }
             break;
 
         case LUA_TSTRING:
@@ -147,7 +148,6 @@ namespace bg3se::lua::dbg
                 break;
             }
 
-#if defined(ENABLE_IMGUI)
             case MetatableTag::ImguiObject:
             {
                 value->set_type_id(MsgValueType::USERDATA);
@@ -159,7 +159,6 @@ namespace bg3se::lua::dbg
                 }
                 break;
             }
-#endif
 
             case MetatableTag::OsiFunctionName:
             {
@@ -167,6 +166,12 @@ namespace bg3se::lua::dbg
                 char name[200];
                 sprintf_s(name, "OsiFunction (%s)", esv::lua::OsiFunctionNameMetatable::Get(L, meta)->name.GetString());
                 value->set_stringval(name);
+                break;
+            }
+
+            case MetatableTag::SystemMap:
+            {
+                value->set_stringval("SystemMap");
                 break;
             }
 
@@ -279,6 +284,7 @@ namespace bg3se::lua::dbg
         auto closure = clLvalue(ar->i_ci->func);
         auto proto = closure->p;
         auto pc = (int)(ar->i_ci->u.l.savedpc - proto->code) - 1;
+        lua_checkstack(L, proto->sizelocvars + proto->sizeupvalues + 3); // values, closure, chunk, traceback handler
 
         int variableIdx = 1;
         int localIdx = 1;
@@ -299,7 +305,7 @@ namespace bg3se::lua::dbg
         api_incr_top(L);
 
         for (int i = 1; i <= proto->sizeupvalues; i++) {
-            auto name = lua_getupvalue(L, -1, i);
+            auto name = lua_getupvalue(L, funcIdx, i);
             if (name) {
                 locals.push_back(std::make_pair(variableIdx, name));
                 variableIdx++;
@@ -362,7 +368,7 @@ namespace bg3se::lua::dbg
 
         for (auto it : pm.IterableProperties) {
             auto const& prop = pm.Properties.values()[it.Value()];
-            auto result = prop.Get(L, meta.Lifetime, obj, prop);
+            auto result = pm.GetRawProperty(L, meta.Lifetime, obj, prop);
             if (result == PropertyOperationResult::Success) {
                 push(L, it.Key());
                 LuaElementToEvalResults(L, -1, -2, req);
@@ -371,19 +377,18 @@ namespace bg3se::lua::dbg
         }
     }
 
-#if defined(ENABLE_IMGUI)
     void LuaImguiObjectToEvalResults(lua_State* L, int index, CppObjectMetadata& meta, DebuggerGetVariablesRequest const& req)
     {
         StackCheck _(L);
 
-        auto obj = ImguiObjectProxyMetatable::GetRenderable(meta);
+        auto obj = ImguiObjectProxyMetatable::GetRenderable(L, meta);
         if (obj == nullptr) return;
 
         auto& pm = obj->GetRTTI();
 
         for (auto it : pm.IterableProperties) {
             auto const& prop = pm.Properties.values()[it.Value()];
-            auto result = prop.Get(L, State::FromLua(L)->GetGlobalLifetime(), obj, prop);
+            auto result = pm.GetRawProperty(L, LifetimeHandle{}, obj, prop);
             if (result == PropertyOperationResult::Success) {
                 push(L, it.Key());
                 LuaElementToEvalResults(L, -1, -2, req);
@@ -391,7 +396,6 @@ namespace bg3se::lua::dbg
             }
         }
     }
-#endif
 
     void LuaEntityToEvalResults(lua_State* L, int index, CppObjectMetadata& meta, DebuggerGetVariablesRequest const& req)
     {
@@ -401,7 +405,7 @@ namespace bg3se::lua::dbg
 
         for (auto type : types) {
             entity.PushComponentByType(L, type);
-            if (lua_type(L, 1) != LUA_TNIL) {
+            if (lua_type(L, -1) != LUA_TNIL) {
                 push(L, EnumInfo<ExtComponentType>::Find(type).GetString());
                 LuaElementToEvalResults(L, -1, -2, req);
                 lua_pop(L, 1);
@@ -510,6 +514,12 @@ namespace bg3se::lua::dbg
             break;
         }
 
+        case MetatableTag::ImguiObject:
+        {
+            LuaImguiObjectToEvalResults(L, index, meta, req);
+            break;
+        }
+
         default:
             WARN("LuaLightCppObjectToEvalResults(): Evaluating unrecognized lightcppobject type");
         }
@@ -544,7 +554,7 @@ namespace bg3se::lua::dbg
 
         inline ~DebugEvalGuard()
         {
-            assert(dbg_.evaluatingExpression_ > 0);
+            se_assert(dbg_.evaluatingExpression_ > 0);
             dbg_.evaluatingExpression_--;
         }
 
@@ -897,7 +907,8 @@ namespace bg3se::lua::dbg
         auto L = lua->GetState();
         DebugEvalGuard _G(*this);
         StackCheck _(L);
-        StaticLifetimeStackPin _LT(lua->GetStack(), lua->GetGlobalLifetime());
+        StaticLifetimeStackPin _LT(lua->GetState(), lua::LifetimeHandle{});
+        lua::ProfilerStackGuard _p(&*lua);
 
         if (req.Expression == "reset") {
             if (gExtender->GetServer().HasExtensionState() && gExtender->GetServer().GetExtensionState().GetLua()) {
@@ -911,14 +922,90 @@ namespace bg3se::lua::dbg
             }
         }
 
-        STDString syntaxCheck = "local x = " + req.Expression;
-        if (luaL_loadstring(L, syntaxCheck.c_str())) {
+        return EvaluateInContextGuarded(L, req);
+    }
+
+    ResultCode ContextDebugger::EvalSyntaxCheck(lua_State* L, DebuggerEvaluateRequest const& req)
+    {
+        auto expr = req.EvalStatement ? req.Expression : ("return " + req.Expression);
+        if (luaL_loadstring(L, expr.c_str())) {
             req.Response->set_error_message(lua_tostring(L, -1));
             lua_pop(L, 1);
             return ResultCode::EvalFailed;
         }
 
         lua_pop(L, 1);
+        return ResultCode::Success;
+    }
+
+    ResultCode ContextDebugger::EvaluateInContextGuarded(lua_State* L, DebuggerEvaluateRequest const& req)
+    {
+        if (req.EvalStatement && req.Frame != -1) {
+            req.Response->set_error_message("Statement evaluation within a specific stack frame is not supported");
+            return ResultCode::EvalFailed;
+        }
+
+        auto result = EvalSyntaxCheck(L, req);
+        if (result != ResultCode::Success) {
+            return result;
+        }
+
+        if (req.EvalStatement) {
+            return EvaluateStatement(L, req);
+        } else {
+            return EvaluateExpression(L, req);
+        }
+    }
+
+    void ContextDebugger::FetchReturnValue(lua_State* L, DebuggerEvaluateRequest const& req, int numValues)
+    {
+        auto result = req.Response->mutable_result();
+        if (numValues == 0) {
+            result->set_type_id(MsgValueType::NONE);
+        } else {
+            auto retval = lua_absindex(L, -1);
+            LuaToProtobuf(L, retval, result);
+            if (IsLuaContainerType(L, retval) && req.AllowRefs) {
+                lua_rawgeti(L, LUA_REGISTRYINDEX, evalContextRef_);
+                auto registry = lua_absindex(L, -1);
+                auto index = lua_rawlen(L, registry);
+                lua_pushvalue(L, retval);
+                lua_rawseti(L, registry, index + 1);
+                lua_pop(L, 1);
+
+                auto ref = result->mutable_variables();
+                ref->set_frame(-1);
+                ref->set_local(-1);
+                ref->set_variableref((int32_t)index + 1);
+            }
+        }
+
+        lua_pop(L, numValues);
+    }
+
+    ResultCode ContextDebugger::EvaluateStatement(lua_State * L, DebuggerEvaluateRequest const& req)
+    {
+        auto top = lua_gettop(L);
+
+        if (luaL_loadstring(L, req.Expression.c_str())) {
+            req.Response->set_error_message(lua_tostring(L, -1));
+            lua_pop(L, lua_gettop(L) - top);
+            return ResultCode::EvalFailed;
+        }
+
+        if (bg3se::lua::CallWithTraceback(L, 0, 1)) {
+            req.Response->set_error_message(lua_tostring(L, -1));
+            lua_pop(L, 1);
+            return ResultCode::EvalFailed;
+        } else {
+            auto numReturnValues = lua_gettop(L) - top;
+            FetchReturnValue(L, req, numReturnValues);
+            return ResultCode::Success;
+        }
+    }
+
+    ResultCode ContextDebugger::EvaluateExpression(lua_State * L, DebuggerEvaluateRequest const& req)
+    {
         auto top = lua_gettop(L);
 
         STDString evalateLocals;
@@ -951,7 +1038,7 @@ namespace bg3se::lua::dbg
 
         if (luaL_loadstring(L, evaluator.c_str())) {
             req.Response->set_error_message(lua_tostring(L, -1));
-            lua_pop(L, top - lua_gettop(L));
+            lua_pop(L, lua_gettop(L) - top);
             return ResultCode::EvalFailed;
         }
 
@@ -965,28 +1052,7 @@ namespace bg3se::lua::dbg
             return ResultCode::EvalFailed;
         } else {
             auto numReturnValues = lua_gettop(L) - top;
-            auto result = req.Response->mutable_result();
-            if (numReturnValues == 0) {
-                result->set_type_id(MsgValueType::NONE);
-            } else {
-                auto retval = lua_absindex(L, -1);
-                LuaToProtobuf(L, retval, result);
-                if (IsLuaContainerType(L, retval)) {
-                    lua_rawgeti(L, LUA_REGISTRYINDEX, evalContextRef_);
-                    auto registry = lua_absindex(L, -1);
-                    auto index = lua_rawlen(L, registry);
-                    lua_pushvalue(L, retval);
-                    lua_rawseti(L, registry, index + 1);
-                    lua_pop(L, 1);
-
-                    auto ref = result->mutable_variables();
-                    ref->set_frame(-1);
-                    ref->set_local(-1);
-                    ref->set_variableref((int32_t)index + 1);
-                }
-            }
-
-            lua_pop(L, numReturnValues);
+            FetchReturnValue(L, req, numReturnValues);
             return ResultCode::Success;
         }
     }
@@ -1091,7 +1157,8 @@ namespace bg3se::lua::dbg
         auto L = lua->GetState();
         DebugEvalGuard _G(*this);
         StackCheck _(L);
-        StaticLifetimeStackPin _LT(lua->GetStack(), lua->GetGlobalLifetime());
+        StaticLifetimeStackPin _LT(lua->GetState(), lua::LifetimeHandle{});
+        lua::ProfilerStackGuard _p(&*lua);
 
         ContextDebuggerGetVarCtx ctx{ this, &req, ResultCode::Success };
         char const* error;
@@ -1202,7 +1269,7 @@ namespace bg3se::lua::dbg
     {
         if (!IsDebuggerReady()) return;
 
-        if (gExtender->GetServer().IsInServerThread()) {
+        if (gExtender->GetServer().IsInContext()) {
             server_.OnLuaHook(L, ar);
         } else {
             client_.OnLuaHook(L, ar);
@@ -1213,7 +1280,7 @@ namespace bg3se::lua::dbg
     {
         if (!IsDebuggerReady()) return;
 
-        if (gExtender->GetServer().IsInServerThread()) {
+        if (gExtender->GetServer().IsInContext()) {
             server_.OnLuaError(L, msg);
         } else {
             client_.OnLuaError(L, msg);
@@ -1224,7 +1291,7 @@ namespace bg3se::lua::dbg
     {
         if (!IsDebuggerReady()) return;
 
-        if (gExtender->GetServer().IsInServerThread()) {
+        if (gExtender->GetServer().IsInContext()) {
             server_.OnGenericError(msg);
         } else {
             client_.OnGenericError(msg);
@@ -1235,7 +1302,7 @@ namespace bg3se::lua::dbg
     {
         if (!IsDebuggerReady()) return;
 
-        if (gExtender->GetServer().IsInServerThread()) {
+        if (gExtender->GetServer().IsInContext()) {
             server_.DebugBreak(L);
         } else {
             client_.DebugBreak(L);
@@ -1335,5 +1402,3 @@ namespace bg3se::lua::dbg
         }
     }
 }
-
-#endif

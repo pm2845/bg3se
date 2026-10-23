@@ -5,13 +5,19 @@ package bg3se.net;
 option cc_enable_arenas = true;
 option optimize_for = LITE_RUNTIME;
 
+enum SerializerType {
+  SERIALIZER_JSON = 0;
+  SERIALIZER_BINARY = 1;
+}
+
 // Notifies the Lua runtime that a message was sent from a remote Lua script
 message MsgPostLuaMessage {
   string channel_name = 1;
-  string payload = 2;
+  bytes payload = 2;
   string module = 3;
   uint32 request_id = 4;
   uint32 reply_id = 5;
+  SerializerType serializer = 6;
 }
 
 // Notifies the Lua runtime to reload client-side state
@@ -53,19 +59,6 @@ message StatIndexedProperty {
     string stringval = 2;
 }
 
-// Updates a stats entry on the client
-message MsgS2CSyncStat {
-  string name = 1;
-  sint32 level = 2;
-  int32 modifier_list = 3;
-  repeated StatIndexedProperty indexed_properties = 4;
-  string ai_flags = 5;
-  repeated StatRequirement requirements = 6;
-  repeated StatRequirement memorization_requirements = 7;
-  repeated string combo_categories = 8;
-  repeated StatPropertyList property_lists = 9;
-}
-
 // Disconnects a client with a server-defined message
 message MsgS2CKick {
   string message = 1;
@@ -87,6 +80,7 @@ message UserVar {
     string strval = 6;
     bytes luaval = 7;
     bool boolval = 9;
+    bytes binaryval = 10;
   };
   UserVarType type = 8;
 }
@@ -101,7 +95,6 @@ message MessageWrapper {
     MsgPostLuaMessage post_lua = 1;
     MsgS2CResetLuaMessage s2c_reset_lua = 2;
     MsgC2SExtenderHello c2s_extender_hello = 5;
-    MsgS2CSyncStat s2c_sync_stat = 6;
     MsgS2CKick s2c_kick = 7;
     MsgUserVars user_vars = 8;
   }

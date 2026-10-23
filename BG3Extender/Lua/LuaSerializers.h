@@ -114,12 +114,16 @@ namespace bg3se::lua
     inline LuaSerializer& serialize(LuaSerializer& s, STDString& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, STDWString& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, StringView& v) { return s.Visit(v); }
-#if defined(ENABLE_UI)
     inline LuaSerializer& serialize(LuaSerializer& s, Noesis::Symbol& v) { return s.Visit(v); }
-#endif
-#if defined(ENABLE_IMGUI)
+    inline LuaSerializer& serialize(LuaSerializer& s, Noesis::Point& v)
+    {
+        s.BeginObject();
+        s.VisitProperty("X", v.x);
+        s.VisitProperty("Y", v.y);
+        s.EndObject();
+        return s;
+    }
     inline LuaSerializer& serialize(LuaSerializer& s, ImguiHandle& v) { return s.Visit(v); }
-#endif
     inline LuaSerializer& serialize(LuaSerializer& s, Path& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, Guid& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, NetId& v) { return s.Visit(v); }
@@ -127,6 +131,7 @@ namespace bg3se::lua
     inline LuaSerializer& serialize(LuaSerializer& s, ComponentHandle& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, EntityHandle& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, glm::ivec2& v) { return s.Visit(v); }
+    inline LuaSerializer& serialize(LuaSerializer& s, glm::ivec3& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, glm::ivec4& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, glm::vec2& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, glm::vec3& v) { return s.Visit(v); }
@@ -141,7 +146,6 @@ namespace bg3se::lua
 
     inline LuaSerializer& serialize(LuaSerializer& s, Ref& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, RegistryEntry& v) { return s.Visit(v); }
-    inline LuaSerializer& serialize(LuaSerializer& s, PersistentRef& v) { return s.Visit(v); }
     inline LuaSerializer& serialize(LuaSerializer& s, PersistentRegistryEntry& v) { return s.Visit(v); }
 
     template <class T>
@@ -155,6 +159,10 @@ namespace bg3se::lua
     LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureTable& v);
     LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureSubTable& v);
     LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureCategory& v);
+
+    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureTable*& v);
+    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureSubTable*& v);
+    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureCategory*& v);
 
     template <class T>
     LuaSerializer& serialize(LuaSerializer& s, OverrideableProperty<T>& v)
@@ -201,8 +209,33 @@ namespace bg3se::lua
         return s;
     }
 
-    template <class T>
-    LuaSerializer& serialize(LuaSerializer& s, Array<T>& v)
+    template <class T, class Allocator, bool StoreSize>
+    LuaSerializer& serialize(LuaSerializer& s, TrackedCompactSet<T>& v)
+    {
+        s.BeginObject();
+        if (s.IsWriting) {
+            int i = 1;
+            for (auto& val : v) {
+                StackCheck _(s.L);
+                push(s.L, i++);
+                serialize(s, val);
+                lua_rawset(s.L, -3);
+            }
+        } else {
+            v.clear();
+            for (auto idx : iterate(s.L, -1)) {
+                StackCheck _(s.L);
+                T temp{};
+                serialize(s, temp);
+                v.Add(temp);
+            }
+        }
+        s.EndObject();
+        return s;
+    }
+
+    template <class T, class Allocator, bool StoreSize>
+    LuaSerializer& serialize(LuaSerializer& s, MiniCompactSet<T>& v)
     {
         s.BeginObject();
         if (s.IsWriting) {
@@ -227,9 +260,34 @@ namespace bg3se::lua
     }
 
     template <class T>
+    LuaSerializer& serialize(LuaSerializer& s, Array<T>& v)
+    {
+        s.BeginObject();
+        if (s.IsWriting) {
+            int i = 1;
+            for (auto& val : v) {
+                StackCheck _(s.L);
+                push(s.L, i++);
+                serialize(s, val);
+                lua_rawset(s.L, -3);
+            }
+        } else {
+            v.clear();
+            for (auto idx : iterate(s.L, -1)) {
+                StackCheck _(s.L);
+                T temp{};
+                serialize(s, temp);
+                v.push_back(temp);
+            }
+        }
+        s.EndObject();
+        return s;
+    }
+
+    template <class T>
     LuaSerializer& serialize(LuaSerializer& s, Array<T> const& v)
     {
-        assert(!s.IsWriting);
+        se_assert(!s.IsWriting);
 
         s.BeginObject();
         int i = 1;
@@ -243,7 +301,6 @@ namespace bg3se::lua
         return s;
     }
 
-#if defined(ENABLE_UI)
     template <class T, unsigned N>
     LuaSerializer& serialize(LuaSerializer& s, Noesis::Vector<T, N>& v)
     {
@@ -268,7 +325,6 @@ namespace bg3se::lua
         s.EndObject();
         return s;
     }
-#endif
 
     template <class T>
     LuaSerializer& serialize(LuaSerializer& s, HashSet<T>& v)
@@ -408,6 +464,25 @@ namespace bg3se::lua
     }
 
     template <class T>
+    LuaSerializer& serialize(LuaSerializer& s, std::span<T>& v)
+    {
+        s.BeginObject();
+        if (s.IsWriting) {
+            int i = 1;
+            for (auto& val : v) {
+                StackCheck _(s.L);
+                push(s.L, i++);
+                serialize(s, val);
+                lua_rawset(s.L, -3);
+            }
+        } else {
+            luaL_error(s.L, "Cannot unserialize spans");
+        }
+        s.EndObject();
+        return s;
+    }
+
+    template <class T>
     LuaSerializer& serialize(LuaSerializer& s, std::optional<T>& v)
     {
         if (s.IsWriting) {
@@ -428,8 +503,8 @@ namespace bg3se::lua
     }
 
     
-    template <class T>
-    typename std::enable_if_t<std::is_pointer_v<T>, LuaSerializer&> serialize(LuaSerializer& s, T& v)
+    template <class T> requires std::is_pointer_v<T>
+    typename LuaSerializer& serialize(LuaSerializer& s, T& v)
     {
         if (s.IsWriting) {
             if (v == nullptr) {
@@ -453,8 +528,8 @@ namespace bg3se::lua
     }
 
 
-    template <class T>
-    typename std::enable_if_t<std::is_enum_v<T>, LuaSerializer&> serialize(LuaSerializer& s, T& v)
+    template <class T> requires std::is_enum_v<T>
+    typename LuaSerializer& serialize(LuaSerializer& s, T& v)
     {
         if (s.IsWriting) {
             push(s.L, v);
@@ -465,12 +540,8 @@ namespace bg3se::lua
         return s;
     }
 
-    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureTable* v);
-    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureSubTable* v);
-    LuaSerializer& serialize(LuaSerializer& s, bg3se::stats::TreasureCategory* v);
-
-    template <class T>
-    std::enable_if_t<!IsByVal<T>, LuaSerializer&> serialize(LuaSerializer& s, T* v)
+    template <class T> requires !IsByVal<T>
+    LuaSerializer& serialize(LuaSerializer& s, T* v)
     {
         MakeObjectRef(s.L, v);
         return s;

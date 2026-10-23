@@ -9,7 +9,7 @@ BEGIN_SE()
 class Console
 {
 public:
-    using LogCallbackProc = void (char const* message);
+    using LogCallbackProc = void (DebugMessageType type, char const* message);
 
     virtual ~Console();
     virtual void Create();
@@ -17,6 +17,7 @@ public:
     void OpenLogFile(std::wstring const& path);
     void CloseLogFile();
 
+    virtual void LocalPrint(DebugMessageType type, char const* msg);
     virtual void Print(DebugMessageType type, char const* msg);
     void SetColor(DebugMessageType type);
 

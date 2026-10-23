@@ -43,13 +43,17 @@ struct SpellPrototypeAnimationData
     std::array<FixedString, 3> Part3;
     std::array<FixedString, 3> Part7;
     std::array<FixedString, 3> Part8;
-    uint8_t Flags;
+    uint8_t Flags{ 0 };
+};
+
+struct SpellMetaCondition
+{
+    ConditionId Condition;
+    bool OverrideOriginal;
 };
 
 struct SpellPrototype : public Noncopyable<SpellPrototype>
 {
-    using InitProc = void(SpellPrototype* self, FixedString const& spellId);
-
     [[bg3::readonly]] int StatsObjectIndex;
     SpellType SpellTypeId;
     FixedString SpellId;
@@ -95,7 +99,7 @@ struct SpellPrototype : public Noncopyable<SpellPrototype>
     FixedString PrepareLoopSound;
     FixedString CastSound;
     uint8_t CastSoundType;
-    uint8_t field_299;
+    [[bg3::legacy(field_299)]] bool IsWeaponAttack;
     uint8_t Sheathing;
     Array<FixedString> AlternativeCastTextEvents;
     int8_t SourceLimbIndex;
@@ -104,7 +108,7 @@ struct SpellPrototype : public Noncopyable<SpellPrototype>
     uint32_t PathfindTemplateId;
     bool HasTrajectoryRules;
     uint32_t RequirementEvents;
-    [[bg3::hidden]] HashMap<uint8_t, Array<uint64_t>> MetaConditions;
+    HashMap<SpellMetaConditionType, Array<SpellMetaCondition>> MetaConditions;
     FixedString ItemWall;
     FixedString InterruptPrototype;
     FixedString CombatAIOverrideSpell;
@@ -133,12 +137,8 @@ struct StatsSoundInfo
     uint8_t Type;
 };
 
-using ParseStaticBoostsProc = bool (LSStringView& str, Array<Guid>& boosts, void* temp);
-
 struct StatusPrototype : public Noncopyable<StatusPrototype>
 {
-    using InitProc = void(StatusPrototype* self, FixedString const& statusId, uint8_t flags);
-
     [[bg3::readonly]] int StatsObjectIndex{ -1 };
     StatusType StatusId;
     FixedString StatusName;
@@ -178,25 +178,23 @@ struct [[bg3::hidden]] StatusPrototypeManager : public ProtectedGameObject<Statu
 
 struct PassivePrototype : public Noncopyable<PassivePrototype>
 {
-    using InitProc = void(PassivePrototype* self, stats::Object* stats);
-
     uint32_t Properties{ 0 };
     FixedString Name;
     DescriptionInfo Description;
-    stats::ConditionId EnabledConditions;
+    ConditionId EnabledConditions;
     uint64_t EnabledContext{ 0 };
     FixedString ToggleOnEffect;
     FixedString ToggleOffEffect;
     uint64_t StatsFunctorContext{ 0 };
-    stats::ConditionId ConditionsIndex;
-    stats::Functors StatsFunctors;
-    stats::Functors ToggleOnFunctors;
-    stats::Functors ToggleOffFunctors;
+    ConditionId ConditionsIndex;
+    Functors StatsFunctors;
+    Functors ToggleOnFunctors;
+    Functors ToggleOffFunctors;
     FixedString ToggleGroup;
     uint64_t ToggleOffContext{ 0 };
     uint64_t BoostContext{ 0 };
-    stats::ConditionId BoostConditionsIndex;
-    [[bg3::hidden]] Array<void*> Boosts_SV;
+    ConditionId BoostConditionsIndex;
+    Array<Guid> Boosts;
     int32_t PriorityOrder{ 0 };
     FixedString TooltipConditionalDamage;
 };
@@ -208,29 +206,27 @@ struct [[bg3::hidden]] PassivePrototypeManager : public ProtectedGameObject<Pass
     LegacyRefMap<FixedString, PassivePrototype> Passives;
     bool Initialized;
 
-    void SyncStat(stats::Object* object);
-    bool SyncStat(stats::Object* object, PassivePrototype* proto);
+    void SyncStat(Object* object);
+    bool SyncStat(Object* object, PassivePrototype* proto);
 };
 
 
 struct InterruptPrototype
 {
-    using InitProc = void(InterruptPrototype* self, stats::Object* stats);
-
     FixedString Name;
     DescriptionInfo Description;
     uint16_t InterruptContext{ 0 };
     uint8_t InterruptContextScope{ 0 };
-    stats::ConditionId Conditions;
+    ConditionId Conditions;
     FixedString Container;
-    stats::ConditionId RollCondition;
-    [[bg3::hidden]] Array<void*> Costs;
+    ConditionId RollCondition;
+    Array<ActionResourceCost> Costs;
     FixedString Stack;
     Functors PropertiesFunctors;
     Functors SuccessFunctors;
     Functors FailureFunctors;
     uint8_t InterruptDefaultValue{ 0 };
-    stats::ConditionId EnableCondition;
+    ConditionId EnableCondition;
     uint64_t EnableContext{ 0 };
     uint8_t InterruptFlags{ 0 };
 };
@@ -246,5 +242,23 @@ struct [[bg3::hidden]] InterruptPrototypeManager : public ProtectedGameObject<In
     bool SyncStat(Object* object, InterruptPrototype* proto);
 };
 
+
+struct BoostPrototype : public ProtectedGameObject<BoostPrototype>
+{
+    STDString Description;
+    FixedString TypeName;
+    [[bg3::hidden]] void* BoostData;
+    BoostType Boost;
+    ConditionId Condition;
+};
+
+
+struct [[bg3::hidden]] BoostPrototypeManager : public ProtectedGameObject<InterruptPrototypeManager>
+{
+    bool IsLoading;
+    thoth::shared::ConditionManager* ConditionsManager;
+    HashMap<Guid, BoostPrototype*> Boosts;
+    Array<ConditionId> ConditionHandles;
+};
 
 END_NS()

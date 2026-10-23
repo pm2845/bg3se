@@ -38,16 +38,17 @@ public:
     ~FunctorEventHooks();
 
 private:
-    HitResult* OnDealDamage(bg3se::stats::DealDamageFunctor::ApplyDamageProc* next, HitResult* result, bg3se::stats::DealDamageFunctor* functor, ecs::EntityRef* casterHandle,
+    HitResult* OnDealDamage(bg3se::stats::DealDamageFunctor__ApplyDamageProc* next, HitResult* result, bg3se::stats::DealDamageFunctor* functor, ecs::EntityRef* casterHandle,
         ecs::EntityRef* targetHandle, glm::vec3* position, bool isFromItem, SpellIdWithPrototype* spellId,
         int storyActionId, ActionOriginator* originator, resource::GuidResourceBankBase* classResourceMgr,
         HitDesc* hit, AttackDesc* attack, EntityHandle* sourceHandle2, HitWith hitWith, int conditionRollIndex,
         bool entityDamagedEventParam, __int64 a17, SpellId* spellId2);
-    void OnEntityDamageEvent(bg3se::stats::StatsSystem_ThrowDamageEventProc* next, void* statsSystem, void* temp5, 
+    void OnEntityDamageEvent(bg3se::esv::StatsSystem__ThrowDamageEventProc* next, esv::StatsSystem* statsSystem, void* temp5,
         HitDesc* hit, AttackDesc* attack, bool a5, bool a6);
 
     template <class TParams>
     void OnFunctorExecute(bg3se::stats::ExecuteFunctorProc<TParams>* next, HitResult* hit, bg3se::stats::Functors* self, TParams* params);
+    void OnInterruptFunctorExecute(bg3se::stats::ExecuteInterruptFunctorProc* next, HitResult* hit, ecs::EntityWorld* world, bg3se::stats::Functors* self, bg3se::stats::InterruptContextData* params);
 };
 
 
@@ -96,9 +97,9 @@ public:
     template <class TArg>
     void Call(char const* mod, char const* func, std::vector<TArg> const & args)
     {
+        VMCallEntry _(this);
         auto L = GetState();
-        LifetimeStackPin _(GetStack());
-        lua_checkstack(L, (int)args.size() + 1);
+        lua_checkstack(L, (int)args.size() + 2);
         auto stackSize = lua_gettop(L);
 
         try {

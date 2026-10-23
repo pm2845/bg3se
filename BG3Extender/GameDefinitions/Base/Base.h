@@ -1,6 +1,10 @@
 #pragma once
 
 #include <CoreLib/Base/Base.h>
+#include <CoreLib/Utils.h>
+// Needed for enum definitions
+#include <NsGui/GridLength.h>
+#include <GameDefinitions/Base/TypeId.h>
 #include <GameDefinitions/Enumerations.h>
 #include <GameDefinitions/Base/ForwardDeclarations.h>
 
@@ -13,7 +17,6 @@ BEGIN_SE()
 LONG HandleGuardedException(DWORD code, EXCEPTION_POINTERS* info);
 END_SE()
 
-#if defined(ENABLE_UI)
 #include <NsCore/Symbol.h>
 #include <NsCore/String.h>
 #include <NsCore/Vector.h>
@@ -22,26 +25,36 @@ END_SE()
 #include <NsDrawing/Color.h>
 #include <NsDrawing/Point.h>
 #include <NsDrawing/Rect.h>
+#include <NsDrawing/Thickness.h>
+#include <NsDrawing/CornerRadius.h>
 #include <NsGui/BaseCollection.h>
-#endif
 
-#if defined(ENABLE_IMGUI)
 #include <Extender/Client/IMGUI/IMGUI.h>
-#endif
 
+#include <GameDefinitions/Base/TypeMetadata.h>
 #include <GameDefinitions/Base/LuaAnnotations.h>
 #include <GameDefinitions/Base/BaseTypeInformation.h>
+#include <GameDefinitions/Base/Lock.h>
 #include <GameDefinitions/Base/CommonTypes.h>
 #include <GameDefinitions/Base/ExposedTypes.h>
+#include <GameDefinitions/Base/Genome.h>
 #include <GameDefinitions/Base/Serialization.h>
 #include <GameDefinitions/TranslatedString.h>
 #include <GameDefinitions/GlobalFixedStrings.h>
+#include <GameHooks/EngineHooksFwdDecl.h>
 
 #define DEFINE_COMPONENT(componentType, cls) \
     static constexpr ExtComponentType ComponentType = ExtComponentType::componentType; \
     static constexpr auto ComponentName = #componentType; \
     static constexpr auto EngineClass = cls; \
     static constexpr auto OneFrame = false;
+
+#define DEFINE_PROXY_COMPONENT(componentType, cls) \
+    static constexpr ExtComponentType ComponentType = ExtComponentType::componentType; \
+    static constexpr auto ComponentName = #componentType; \
+    static constexpr auto EngineClass = cls; \
+    static constexpr auto OneFrame = false; \
+    static constexpr auto ForceProxy = true;
 
 #define DEFINE_ONEFRAME_COMPONENT(componentType, cls) \
     static constexpr ExtComponentType ComponentType = ExtComponentType::componentType; \
@@ -80,3 +93,19 @@ END_SE()
         static constexpr auto EngineClass = "eoc::" #name "BoostComponent"; \
         static constexpr auto OneFrame = false; \
     };
+
+#define DEFINE_SYSTEM(systemType, cls) \
+    static constexpr auto SystemType = ExtSystemType::systemType; \
+    static constexpr auto SystemName = #systemType; \
+    static constexpr auto EngineClass = cls;
+
+BEGIN_SE()
+
+enum class ContextType
+{
+    None,
+    Server,
+    Client
+};
+
+END_SE()

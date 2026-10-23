@@ -5,8 +5,10 @@ BEGIN_SE()
 // Placeholder type for functions where we haven't mapped (or don't care about) the signature
 using UnknownFunction = Function<void ()>;
 
-// Placeholder type for functors where we haven't mapped (or don't care about) the signature
+// Placeholder type for signals where we haven't mapped (or don't care about) the signature
 using UnknownSignal = Signal<>;
+using UnknownSignalSubscriber = SignalSubscriber<>;
+
 
 struct Version
 {
@@ -39,6 +41,14 @@ struct Version
     uint64_t Ver;
 };
 
+MARK_BY_VALUE_TYPE(Version)
+
+struct AABound
+{
+    glm::vec3 Min;
+    glm::vec3 Max;
+};
+
 struct GameRandom
 {
     int* FixedRollList;
@@ -56,13 +66,6 @@ struct CriticalSection : public CRITICAL_SECTION
 {
     __int64 field_28;
     __int64 field_30;
-};
-
-struct SRWLock
-{
-    SRWLOCK SRWLock;
-    int32_t ThreadId;
-    uint32_t EnterCount;
 };
 
 struct AiTilePos
@@ -86,6 +89,12 @@ struct AiTilePos
     }
 };
 
+struct AiTileCell
+{
+    int16_t X;
+    int16_t Y;
+};
+
 inline constexpr uint64_t Hash(AiTilePos const& v)
 {
     return v.X | ((uint64_t)v.Y << 16) | ((uint64_t)v.SubgridId << 32);
@@ -99,7 +108,72 @@ struct SurfacePathInfluence
     int Influence;
 };
 
+struct ThreadRegistry : public ProtectedGameObject<ThreadRegistry>
+{
+    using RequestThreadIndexProc = uint32_t ();
+
+    static uint32_t RequestThreadIndex();
+};
+
+using SoundNameId = int32_t;
+using SoundObjectId = uint64_t;
+static constexpr uint64_t InvalidSoundObjectId = 0xffffffffffffffffull;
+
+enum class LuaSoundObjectId : SoundObjectId {};
+MARK_INTEGRAL_ALIAS(LuaSoundObjectId)
+
+
+#pragma pack(push, 4)
+struct EntityOrVec3Variant
+{
+    inline EntityOrVec3Variant()
+        : Entity(EntityHandle{}), Type(0)
+    {}
+    
+    inline EntityOrVec3Variant(EntityOrVec3Variant const& v)
+        : Type(v.Type)
+    {
+        if (Type) {
+            Position = v.Position;
+        } else {
+            Entity = v.Entity;
+        }
+    }
+    
+    inline EntityOrVec3Variant& operator =(EntityOrVec3Variant const& v)
+    {
+        Type = v.Type;
+        if (Type) {
+            Position = v.Position;
+        } else {
+            Entity = v.Entity;
+        }
+        return *this;
+    }
+
+    union
+    {
+        EntityHandle Entity;
+        glm::vec3 Position;
+    };
+    uint8_t Type{ 0 };
+};
+#pragma pack(pop)
+
+MARK_BY_VALUE_TYPE(EntityOrVec3Variant);
+
 END_SE()
+
+BEGIN_NS(stats)
+
+struct ConditionId
+{
+    int32_t Id{ -1 };
+
+    STDString* Get() const;
+};
+
+END_NS()
 
 BEGIN_NS(ecs)
 
@@ -110,3 +184,9 @@ struct EntityRef
 };
 
 END_NS()
+
+BEGIN_SE()
+
+MARK_BY_VALUE_TYPE(ecs::EntityRef)
+
+END_SE()

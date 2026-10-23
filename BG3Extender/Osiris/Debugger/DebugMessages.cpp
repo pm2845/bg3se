@@ -3,8 +3,6 @@
 #include <Extender/ScriptExtender.h>
 #include <sstream>
 
-#if !defined(OSI_NO_DEBUGGER)
-
 namespace bg3se::osidbg
 {
     DebugMessageHandler::DebugMessageHandler(OsirisDebugInterface& intf)
@@ -18,7 +16,7 @@ namespace bg3se::osidbg
 
     void MakeMsgColumn(MsgTypedValue & msgTv, TypedValue const & tv)
     {
-        msgTv.set_type_id(tv.TypeId);
+        msgTv.set_type_id((uint16_t)tv.TypeId);
         auto const & val = tv.Value;
 
         switch ((ValueType)tv.TypeId) {
@@ -27,7 +25,7 @@ namespace bg3se::osidbg
         case ValueType::Integer: msgTv.set_intval(val.Int32); break;
         case ValueType::Integer64: msgTv.set_intval(val.Int64); break;
         case ValueType::Real: msgTv.set_floatval(val.Float); break;
-        default: *msgTv.mutable_stringval() = val.String; break;
+        default: *msgTv.mutable_stringval() = tv.GetString(); break;
         }
     }
 
@@ -45,14 +43,11 @@ namespace bg3se::osidbg
         }
     }
 
-    void MakeMsgTuple(MsgTuple & msgTuple, TupleLL const & tuple)
+    void MakeMsgTuple(MsgTuple & msgTuple, SmallTuple const & tuple)
     {
-        auto head = tuple.Items.Head;
-        auto col = head->Next;
-        while (col != head) {
+        for (uint32_t i = 0; i < tuple.Size(); i++) {
             auto column = msgTuple.add_column();
-            MakeMsgColumn(*column, col->Item.Value);
-            col = col->Next;
+            MakeMsgColumn(*column, tuple[i]);
         }
     }
 
@@ -105,24 +100,23 @@ namespace bg3se::osidbg
             break;
 
         default:
-            if (tv.Value.String) {
-                ss << '"' << tv.Value.String << '"';
-            }
-            else {
+        {
+            auto s = tv.GetString();
+            if (s) {
+                ss << '"' << s << '"';
+            } else {
                 ss << "(Null)";
             }
             break;
         }
+        }
     }
 
-    void DebugDumpTuple(std::stringstream & ss, TupleLL const & tuple)
+    void DebugDumpTuple(std::stringstream & ss, SmallTuple const & tuple)
     {
-        auto head = tuple.Items.Head;
-        auto cur = head->Next;
-        while (cur != head) {
-            DebugDumpTV(ss, cur->Item.Value);
+        for (unsigned i = 0; i < tuple.Size(); i++) {
+            DebugDumpTV(ss, tuple[i]);
             ss << ", ";
-            cur = cur->Next;
         }
     }
 
@@ -154,8 +148,8 @@ namespace bg3se::osidbg
             }
 
             auto tuple = msgFrame->mutable_tuple();
-            if (frame.tupleLL != nullptr) {
-                MakeMsgTuple(*tuple, *frame.tupleLL);
+            if (frame.tuple != nullptr) {
+                MakeMsgTuple(*tuple, *frame.tuple);
             } else if (frame.tuplePtrLL != nullptr) {
                 MakeMsgTuple(*tuple, *frame.tuplePtrLL);
             }
@@ -188,8 +182,8 @@ namespace bg3se::osidbg
         Send(msg);
 
         std::stringstream tup;
-        if (lastFrame.tupleLL != nullptr) {
-            DebugDumpTuple(tup, *lastFrame.tupleLL);
+        if (lastFrame.tuple != nullptr) {
+            DebugDumpTuple(tup, *lastFrame.tuple);
         } else if (lastFrame.tuplePtrLL != nullptr) {
             DebugDumpTuple(tup, *lastFrame.tuplePtrLL);
         }
@@ -594,13 +588,13 @@ namespace bg3se::osidbg
         DEBUG(" <-- BkEndDatabaseContents()");
     }
 
-    void DebugMessageHandler::SendEvaluateRow(uint32_t seq, VirtTupleLL & row)
+    void DebugMessageHandler::SendEvaluateRow(uint32_t seq, SmallTuple& row)
     {
         BackendToDebugger msg;
         msg.set_reply_seq_no(seq);
         auto rowMsg = msg.mutable_evaluaterow();
         auto msgRow = rowMsg->add_row();
-        MakeMsgTuple(*msgRow, row.Data);
+        MakeMsgTuple(*msgRow, row);
 
         Send(msg);
         DEBUG(" <-- BkEvaluateRow()");
@@ -617,5 +611,3 @@ namespace bg3se::osidbg
         DEBUG(" <-- BkEvaluateFinished()");
     }
 }
-
-#endif

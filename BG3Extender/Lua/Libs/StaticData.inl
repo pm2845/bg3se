@@ -5,112 +5,253 @@ BEGIN_NS(lua::res)
 
 using namespace bg3se::resource;
 
-#define FOR_EACH_NONGUID_RESOURCE_TYPE() \
-    FOR_RESOURCE_TYPE(Visual) \
-    FOR_RESOURCE_TYPE(VisualSet) \
-    FOR_RESOURCE_TYPE(Animation) \
-    FOR_RESOURCE_TYPE(AnimationSet) \
-    FOR_RESOURCE_TYPE(Texture) \
-    FOR_RESOURCE_TYPE(Material) \
-    FOR_RESOURCE_TYPE(Physics) \
-    FOR_RESOURCE_TYPE(Effect) \
-    FOR_RESOURCE_TYPE(Script) \
-    FOR_RESOURCE_TYPE(Sound) \
-    FOR_RESOURCE_TYPE(Lighting) \
-    FOR_RESOURCE_TYPE(Atmosphere) \
-    FOR_RESOURCE_TYPE(AnimationBlueprint) \
-    FOR_RESOURCE_TYPE(MeshProxy) \
-    FOR_RESOURCE_TYPE(MaterialSet) \
-    FOR_RESOURCE_TYPE(BlendSpace) \
-    FOR_RESOURCE_TYPE(FCurve) \
-    FOR_RESOURCE_TYPE(Timeline) \
-    FOR_RESOURCE_TYPE(Dialog) \
-    FOR_RESOURCE_TYPE(VoiceBark) \
-    FOR_RESOURCE_TYPE(TileSet) \
-    FOR_RESOURCE_TYPE(IKRig) \
-    FOR_RESOURCE_TYPE(Skeleton) \
-    FOR_RESOURCE_TYPE(VirtualTexture) \
-    FOR_RESOURCE_TYPE(TerrainBrush) \
-    FOR_RESOURCE_TYPE(ColorList) \
-    FOR_RESOURCE_TYPE(CharacterVisual) \
-    FOR_RESOURCE_TYPE(MaterialPreset) \
-    FOR_RESOURCE_TYPE(SkinPreset) \
-    FOR_RESOURCE_TYPE(ClothCollider) \
-    FOR_RESOURCE_TYPE(DiffusionProfile) \
-    FOR_RESOURCE_TYPE(LightCookie) \
-    FOR_RESOURCE_TYPE(TimelineScene) \
-    FOR_RESOURCE_TYPE(SkeletonMirrorTable)
-
-template <class T>
-int GetGuidResourceProxy(lua_State* L, Guid const& resourceGuid)
+class GuidResourceBankHelperBase
 {
-    auto& helpers = gExtender->GetServer().GetEntityHelpers();
-    auto resourceMgr = helpers.GetResourceManager<T>();
-    if (!resourceMgr) {
-        LuaError("Resource manager not available for this resource type");
-        push(L, nullptr);
-        return 1;
+public:
+    virtual bool Push(lua_State* L, Guid resourceGuid) = 0;
+    virtual bool Create(lua_State* L, std::optional<Guid> resourceGuid, bool allowUnsafeExpansion) = 0;
+    virtual Array<Guid> GetAll() = 0;
+    virtual HashMap<Guid, Array<Guid>>* GetSources() = 0;
+    virtual Array<Guid>* GetByModId(Guid modGuid) = 0;
+    virtual GuidResourceBankBase* GetBank() const = 0;
+};
+
+class NullGuidResourceBankHelper : public GuidResourceBankHelperBase
+{
+public:
+    bool Push(lua_State* L, Guid resourceGuid) override
+    {
+        return false;
+    }
+    
+    bool Create(lua_State* L, std::optional<Guid> resourceGuid, bool allowUnsafeExpansion) override
+    {
+        return false;
     }
 
-    auto resource = (*resourceMgr)->Resources.try_get(resourceGuid);
-    if (resource) {
-        MakeObjectRef(L, resource, State::FromLua(L)->GetGlobalLifetime());
-    } else {
+    Array<Guid> GetAll() override
+    {
+        return {};
+    }
+
+    HashMap<Guid, Array<Guid>>* GetSources() override
+    {
+        return &dummySources_;
+    }
+
+    Array<Guid>* GetByModId(Guid modGuid) override
+    {
+        return &dummyResources_;
+    }
+    
+    GuidResourceBankBase* GetBank() const override
+    {
+        return nullptr;
+    }
+
+private:
+    HashMap<Guid, Array<Guid>> dummySources_;
+    Array<Guid> dummyResources_;
+};
+
+template <class T>
+class GuidResourceBankHelper : public GuidResourceBankHelperBase
+{
+public:
+    GuidResourceBankHelper(GuidResourceBank<T>* bank)
+        : bank_(bank)
+    {}
+
+    bool Push(lua_State* L, Guid resourceGuid) override
+    {
+        auto resource = bank_->Resources.try_get(resourceGuid);
+        if (resource) {
+            MakeObjectRef(L, resource, LifetimeHandle{});
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool Create(lua_State* L, std::optional<Guid> resourceGuid, bool allowUnsafeExpansion) override
+    {
+        // We need at least one resource to copy the VMT pointer
+        if (bank_->Resources.empty()) {
+            LuaError("Unable to create resource - resource bank is empty");
+            return false;
+        }
+        
+        // It's unsafe to add new resources (for now) if we reach internal array size
+        if (bank_->Resources.raw_values().size() == bank_->Resources.keys().size()) {
+            if (allowUnsafeExpansion) {
+                Grow();
+            } else {
+                LuaError("Unable to create resource - no space left in resource bank");
+                return false;
+            }
+        }
+
+        Guid guid;
+        if (resourceGuid) {
+            guid = *resourceGuid;
+        } else {
+            guid = Guid::Generate();
+        }
+
+        auto existing = bank_->Resources.try_get(guid);
+        if (existing) {
+            LuaError("Unable to create resource - a resource with the same GUID already exists");
+            return false;
+        }
+
+        auto resource = bank_->Resources.add_key(guid);
+        resource->VMT = bank_->Resources.values()[0].VMT;
+        resource->ResourceUUID = guid;
+        MakeObjectRef(L, resource, LifetimeHandle{});
+
+        return true;
+    }
+
+    Array<Guid> GetAll() override
+    {
+        return bank_->Resources.keys();
+    }
+
+    HashMap<Guid, Array<Guid>>* GetSources() override
+    {
+        return &bank_->ResourceGuidsByMod;
+    }
+
+    Array<Guid>* GetByModId(Guid modGuid) override
+    {
+        return bank_->ResourceGuidsByMod.try_get(modGuid);
+    }
+
+    GuidResourceBankBase* GetBank() const override
+    {
+        return bank_;
+    }
+
+private:
+    GuidResourceBank<T>* bank_;
+
+    void Grow()
+    {
+        WARN("Growing resource bank %s - this may break resource references!", EnumInfo<ExtResourceManagerType>::Find(T::ResourceManagerType).GetString());
+        // The game may still reference the old resources, so ensure that a copy is kept of the old buffer
+        // (This leaks memory!)
+        auto curSize = bank_->Resources.keys().size();
+        auto oldResources = bank_->Resources.raw_values().data();
+        T* newResources = GameMemoryAllocator::NewRaw<T>(curSize);
+        for (uint32_t i = 0; i < curSize; i++) {
+            new (newResources + i) T(oldResources[i]);
+        }
+
+        bank_->Resources.raw_values().unsafe_swap_buffer(newResources);
+
+        // Use a more aggressive grow size to ensure we don't need to reallocate too frequently
+        auto newCapacity = std::max(curSize, 200u) * 2;
+        bank_->Resources.reserve(newCapacity);
+    }
+};
+
+#define FOR_RESOURCE_TYPE(ty) case resource::ty::ResourceManagerType: return MakeHelper<resource::ty>(type);
+
+class GuidResourceHelpers
+{
+public:
+    template <class T>
+    GuidResourceBankHelperBase* MakeHelper(ExtResourceManagerType type)
+    {
+        auto& helpers = gExtender->GetServer().GetEntityHelpers();
+        auto bank = helpers.GetResourceManager<T>();
+        if (!bank) {
+            LuaError("Guid resource manager not available for resource type: " << type);
+            return  &nullHelper_;
+        }
+
+        helpers_[(unsigned)type] = std::make_unique<GuidResourceBankHelper<T>>(*bank);
+        return helpers_[(unsigned)type].get();
+    }
+
+    GuidResourceBankHelperBase* Get(ExtResourceManagerType type)
+    {
+        auto helper = helpers_[(unsigned)type].get();
+        if (helper) {
+            return helper;
+        }
+
+        switch (type) {
+            FOR_EACH_GUID_RESOURCE_TYPE()
+
+        default:
+            LuaError("Guid resource type not supported: " << type);
+            return &nullHelper_;
+        }
+    }
+
+private:
+    std::array<std::unique_ptr<GuidResourceBankHelperBase>, (unsigned)ExtResourceManagerType::Max + 1> helpers_;
+    NullGuidResourceBankHelper nullHelper_;
+};
+
+#undef FOR_RESOURCE_TYPE
+
+GuidResourceHelpers gGuidResourceHelpers;
+
+
+UserReturn GetGuidResource(lua_State* L, Guid resourceGuid, ExtResourceManagerType type)
+{
+    if (!gGuidResourceHelpers.Get(type)->Push(L, resourceGuid)) {
         push(L, nullptr);
     }
 
     return 1;
 }
 
-#define FOR_RESOURCE_TYPE(ty) case ty::ResourceManagerType: return GetGuidResourceProxy<ty>(L, resourceGuid);
-
-UserReturn GetGuidResource(lua_State* L, Guid resourceGuid, ExtResourceManagerType type)
-{
-    auto& helpers = gExtender->GetServer().GetEntityHelpers();
-    switch (type) {
-    FOR_EACH_GUID_RESOURCE_TYPE()
-
-    default:
-        LuaError("Resource type not supported: " << type);
-        push(L, nullptr);
-        return 1;
-    }
-}
-
-#undef FOR_RESOURCE_TYPE
-
-template <class T>
-Array<Guid> GetAllGuidResourcesTyped()
-{
-    auto& helpers = gExtender->GetServer().GetEntityHelpers();
-    auto resourceMgr = helpers.GetResourceManager<T>();
-    if (!resourceMgr) {
-        LuaError("Resource manager not available for this resource type");
-        return {};
-    }
-
-    return (*resourceMgr)->Resources.keys();
-}
-
-#define FOR_RESOURCE_TYPE(ty) case ty::ResourceManagerType: return GetAllGuidResourcesTyped<ty>();
-
 Array<Guid> GetAllGuidResources(lua_State* L, ExtResourceManagerType type)
 {
-    auto& helpers = gExtender->GetServer().GetEntityHelpers();
-    switch (type) {
-    FOR_EACH_GUID_RESOURCE_TYPE()
+    OPTICK_EVENT();
+    return gGuidResourceHelpers.Get(type)->GetAll();
+}
 
-    default:
-        LuaError("Resource type not supported: " << type);
-        return {};
+HashMap<Guid, Array<Guid>>* GetGuidResourceSources(lua_State* L, ExtResourceManagerType type)
+{
+    return gGuidResourceHelpers.Get(type)->GetSources();
+}
+
+Array<Guid>* GetGuidResourcesByModId(lua_State* L, ExtResourceManagerType type, Guid modGuid)
+{
+    return gGuidResourceHelpers.Get(type)->GetByModId(modGuid);
+}
+
+void ClearResourceBank(ExtResourceManagerType type)
+{
+    auto bank = gGuidResourceHelpers.Get(type)->GetBank();
+    if (bank) {
+        bank->ClearInternal();
     }
 }
 
-#undef FOR_RESOURCE_TYPE
+void SyncResourceBank(ExtResourceManagerType type)
+{
+    auto bank = gGuidResourceHelpers.Get(type)->GetBank();
+    if (bank) {
+        bank->PostLoad();
+    }
+}
 
+UserReturn CreateGuidResource(lua_State* L, ExtResourceManagerType type, std::optional<Guid> resourceGuid)
+{
+    if (!gGuidResourceHelpers.Get(type)->Create(L, resourceGuid, true)) {
+        push(L, nullptr);
+    }
+
+    return 1;
+}
 
 #define FOR_RESOURCE_TYPE(ty)                                                            		  \
-    case ResourceBankType::ty: MakeObjectRef(L, (ty##Resource*)resource.Value()); break;
+    case ResourceBankType::ty: MakeObjectRef(L, static_cast<ty##Resource*>(resource)); break;
 
 UserReturn GetResource(lua_State* L, FixedString const& resourceGuid, ResourceBankType type)
 {
@@ -121,11 +262,11 @@ UserReturn GetResource(lua_State* L, FixedString const& resourceGuid, ResourceBa
         return 1;
     }
 
-    auto resource = bank->Container.Banks[(unsigned)type]->Resources.find(resourceGuid);
-    if (resource != bank->Container.Banks[(unsigned)type]->Resources.end()) {
+    auto resource = bank->GetResource(type, resourceGuid);
+    if (resource != nullptr) {
         switch (type)
         {
-            FOR_EACH_NONGUID_RESOURCE_TYPE();
+            FOR_EACH_NONGUID_RESOURCE_TYPE()
         }
     } else {
         push(L, nullptr);
@@ -136,6 +277,7 @@ UserReturn GetResource(lua_State* L, FixedString const& resourceGuid, ResourceBa
 
 Array<FixedString> GetAllResources(ResourceBankType type)
 {
+    OPTICK_EVENT();
     auto bank = GetStaticSymbols().GetCurrentResourceBank();
     if (!bank) {
         LuaError("Resource manager not available");
@@ -144,12 +286,36 @@ Array<FixedString> GetAllResources(ResourceBankType type)
 
     Array<FixedString> ids;
     for (auto const& resource : bank->Container.Banks[(unsigned)type]->Resources) {
-        ids.Add(resource.Key);
+        ids.push_back(resource.Key);
     }
 
     return ids;
 }
 
+TextureAtlasMap* GetTextureAtlasManager()
+{
+    return *GetStaticSymbols().ls__gTextureAtlasMap;
+}
+
+TextureAtlas* GetTextureAtlas(STDString path)
+{
+    return (*GetStaticSymbols().ls__gTextureAtlasMap)->AtlasMap.get_or_default(path);
+}
+
+TextureAtlas* GetIconAtlas(FixedString icon)
+{
+    return (*GetStaticSymbols().ls__gTextureAtlasMap)->IconMap.get_or_default(icon);
+}
+
+UVValues* GetIconUVs(FixedString icon)
+{
+    auto atlas = (*GetStaticSymbols().ls__gTextureAtlasMap)->IconMap.get_or_default(icon);
+    if (atlas) {
+        return atlas->Icons.get_or_default(icon);
+    }
+
+    return nullptr;
+}
 
 void RegisterStaticDataLib()
 {
@@ -157,6 +323,14 @@ void RegisterStaticDataLib()
     BEGIN_MODULE()
     MODULE_NAMED_FUNCTION("Get", GetGuidResource)
     MODULE_NAMED_FUNCTION("GetAll", GetAllGuidResources)
+    MODULE_NAMED_FUNCTION("GetSources", GetGuidResourceSources)
+    MODULE_NAMED_FUNCTION("GetByModId", GetGuidResourcesByModId)
+    MODULE_NAMED_FUNCTION("Create", CreateGuidResource)
+    MODULE_NAMED_FUNCTION("GetTextureAtlasManager", GetTextureAtlasManager)
+    MODULE_NAMED_FUNCTION("GetIconAtlas", GetIconAtlas)
+    MODULE_NAMED_FUNCTION("GetIconUVs", GetIconUVs)
+    MODULE_NAMED_FUNCTION("ClearResourceBank", ClearResourceBank)
+    MODULE_NAMED_FUNCTION("SyncResourceBank", SyncResourceBank)
     END_MODULE()
 
     DECLARE_MODULE(Resource, Both)

@@ -1,3 +1,4 @@
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/euler_angles.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/matrix_interpolation.hpp>
@@ -420,7 +421,7 @@ struct NormalizeOp
     template <class T1>
     static __forceinline auto DoInPlace(lua_State* L, T1 const& a) -> decltype((void)assign(L, 3, glm::normalize(a)), void())
     {
-        assign(L, 3, glm::normalize(a));
+        assign(L, 2, glm::normalize(a));
     }
 };
 
@@ -462,7 +463,7 @@ struct InverseOp
     template <class T1>
     static __forceinline auto DoInPlace(lua_State* L, T1 const& a) -> decltype((void)assign(L, 3, glm::inverse(a)), void())
     {
-        assign(L, 3, glm::inverse(a));
+        assign(L, 2, glm::inverse(a));
     }
 };
 
@@ -486,7 +487,7 @@ struct TransposeOp
     template <class T1>
     static __forceinline auto DoInPlace(lua_State* L, T1 const& a) -> decltype((void)assign(L, 3, glm::transpose(a)), void())
     {
-        assign(L, 3, glm::transpose(a));
+        assign(L, 2, glm::transpose(a));
     }
 };
 
@@ -530,16 +531,18 @@ void Rotate(lua_State* L, MathParam const& m, float angle, glm::vec3 const& axis
     switch (m.Arity) {
     case 16:
     {
-        glm::rotate(m.mat4, angle, axis);
-        assign(L, 1, m.mat4);
+        auto rotated = glm::rotate(m.mat4, angle, axis);
+        assign(L, 1, rotated);
+        break;
     }
 
     case 9:
     {
         glm::mat4 m4{ m.mat3 };
         m4[3][3] = 1.0f;
-        glm::rotate(m4, angle, axis);
-        assign(L, 1, glm::mat3(m4));
+        auto rotated = glm::rotate(m4, angle, axis);
+        assign(L, 1, glm::mat3(rotated));
+        break;
     }
 
     default:
@@ -552,8 +555,8 @@ void Rotate(lua_State* L, MathParam const& m, float angle, glm::vec3 const& axis
 /// </summary>
 void Translate(lua_State* L, glm::mat4 const& m, glm::vec3 const& translation)
 {
-    glm::translate(m, translation);
-    assign(L, 1, m);
+    auto translated = glm::translate(m, translation);
+    assign(L, 1, translated);
 }
 
 /// <summary>
@@ -561,8 +564,8 @@ void Translate(lua_State* L, glm::mat4 const& m, glm::vec3 const& translation)
 /// </summary>
 void Scale(lua_State* L, glm::mat4 const& m, glm::vec3 const& scale)
 {
-    glm::scale(m, scale);
-    assign(L, 1, m);
+    auto scaled = glm::scale(m, scale);
+    assign(L, 1, scaled);
 }
 
 /// <summary>
@@ -614,7 +617,7 @@ float QuatDot(glm::quat const& a, glm::quat const& b)
 
 glm::quat QuatSlerp(glm::quat const& a, glm::quat const& b, float alpha)
 {
-    return glm::mix(a, b, alpha);
+    return glm::slerp(a, b, alpha);
 }
 
 glm::mat3 QuatToMat3(glm::quat const& a)
@@ -735,7 +738,7 @@ glm::mat3 BuildFromEulerAngles3(lua_State* L, glm::vec3 const& angle)
 }
 
 /// <summary>
-/// Decomposes a model matrix to translations, rotation and scale components.
+/// Decomposes a model matrix to scale, rotation and translation components.
 /// </summary>
 void Decompose(lua_State* L, glm::mat4 const& m, glm::vec3 const& scale_, glm::vec3 const& yawPitchRoll, glm::vec3 const& translation_)
 {
@@ -898,7 +901,7 @@ float Lerp(float x, float y, float a)
 }
 
 /// <summary>
-/// Arc cosine. Returns an angle whose sine is x.
+/// Arc cosine. Returns an angle whose cosine is x.
 /// </summary>
 float Acos(float x)
 {
@@ -927,9 +930,9 @@ float Atan(float y_over_x)
 /// Returns an angle whose tangent is y / x.
 /// The signs of x and y are used to determine what quadrant the angle is in.
 /// </summary>
-float Atan2(float x, float y)
+float Atan2(float y, float x)
 {
-    return glm::atan(x, y);
+    return glm::atan(y, x);
 }
 
 /// <summary>

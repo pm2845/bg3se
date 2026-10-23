@@ -3,7 +3,7 @@
 #include <Extender/Shared/ExtensionState.h>
 #include <Extender/Version.h>
 #include <fstream>
-#include "json/json.h"
+#include <CoreLib/JsonLibs.h>
 
 namespace bg3se
 {
@@ -32,7 +32,8 @@ namespace bg3se
     }
 
     ExtensionStateBase::ExtensionStateBase(bool isServer)
-        : userVariables_(isServer, isServer ? (ecs::EntitySystemHelpersBase &)gExtender->GetServer().GetEntityHelpers() : gExtender->GetClient().GetEntityHelpers()),
+        : server_(isServer),
+        userVariables_(isServer, isServer ? (ecs::EntitySystemHelpersBase &)gExtender->GetServer().GetEntityHelpers() : gExtender->GetClient().GetEntityHelpers()),
         modVariables_(isServer)
     {}
 
@@ -54,7 +55,7 @@ namespace bg3se
         }
 
         unsigned numConfigs{ 0 };
-        for (auto const& mod : modManager->BaseModule.LoadOrderedModules) {
+        for (auto const& mod : modManager->LoadOrderedModules) {
             auto dir = mod.Info.Directory;
             auto configFile = "Mods/" + dir + "/ScriptExtender/Config.json";
             auto reader = GetStaticSymbols().MakeFileReader(configFile);
@@ -67,8 +68,8 @@ namespace bg3se
                         featureFlags << flag << " ";
                     }
 
-                    INFO("Configuration for '%s':\r\n\tMinVersion %d; Feature flags: %s", mod.Info.Name.c_str(),
-                        config.MinimumVersion, featureFlags.str());
+                    INFO("    '%s': SE v%d; flags: %s", mod.Info.Name.c_str(),
+                        config.MinimumVersion, featureFlags.str().c_str());
 
                     if (config.MinimumVersion == 0) {
                         OsiError("Module '" << mod.Info.Name << ":");
@@ -103,14 +104,13 @@ namespace bg3se
         }
 
         if (numConfigs > 0) {
-            INFO("%d mod configuration(s) loaded.", numConfigs);
             std::stringstream featureFlags;
             for (auto const & flag : MergedConfig.FeatureFlags) {
                 featureFlags << flag << " ";
             }
 
-            INFO("Merged configuration:\r\n\tMinVersion %d; Feature flags: %s",
-                MergedConfig.MinimumVersion, featureFlags.str());
+            DEBUG("Merged config: SE v%d; flags: %s",
+                MergedConfig.MinimumVersion, featureFlags.str().c_str());
         }
 
         if (CurrentVersion < MergedConfig.MinimumVersion && HighestVersionMod != nullptr) {
@@ -121,27 +121,27 @@ namespace bg3se
         }
     }
 
+    using namespace rapidjson;
+
+    bool LoadModConfig(Module const& mod, Document& json, ExtensionModConfig& config);
+
     bool ExtensionStateBase::LoadConfig(Module const & mod, STDString const & configText, ExtensionModConfig & config)
     {
-        Json::CharReaderBuilder factory;
-        auto reader = std::unique_ptr<Json::CharReader>(factory.newCharReader());
-
-        Json::Value root;
-        std::string errs;
-        if (!reader->parse(configText.c_str(), configText.c_str() + configText.size(), &root, &errs)) {
-            OsiError("Unable to parse configuration for mod '" << mod.Info.Name << "': " << errs);
+        Document root;
+        if (root.Parse(configText.data()).HasParseError()) {
+            OsiError("Unable to parse configuration for mod '" << mod.Info.Name << "'");
             return false;
         }
 
-        return LoadConfig(mod, root, config);
+        return LoadModConfig(mod, root, config);
     }
 
-    std::optional<bool> GetConfigBool(Json::Value & config, std::string const & key)
+    std::optional<bool> GetConfigBool(Value const& node, std::string_view const& key)
     {
-        auto value = config[key];
-        if (!value.isNull()) {
-            if (value.isBool()) {
-                return value.asBool();
+        auto v = node.FindMember(key.data());
+        if (v != node.MemberEnd()) {
+            if (v->value.IsBool()) {
+                return v->value.GetBool();
             } else {
                 OsiError("Config option '" << key << "' should be a boolean.");
             }
@@ -150,12 +150,12 @@ namespace bg3se
         return {};
     }
 
-    std::optional<int32_t> GetConfigInt(Json::Value & config, std::string const & key)
+    std::optional<int32_t> GetConfigInt(Value const& node, std::string_view const& key)
     {
-        auto value = config[key];
-        if (!value.isNull()) {
-            if (value.isInt()) {
-                return value.asInt();
+        auto v = node.FindMember(key.data());
+        if (v != node.MemberEnd()) {
+            if (v->value.IsInt()) {
+                return v->value.GetInt();
             } else {
                 OsiError("Config option '" << key << "' should be an integer.");
             }
@@ -164,12 +164,12 @@ namespace bg3se
         return {};
     }
 
-    std::optional<STDString> GetConfigString(Json::Value& config, std::string const& key)
+    std::optional<STDString> GetConfigString(Value const& node, std::string_view const& key)
     {
-        auto value = config[key];
-        if (!value.isNull()) {
-            if (value.isString()) {
-                return value.asString().c_str();
+        auto v = node.FindMember(key.data());
+        if (v != node.MemberEnd()) {
+            if (v->value.IsString()) {
+                return v->value.GetString();
             } else {
                 OsiError("Config option '" << key << "' should be a string.");
             }
@@ -178,7 +178,7 @@ namespace bg3se
         return {};
     }
 
-    bool ExtensionStateBase::LoadConfig(Module const & mod, Json::Value & json, ExtensionModConfig & config)
+    bool LoadModConfig(Module const & mod, Document& json, ExtensionModConfig & config)
     {
         auto version = GetConfigInt(json, "RequiredVersion");
         if (version) {
@@ -190,15 +190,15 @@ namespace bg3se
             config.ModTable = *modTable;
         }
 
-        auto featureFlags = json["FeatureFlags"];
-        if (featureFlags.isArray()) {
-            for (auto const & flag : featureFlags) {
-                if (flag.isString()) {
-                    auto flagStr = flag.asString();
-                    if (sAllFeatureFlags.find(flagStr) != sAllFeatureFlags.end()) {
+        auto featureFlags = json.FindMember("FeatureFlags");
+        if (featureFlags != json.MemberEnd() && featureFlags->value.IsArray()) {
+            for (auto const & flag : featureFlags->value.GetArray()) {
+                if (flag.IsString()) {
+                    auto flagStr = flag.GetString();
+                    if (ExtensionStateBase::sAllFeatureFlags.find(flagStr) != ExtensionStateBase::sAllFeatureFlags.end()) {
                         config.FeatureFlags.insert(STDString(flagStr));
                     } else {
-                        ERR("Feature flag '%s' not supported!", flagStr.c_str());
+                        ERR("Feature flag '%s' not supported!", flagStr);
                     }
                 } else {
                     ERR("Garbage found in FeatureFlags array");
@@ -281,27 +281,36 @@ namespace bg3se
     void ExtensionStateBase::IncLuaRefs()
     {
         luaMutex_.lock();
-        luaRefs_++;
-    }
-
-    void ExtensionStateBase::DecLuaRefs()
-    {
-        assert(luaRefs_ > 0);
-        luaRefs_--;
-        luaMutex_.unlock();
-
-        if (luaRefs_ == 0 && LuaPendingDelete) {
-            LuaResetInternal();
+        if (++luaRefs_ == 1) {
+            se_assert(owningThread_ == 0);
+            owningThread_ = GetCurrentThreadId();
+        } else {
+            se_assert(owningThread_ == GetCurrentThreadId());
         }
     }
 
-    void ExtensionStateBase::LuaReset(ExtensionStateContext nextContext, bool startup)
+    void ExtensionStateBase::DecLuaRefs(bool releaseVm)
     {
-        nextContext_ = nextContext;
-        LuaReset(startup);
+        se_assert(luaRefs_ > 0);
+        se_assert(owningThread_ == GetCurrentThreadId());
+        if (--luaRefs_ == 0) {
+            owningThread_ = 0;
+        }
+
+        if (luaRefs_ == 0 && LuaPendingDelete && releaseVm) {
+            LuaResetInternal();
+        }
+
+        luaMutex_.unlock();
     }
 
-    void ExtensionStateBase::LuaReset(bool startup)
+    void ExtensionStateBase::RequestLuaReset(ExtensionStateContext nextContext, bool startup)
+    {
+        nextContext_ = nextContext;
+        RequestLuaReset(startup);
+    }
+
+    void ExtensionStateBase::RequestLuaReset(bool startup)
     {
         if (LuaPendingDelete) {
             OsiWarn("State delete is already pending!");
@@ -356,7 +365,7 @@ namespace bg3se
         auto length = f.tellg();
         f.seekg(0, std::ios::beg);
         STDString s((uint32_t)length, '\0');
-        f.read(const_cast<char *>(s.data()), length);
+        f.read(s.data(), length);
         f.close();
 
         LuaVirtualPin lua(*this);
@@ -469,29 +478,30 @@ namespace bg3se
 
     void ExtensionStateBase::LuaResetInternal()
     {
-        std::lock_guard _(luaMutex_);
-        if (gExtender->GetClient().IsInClientThread()) {
+        OPTICK_EVENT(Optick::Category::IO);
+        // Make sure that we won't get destroyed during startup/shutdown
+        IncLuaRefs();
+
+        if (gExtender->GetClient().IsInContext()) {
             gExtender->GetClient().UpdateClientProgress("Lua Init");
         } else {
             gExtender->GetClient().UpdateServerProgress("Lua Init");
         }
 
-        assert(LuaPendingDelete);
-        assert(luaRefs_ == 0);
+        se_assert(LuaPendingDelete);
+        se_assert(luaRefs_ == 1);
 
         LuaPendingDelete = false;
 
         // Destroy previous instance first to make sure that no dangling
         // references are made to the old state while constructing the new
-        DoLuaReset();
-        OsiWarn("LUA VM reset.");
-
-        // Make sure that we won't get destroyed during startup
-        IncLuaRefs();
+        ShutdownLuaState();
+        OsiMsg("LUA VM reset");
+        InitializeLuaState();
 
         if (LuaPendingStartup) {
             LuaPendingStartup = false;
-            LuaStartup();
+            BootstrapLua();
         }
 
         for (auto const& cb : luaPostResetCallbacks_) {
@@ -506,11 +516,12 @@ namespace bg3se
             OsiError("Lua state deletion requested during startup? Weird");
         }
 
-        DecLuaRefs();
+        DecLuaRefs(false);
     }
 
-    void ExtensionStateBase::LuaStartup()
+    void ExtensionStateBase::BootstrapLua()
     {
+        OPTICK_EVENT(Optick::Category::IO);
         LuaVirtualPin lua(*this);
         if (!lua) {
             OsiErrorS("Called when the Lua VM has not been initialized!");
@@ -524,12 +535,12 @@ namespace bg3se
         }
 
         lua::Restriction restriction(*lua, lua::State::RestrictAll);
-        for (auto const& mod : modManager->BaseModule.LoadOrderedModules) {
+        for (auto const& mod : modManager->LoadOrderedModules) {
             auto configIt = modConfigs_.find(mod.Info.ModuleUUIDString);
             if (configIt != modConfigs_.end()) {
                 auto const & config = configIt->second;
                 if (config.FeatureFlags.find("Lua") != config.FeatureFlags.end()) {
-                    if (gExtender->GetClient().IsInClientThread()) {
+                    if (gExtender->GetClient().IsInContext()) {
                         gExtender->GetClient().UpdateClientProgress(mod.Info.Name);
                     } else {
                         gExtender->GetClient().UpdateServerProgress(mod.Info.Name);
@@ -562,7 +573,12 @@ namespace bg3se
             lua_setglobal(L, "ModuleUUID");
 
             OsiMsg("Loading bootstrap script: " << bootstrapPath);
+            PerfTimer timer;
             lua->LoadBootstrap(bootstrapFileName, config.ModTable);
+            auto took = timer.time();
+            if (PERF_SHOULD_REPORT(Load, took)) {
+                PERF_REPORT(Load, took, "Loading %s for mod %s took %lld ms", bootstrapFileName, mod.Info.Name.c_str(), took / 1000);
+            }
 
             lua::push(L, nullptr);
             lua_setglobal(L, "ModuleUUID");
@@ -585,7 +601,12 @@ namespace bg3se
         lua_setglobal(L, "ModuleUUID");
 
         OsiMsg("Loading preinit bootstrap script: " << path);
+        PerfTimer timer;
         lua->LoadBootstrap(bootstrapFileName, config.ModTable);
+        auto took = timer.time();
+        if (PERF_SHOULD_REPORT(Load, took)) {
+            PERF_REPORT(Load, took, "Loading %s for mod %s took %lld ms", bootstrapFileName, mod.Info.Name.c_str(), took / 1000);
+        }
 
         lua::push(L, nullptr);
         lua_setglobal(L, "ModuleUUID");

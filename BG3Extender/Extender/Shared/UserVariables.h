@@ -13,6 +13,7 @@ enum class UserVariableType
     String = 3,
     Composite = 4,
     Boolean = 5,
+    CompositeBinary = 6
 };
 
 struct UserVariable
@@ -23,6 +24,7 @@ struct UserVariable
     UserVariable(double v) : Type(UserVariableType::Double), Value(v) {}
     UserVariable(FixedString const& v) : Type(UserVariableType::String), Value(v) {}
     UserVariable(STDString const& v) : Type(UserVariableType::Composite), Value(v) {}
+    UserVariable(ScratchBuffer const& v) : Type(UserVariableType::CompositeBinary), Value(STDString((char const*)v.Buffer.Buffer, (uint32_t)v.Size)) {}
 
     void SavegameVisit(ObjectVisitor* visitor);
     void ToNetMessage(net::UserVar& var) const;
@@ -46,11 +48,6 @@ enum class UserVariableFlags
     WriteableOnClient = 1 << 7,
     SyncOnTick = 1 << 8,
     Persistent = 1 << 9
-};
-
-template<> struct IsBitfield<UserVariableFlags>
-{
-    static const bool value = true;
 };
 
 struct UserVariablePrototype
@@ -78,6 +75,8 @@ struct UserVariablePrototype
     }
 
     bool NeedsRebroadcast(bool server) const;
+
+    void SanityCheckFlags(FixedString const& name);
 };
 
 class UserVariableInterface
@@ -147,6 +146,11 @@ public:
         return entityHelpers_;
     }
 
+    inline bool HasCache() const
+    {
+        return cache_ != nullptr;
+    }
+
     Guid EntityToGuid(EntityHandle const& entity) const;
     EntityHandle GuidToEntity(Guid const& guid) const;
     UserVariable* Get(Guid const& entity, FixedString const& key) override;
@@ -203,7 +207,7 @@ private:
     Guid moduleUuid_;
     VariableMap vars_;
     HashMap<FixedString, UserVariablePrototype> prototypes_;
-    bool isServer_;
+    bool isServer_{ false };
 };
 
 class ModVariableManager : public UserVariableInterface
@@ -265,9 +269,9 @@ struct CachedUserVariable
     CachedUserVariable(FixedString const& v) : Type(CachedUserVariableType::String), Value(v) {}
     CachedUserVariable(lua_State* L, Ref const& v);
     CachedUserVariable(lua_State* L, UserVariable const& v);
-    CachedUserVariable(CachedUserVariable&& o);
+    CachedUserVariable(CachedUserVariable&& o) noexcept;
 
-    CachedUserVariable& operator = (CachedUserVariable&& o);
+    CachedUserVariable& operator = (CachedUserVariable&& o) noexcept;
 
     CachedUserVariableType Type{ CachedUserVariableType::Null };
     bool Dirty{ false };
@@ -275,9 +279,9 @@ struct CachedUserVariable
 
     void Push(lua_State* L) const;
     bool LikelyChanged(CachedUserVariable const& o) const;
-    UserVariable ToUserVariable(lua_State* L) const;
-    STDString StringifyReference(lua_State* L) const;
-    void ParseReference(lua_State* L, StringView json);
+    UserVariable ToUserVariable(lua_State* L, bool binary = true) const;
+    STDString StringifyReference(lua_State* L, bool binary) const;
+    void ParseReference(lua_State* L, StringView json, bool binary);
 };
 
 class CachedUserVariableManager

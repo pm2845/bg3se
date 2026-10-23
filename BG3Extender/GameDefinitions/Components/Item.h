@@ -38,10 +38,13 @@ struct PortalComponent : public BaseComponent
 };
 
 
+DEFINE_TAG_COMPONENT(eoc::item, DestroyingComponent, ItemDestroying)
 DEFINE_TAG_COMPONENT(eoc::item, DoorComponent, IsDoor)
 DEFINE_TAG_COMPONENT(eoc::item, ExamineDisabledComponent, ExamineDisabled)
 DEFINE_TAG_COMPONENT(eoc::item, HasMovedComponent, ItemHasMoved)
 DEFINE_TAG_COMPONENT(eoc::item, HasOpenedComponent, HasOpened)
+DEFINE_TAG_COMPONENT(eoc::item, InUseComponent, ItemInUse)
+DEFINE_TAG_COMPONENT(eoc::item, IsPoisonedComponent, ItemIsPoisoned)
 DEFINE_TAG_COMPONENT(eoc::item, IsGoldComponent, IsGold)
 DEFINE_TAG_COMPONENT(eoc::item, ItemComponent, IsItem)
 DEFINE_TAG_COMPONENT(eoc::item, NewInInventoryComponent, NewInInventory)
@@ -151,6 +154,30 @@ struct OwneeRequestComponent : public BaseComponent
     std::optional<EntityHandle> NewCurrentOwnee;
     std::optional<EntityHandle> LatestOwner;
     std::optional<EntityHandle> OriginalOwner;
+};
+
+END_NS()
+
+BEGIN_NS(ecl)
+
+struct SceneryInitSound
+{
+    int16_t Attenuation;
+    FixedString InitSound;
+    FixedString LoopSound;
+};
+
+struct Scenery : public BaseProxyComponent
+{
+    DEFINE_COMPONENT(Scenery, "ecl::Scenery")
+
+    EntityHandle Entity2;
+    SceneryFlags Flags;
+    ecs::EntityRef Entity;
+    Guid Uuid;
+    SceneryInitSound* Sound;
+    FixedString Visual;
+    VisualLoadFlags VisualLoadFlags;
 };
 
 END_NS()

@@ -7,9 +7,20 @@
 #include <optional>
 
 #include <GameDefinitions/Base/Base.h>
+#include <GameDefinitions/Stats/Expression.h>
+
+BEGIN_NS(lua)
+
+#if !defined(NDEBUG) || defined(SE_RELEASE_ASSERTS)
+void EnterVMCheck(lua_State* L);
+#else
+inline void EnterVMCheck(lua_State* L) {}
+#endif
+
+END_NS()
+
 #include <Lua/Shared/LuaReference.h>
 #include <Lua/Shared/RawComponentRef.h>
-#include <Lua/Shared/LuaTypeTraits.h>
 
 BEGIN_SE()
 
@@ -88,7 +99,6 @@ END_NS()
 
 BEGIN_NS(lua)
 
-#if defined(ENABLE_IMGUI)
 struct ImguiHandle
 {
     uint64_t Handle;
@@ -128,7 +138,6 @@ struct ImguiHandle
         return Handle == extui::InvalidHandle;
     }
 };
-#endif
 
 bool ProtectedCallC(lua_State* L, lua_CFunction fun, void* context, void* context2, char const* funcDescription, char const*& error);
 
@@ -235,6 +244,12 @@ PropertyOperationResult Unserialize(lua_State* L, int index, T* obj);
 END_NS()
 
 
+BEGIN_SE()
+
+MARK_BY_VALUE_TYPE(lua::ImguiHandle)
+
+END_SE()
+
 #include <Lua/Shared/LuaLifetime.h>
 #include <Lua/Shared/LuaCustomizations.h>
 
@@ -242,6 +257,7 @@ END_NS()
 BEGIN_NS(lua)
 
 char const* GetDebugName(lua_State* L, int idx);
+char const* GetDebugBaseName(lua_State* L, int idx);
 char const* GetDebugName(MetatableTag tag);
 char const* GetDebugName(MetatableTag tag, int propertyMapIdx);
 char const* GetDebugName(CppObjectMetadata const& meta);
@@ -251,6 +267,7 @@ END_NS()
 
 #include <Lua/Helpers/LuaPush.h>
 #include <Lua/Helpers/LuaGet.h>
+#include <Lua/Helpers/LuaTypeCheck.h>
 
 #include <Lua/LuaUserdata.h>
 #include <Lua/Shared/Proxies/LuaPropertyMap.h>
@@ -261,7 +278,9 @@ END_NS()
 #include <Lua/Shared/Proxies/LuaSetProxy.h>
 #include <Lua/Shared/Proxies/LuaMapProxy.h>
 #include <Lua/Shared/Proxies/LuaCppObjectProxy.h>
+#include <Lua/Shared/Proxies/LuaSystemMap.h>
 
+#include <Lua/Helpers/LuaTypeCheckObject.h>
 #include <Lua/Helpers/LuaSerialize.h>
 #include <Lua/Helpers/LuaUnserialize.h>
 #include <Lua/Helpers/LuaPushObject.h>
@@ -348,7 +367,6 @@ auto CheckedPopReturnValues(lua_State * L, std::tuple<Ret...>& ret)
 }
 
 int CallWithTraceback(lua_State* L, int narg, int nres);
-void EnterVMCheck(lua_State* L);
 
 // Calls Lua function.
 // Function and arguments must be already pushed to the Lua stack.

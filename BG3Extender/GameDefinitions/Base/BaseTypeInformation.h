@@ -15,12 +15,6 @@ END_NS();
 
 BEGIN_SE()
 
-template <class T>
-constexpr bool IsIntegralAlias = false;
-
-#define MARK_INTEGRAL_ALIAS(ty) template <> constexpr bool IsIntegralAlias<ty> = true;
-
-
 struct TypeInformation;
 
 struct StaticTypeInformation : Noncopyable<StaticTypeInformation>
@@ -30,7 +24,16 @@ struct StaticTypeInformation : Noncopyable<StaticTypeInformation>
     TypeInformation* Type{ nullptr };
     InitializerProc* Initializer{ nullptr };
 
+    inline StaticTypeInformation() {}
     StaticTypeInformation(TypeInformation* type, InitializerProc* initializer);
+
+    inline StaticTypeInformation(StaticTypeInformation&& o) noexcept
+        : Type(o.Type), Initializer(o.Initializer)
+    {
+        // This 'dummy move' should only happen during initialization when types are not yet set up
+        assert(o.Type == nullptr && o.Initializer == nullptr);
+    }
+
     void DeferredInitialize();
 };
 
@@ -73,6 +76,8 @@ private:
     StaticTypeInformation* ref_{ nullptr };
 };
 
+MARK_BY_VALUE_TYPE(TypeInformationRef)
+
 struct TypeInformation
 {
     FixedString TypeName;
@@ -96,10 +101,68 @@ struct TypeInformation
     FixedString ModuleRole;
     lua::GenericPropertyMap* PropertyMap{ nullptr };
     FixedString ComponentName;
+    FixedString SystemName;
 
     void DeferredInitialize();
     void Validate();
+    __declspec(noinline) void AddMember(char const* name, TypeInformationRef&& type);
 };
+
+
+struct StaticTypeInformationRepository
+{
+public:
+    void Initialize(int32_t numStructs, int32_t numEnums, int32_t numBitfields);
+    void RegisterStruct(TypeInformation& ty, StructTypeId id);
+    void RegisterEnum(TypeInformation& ty, EnumTypeId id);
+    void RegisterBitfield(TypeInformation& ty, BitfieldTypeId id);
+
+    inline StaticTypeInformation* GetStructRef(StructTypeId id)
+    {
+        assert((int)id >= 0 && (int)id < (int)structs_.size());
+        return (structs_.data() + (int32_t)id);
+    }
+
+    inline StaticTypeInformation* GetEnumRef(EnumTypeId id)
+    {
+        assert((int)id >= 0 && (int)id < (int)enums_.size());
+        return (enums_.data() + (int32_t)id);
+    }
+
+    inline StaticTypeInformation* GetBitfieldRef(BitfieldTypeId id)
+    {
+        assert((int)id >= 0 && (int)id < (int)bitfields_.size());
+        return (bitfields_.data() + (int32_t)id);
+    }
+
+    inline TypeInformation* GetStruct(StructTypeId id) const
+    {
+        assert((int)id >= 0 && (int)id < (int)structs_.size());
+        return (structs_.data() + (int32_t)id)->Type;
+    }
+
+    inline TypeInformation* GetEnum(EnumTypeId id) const
+    {
+        assert((int)id >= 0 && (int)id < (int)enums_.size());
+        return (enums_.data() + (int32_t)id)->Type;
+    }
+
+    inline TypeInformation* GetBitfield(BitfieldTypeId id) const
+    {
+        assert((int)id >= 0 && (int)id < (int)bitfields_.size());
+        return (bitfields_.data() + (int32_t)id)->Type;
+    }
+
+private:
+    Array<StaticTypeInformation> builtins_;
+    Array<StaticTypeInformation> structs_;
+    Array<StaticTypeInformation> enums_;
+    Array<StaticTypeInformation> bitfields_;
+    Array<StaticTypeInformation> dynamics_;
+};
+
+extern StaticTypeInformationRepository gStaticTypeInformationRepository;
+
 
 template <class T>
 inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<T>)
@@ -140,6 +203,12 @@ inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overl
     return &MakeDeferredArrayType<T>;
 }
 
+template <class T>
+inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<Queue<T>>)
+{
+    return &MakeDeferredArrayType<T>;
+}
+
 template <class TWord, unsigned Words>
 inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<BitArray<TWord, Words>>)
 {
@@ -164,28 +233,27 @@ inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overl
     return &MakeDeferredArrayType<T>;
 }
 
-#if defined(ENABLE_UI)
+template <class T>
+inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<TrackedCompactSet<T>>)
+{
+    return &MakeDeferredArrayType<T>;
+}
+
+template <class T>
+inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<MiniCompactSet<T>>)
+{
+    return &MakeDeferredArrayType<T>;
+}
+
 template <class T, unsigned N>
 inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<Noesis::Vector<T, N>>)
 {
     return &MakeDeferredArrayType<T>;
 }
 
-inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<Noesis::BaseCollection>)
-{
-    return &MakeDeferredArrayType<Noesis::BaseComponent*>;
-}
-
-inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<Noesis::BaseObservableCollection>)
-{
-    return &MakeDeferredArrayType<Noesis::BaseComponent*>;
-}
-
-inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<Noesis::UIElementCollection>)
-{
-    return &MakeDeferredArrayType<Noesis::UIElement*>;
-}
-#endif
+StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<Noesis::BaseCollection>);
+StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<Noesis::BaseObservableCollection>);
+StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<Noesis::UIElementCollection>);
 
 template <class T, class Allocator, bool StoreSize>
 inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overload<Set<T, Allocator, StoreSize>>)
@@ -260,7 +328,25 @@ inline StaticTypeInformation::InitializerProc* MakeDeferredTypeInitializer(Overl
 }
 
 template <class T>
-StaticTypeInformation& GetStaticTypeInfoInternal(Overload<T>)
+inline StaticTypeInformation& GetStaticTypeInfoInternal(Overload<T>) requires IsStruct<T>
+{
+    return *gStaticTypeInformationRepository.GetStructRef(StructID<T>);
+}
+
+template <class T>
+inline StaticTypeInformation& GetStaticTypeInfoInternal(Overload<T>) requires IsEnum<T>
+{
+    return *gStaticTypeInformationRepository.GetEnumRef(EnumID<T>);
+}
+
+template <class T>
+inline StaticTypeInformation& GetStaticTypeInfoInternal(Overload<T>) requires IsBitfield<T>
+{
+    return *gStaticTypeInformationRepository.GetBitfieldRef(BitfieldID<T>);
+}
+
+template <class T>
+StaticTypeInformation& GetStaticTypeInfoInternal(Overload<T>) requires !IsStruct<T> && !IsEnum<T> && !IsBitfield<T>
 {
     static StaticTypeInformation info{ nullptr, MakeDeferredTypeInitializer(Overload<T>{}) };
     return info;
@@ -270,6 +356,18 @@ template <class T, class Allocator, bool StoreSize>
 StaticTypeInformation& GetStaticTypeInfoInternal(Overload<ObjectSet<T, Allocator, StoreSize>>)
 {
     return GetStaticTypeInfoInternal(Overload<Set<T, Allocator, StoreSize>>{});
+}
+
+template <class T>
+StaticTypeInformation& GetStaticTypeInfoInternal(Overload<TrackedCompactSet<T>>)
+{
+    return GetStaticTypeInfoInternal(Overload<Set<T, GameMemoryAllocator, true>>{});
+}
+
+template <class T>
+StaticTypeInformation& GetStaticTypeInfoInternal(Overload<MiniCompactSet<T>>)
+{
+    return GetStaticTypeInfoInternal(Overload<Set<T, GameMemoryAllocator, true>>{});
 }
 
 template <class T>
@@ -337,7 +435,7 @@ TypeInformation const& GetTypeInfo()
     if (type.Type == nullptr) {
         type.DeferredInitialize();
     }
-    assert(type.Type != nullptr);
+    se_assert(type.Type != nullptr);
     return *type.Type;
 }
 
@@ -354,6 +452,7 @@ public:
 
     TypeInformationRepository();
     void Initialize();
+    void Finalize();
     TypeInformation& RegisterType(FixedString const& typeName);
     void RegisterType(TypeInformation* typeInfo);
     void RegisterInitializer(StaticTypeInformation* typeInfo);
@@ -372,7 +471,7 @@ private:
     LegacyMap<FixedString, TypeInformation*> types_;
     Array<StaticTypeInformation*> initializers_;
     TypeInformation undefinedType_;
-    bool initialized_;
+    bool initialized_{ false };
 
     void RegisterArrayType(char const* arrayClass, TypeInformationRef const& elementType);
     TypeInformation& RegisterType(char const* name, LuaTypeId typeId);

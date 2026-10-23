@@ -1,5 +1,6 @@
 #include <stdafx.h>
 #include <Lua/Libs/LibraryRegistrationHelpers.h>
+#include <Lua/Shared/ExposedTypes.h>
 #include <Lua/Shared/LuaModule.h>
 #include <Lua/Shared/LuaMethodCallHelpers.h>
 #include <Lua/Osiris/FunctionProxy.h>
@@ -16,6 +17,7 @@
 #include <Lua/Libs/StatMisc.inl>
 #include <Lua/Libs/Stats.inl>
 #include <Lua/Libs/StaticData.inl>
+#include <Lua/Libs/Table.inl>
 #include <Lua/Libs/Timer.inl>
 #include <Lua/Libs/Types.inl>
 #include <Lua/Libs/Utils.inl>
@@ -26,12 +28,9 @@
 #include <Lua/Libs/ServerTemplate.inl>
 #include <Lua/Libs/ClientTemplate.inl>
 #include <Lua/Libs/ClientAudio.inl>
-#if defined(ENABLE_UI)
+#include <Lua/Libs/ClientInput.inl>
 #include <Lua/Libs/ClientUI/Module.inl>
-#endif
-#if defined(ENABLE_IMGUI)
 #include <Lua/Libs/ClientIMGUI.inl>
-#endif
 
 BEGIN_NS(ecl::lua)
 
@@ -39,13 +38,11 @@ void RegisterClientLibraries()
 {
     net::RegisterNetLib();
     tmpl::RegisterTemplateLib();
+    level::RegisterLevelLibClient();
     audio::RegisterAudioLib();
-#if defined(ENABLE_UI)
+    input::RegisterInputLib();
     ui::RegisterUILib();
-#endif
-#if defined(ENABLE_IMGUI)
     imgui::RegisterIMGUILib();
-#endif
 }
 
 END_NS()
@@ -56,6 +53,7 @@ void RegisterServerLibraries()
 {
     net::RegisterNetLib();
     tmpl::RegisterTemplateLib();
+    level::RegisterLevelLibServer();
 }
 
 void RegisterServerMetatables(lua_State* L)
@@ -69,6 +67,37 @@ BEGIN_NS(lua)
 
 void InitObjectProxyPropertyMaps();
 
+void RegisterSystemProxy(lua_State* L)
+{
+    StackCheck _(L);
+    lua_getglobal(L, "Ext");
+    SystemMapMetatable::Make(L);
+    lua_setfield(L, -2, "System");
+    lua_pop(L, 1);
+}
+
+void RegisterConfig(lua_State* L)
+{
+    StackCheck _(L);
+    lua_getglobal(L, "Ext");
+
+    lua_newtable(L);
+
+    setfield(L, "ProfilerEnabled", gExtender->GetConfig().Optick);
+    setfield(L, "PerfMessagesEnabled", gExtender->GetConfig().EnablePerfMessages);
+    setfield(L, "ProfilerLoadCallbackErrorThreshold", gExtender->GetConfig().ProfilerLoadCallbackThreshold.Error);
+
+    if (State::FromLua(L)->IsClient()) {
+        setfield(L, "ProfilerCallbackErrorThreshold", gExtender->GetConfig().ProfilerClientCallbackThreshold.Error);
+    } else {
+        setfield(L, "ProfilerCallbackErrorThreshold", gExtender->GetConfig().ProfilerCallbackThreshold.Error);
+    }
+
+    lua_setfield(L, -2, "Config");
+
+    lua_pop(L, 1);
+}
+
 void RegisterSharedMetatables(lua_State* L)
 {
     ArrayProxyMetatable::RegisterMetatable(L);
@@ -81,10 +110,11 @@ void RegisterSharedMetatables(lua_State* L)
     ModVariableHolderMetatable::RegisterMetatable(L);
     EntityProxyMetatable::RegisterMetatable(L);
     EntityProxyMetatable::StaticInitialize();
-#if defined(ENABLE_IMGUI)
     ImguiObjectProxyMetatable::RegisterMetatable(L);
-#endif
+    SystemMapMetatable::RegisterMetatable(L);
+    RegisterSystemProxy(L);
     types::RegisterEnumerations(L);
+    RegisterConfig(L);
 }
 
 void RegisterSharedLibraries()
@@ -102,8 +132,8 @@ void RegisterSharedLibraries()
     stats::RegisterStatsLib();
     res::RegisterStaticDataLib();
     vars::RegisterVarsLib();
+    table::RegisterTableLib();
     timer::RegisterTimerLib();
-    level::RegisterLevelLib();
 }
 
 void RegisterLibraries()

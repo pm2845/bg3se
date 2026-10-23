@@ -11,10 +11,13 @@ public:
 
 private:
     std::wstring miniDumpPath_;
+    std::wstring reportPath_;
     std::wstring backtracePath_;
     HWND progressBarWindowHWnd_;
-    bool uploadSucceeded_;
+    bool uploadSucceeded_{ false };
     std::wstring resultText_;
+    bool quiet_{ false };
+    volatile bool uploadFinished_{ false };
 
     std::string GetBacktrace();
 

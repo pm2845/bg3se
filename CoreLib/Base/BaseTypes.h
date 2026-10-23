@@ -28,7 +28,7 @@ namespace bg3se
         inline explicit constexpr NetId(uint64_t id) : Id(id) {}
         inline constexpr NetId(NetId const & id) : Id(id.Id) {}
 
-        inline operator bool() const
+        inline explicit operator bool() const
         {
             return Id != Unassigned;
         }
@@ -36,6 +36,16 @@ namespace bg3se
         inline bool operator !() const
         {
             return Id == Unassigned;
+        }
+
+        inline bool operator ==(NetId const& o) const
+        {
+            return Id == o.Id;
+        }
+
+        inline bool operator !=(NetId const& o) const
+        {
+            return Id != o.Id;
         }
 
         inline constexpr uint64_t GetIndex() const
@@ -48,6 +58,11 @@ namespace bg3se
             return (uint16_t)(Id >> 48);
         }
     };
+
+    inline constexpr uint64_t Hash(NetId const& id)
+    {
+        return id.Id;
+    }
 
     using TPeerId = uint32_t;
     using TUserId = uint32_t;
@@ -63,8 +78,9 @@ namespace bg3se
         inline constexpr UserId() : Id(Unassigned) {}
         inline explicit constexpr UserId(TUserId id) : Id(id) {}
         inline constexpr UserId(UserId const& id) : Id(id.Id) {}
+        inline constexpr UserId(PeerId peerId, uint16_t userIndex) : Id(((uint32_t)peerId << 16) | userIndex) {}
 
-        inline operator bool() const
+        inline explicit operator bool() const
         {
             return Id != Unassigned;
         }
@@ -128,13 +144,13 @@ namespace bg3se
 
         inline constexpr TypedHandle(uint64_t type, uint64_t index, uint64_t salt)
         {
-            assert(type < 0x400 && salt < 0x400000);
+            se_assert(type < 0x400 && salt < 0x400000);
             Handle = index | (salt << 32) | (type << 54);
         }
 
         inline constexpr TypedHandle(uint64_t type, uint64_t indexAndSalt)
         {
-            assert(type < 0x400 && (indexAndSalt >> 32) < 0x400000);
+            se_assert(type < 0x400 && (indexAndSalt >> 32) < 0x400000);
             Handle = indexAndSalt | (type << 54);
         }
 
@@ -154,6 +170,11 @@ namespace bg3se
         }
 
         inline constexpr uint32_t GetType() const
+        {
+            return Handle >> 54;
+        }
+
+        inline constexpr uint32_t GetThreadIndex() const
         {
             return Handle >> 54;
         }
@@ -208,9 +229,9 @@ namespace bg3se
 
     struct Transform
     {
-        glm::quat RotationQuat;
-        glm::vec3 Translate;
-        glm::vec3 Scale;
+        glm::quat RotationQuat{ 1.0f, .0f, .0f, .0f };
+        glm::vec3 Translate{ .0f };
+        glm::vec3 Scale{ 1.0f };
     };
 }
 

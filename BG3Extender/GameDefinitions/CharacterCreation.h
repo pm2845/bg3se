@@ -7,14 +7,13 @@ struct AppearanceMaterialSetting
     Guid Material;
     Guid Color;
     float ColorIntensity;
-    uint32_t MetallicTint;
+    float MetallicTint;
     float GlossyTint;
 };
 
 struct Appearance
 {
-    [[bg3::hidden]]
-    ScratchBuffer Buffer;
+    ScratchBuffer Icon;
     Guid HairColor;
     Guid SkinColor;
     Guid EyeColor;

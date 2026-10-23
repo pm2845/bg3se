@@ -9,13 +9,13 @@ MapProxyImplBase::MapProxyImplBase()
 
 void MapProxyImplBase::Register()
 {
-    assert(registryIndex_ == -1);
+    se_assert(registryIndex_ == -1);
     registryIndex_ = gExtender->GetPropertyMapManager().RegisterMapProxy(this);
 }
 
 int MapProxyImplBase::GetRegistryIndex() const
 {
-    assert(registryIndex_ >= 0);
+    se_assert(registryIndex_ >= 0);
     return registryIndex_;
 }
 
@@ -80,14 +80,6 @@ char const* MapProxyMetatable::GetTypeName(lua_State* L, CppObjectMetadata& self
 void* MapProxyMetatable::GetRaw(lua_State* L, int index, int propertyMapIndex)
 {
     auto meta = lua_get_lightcppobject(L, index, MetatableTag::Map, propertyMapIndex);
-
-    if (!meta.Lifetime.IsAlive(L)) {
-        auto curTy = gExtender->GetPropertyMapManager().GetMapProxy(meta.PropertyMapTag);
-        luaL_error(L, "Argument %d: got %s whose lifetime has expired", index,
-            curTy->GetContainerType().TypeName.GetString());
-        return nullptr;
-    }
-
     return meta.Ptr;
 }
 

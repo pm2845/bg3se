@@ -2,8 +2,15 @@
 
 #include <GameDefinitions/Base/Base.h>
 #include <GameDefinitions/Symbols.h>
+#include <GameDefinitions/Stats/Prototype.h>
 #include <Extender/Shared/ScriptHelpers.h>
 #include <Extender/ScriptExtender.h>
+
+#include <GameDefinitions/Stats/Functors.inl>
+#include <GameDefinitions/Stats/Expression.inl>
+#include <GameDefinitions/Stats/Cache.inl>
+#include <GameDefinitions/Stats/StatsObject.inl>
+#include <GameDefinitions/Stats/StatsObjectLua.inl>
 
 BEGIN_NS(stats)
 
@@ -35,6 +42,7 @@ bool SpellPrototypeManager::SyncStat(Object* object, SpellPrototype* proto)
     proto->WeaponTypes = 0;
     proto->AiFlags = 0;
     proto->RequirementEvents = 0;
+    proto->IsWeaponAttack = false;
 
     sync(proto, object->Name);
     return true;
@@ -49,7 +57,7 @@ void SpellPrototypeManager::SyncStat(Object* object)
         auto proto = GameAlloc<SpellPrototype>();
         if (SyncStat(object, proto)) {
             Spells.set(proto->SpellId, proto);
-            SpellNames.Add(proto->SpellId);
+            SpellNames.push_back(proto->SpellId);
         }
     } else {
         SyncStat(object, *pProto);
@@ -114,7 +122,7 @@ bool PassivePrototypeManager::SyncStat(Object* object, PassivePrototype* proto)
     proto->StatsFunctorContext = 0;
     proto->ToggleOffContext = 0;
     proto->BoostContext = 0;
-    proto->Boosts_SV.clear();
+    proto->Boosts.clear();
 
     sync(proto, object);
     return true;
@@ -158,217 +166,30 @@ void InterruptPrototypeManager::SyncStat(Object* object)
     SyncStat(object, proto);
 }
 
-
-Functors::Functors() noexcept
-    : VMT(GetStaticSymbols().stats__Functors__VMT)
-{}
-
-Functors::Functors(Functors const& o)
-    : VMT(o.VMT),
-    FunctorList(o.FunctorList),
-    FunctorsByName(o.FunctorsByName),
-    NextFunctorIndex(o.NextFunctorIndex),
-    Unknown(o.Unknown),
-    UniqueName(o.UniqueName)
-{
-    for (auto& functor : FunctorList) {
-        functor = functor->VMT->Clone(functor);
-    }
-}
-
-Functors::Functors(Functors&& o) noexcept
-    : VMT(o.VMT),
-    FunctorList(std::move(o.FunctorList)),
-    FunctorsByName(std::move(o.FunctorsByName)),
-    NextFunctorIndex(o.NextFunctorIndex),
-    Unknown(o.Unknown),
-    UniqueName(std::move(o.UniqueName))
-{}
-
-Functors& Functors::operator = (Functors const& o)
-{
-    VMT = o.VMT;
-    FunctorList = o.FunctorList;
-    FunctorsByName = o.FunctorsByName;
-    NextFunctorIndex = o.NextFunctorIndex;
-    Unknown = o.Unknown;
-    UniqueName = o.UniqueName;
-
-    for (auto& functor : FunctorList) {
-        functor = functor->VMT->Clone(functor);
-    }
-
-    return *this;
-}
-
-Functors& Functors::operator = (Functors&& o) noexcept
-{
-    VMT = o.VMT;
-    FunctorList = std::move(o.FunctorList);
-    FunctorsByName = std::move(o.FunctorsByName);
-    NextFunctorIndex = o.NextFunctorIndex;
-    Unknown = o.Unknown;
-    UniqueName = std::move(o.UniqueName);
-
-    return *this;
-}
-
-
-/*
-void Requirement::ToProtobuf(StatRequirement* msg) const
-{
-    msg->set_requirement((int32_t)RequirementId);
-    msg->set_int_param(IntParam);
-    if (StringParam) {
-        msg->set_string_param(StringParam.Str);
-    }
-    msg->set_negate(Negate);
-}
-
-void Requirement::FromProtobuf(StatRequirement const& msg)
-{
-    RequirementId = (RequirementType)msg.requirement();
-    IntParam = msg.int_param();
-    if (!msg.string_param().empty()) {
-        StringParam = MakeFixedString(msg.string_param().c_str());
-    }
-
-    Negate = msg.negate();
-}*/
-
-
-void Object::ToProtobuf(MsgS2CSyncStat* msg) const
-{
-    /*msg->set_name(Name.Str);
-    msg->set_level(Level);
-    msg->set_modifier_list(ModifierListIndex);
-
-    auto stats = GetStaticSymbols().GetStats();
-    auto modifierList = stats->modifierList.Find(ModifierListIndex);
-
-    for (size_t i = 0; i < IndexedProperties.size(); i++) {
-        auto value = IndexedProperties[i];
-        auto indexedProp = msg->add_indexed_properties();
-        auto modifier = modifierList->Attributes.Find((uint32_t)i);
-        auto enumeration = stats->modifierValueList.Find(modifier->RPGEnumerationIndex);
-        if (enumeration->IsIndexedProperty()) {
-            if (enumeration->IsStringIndexedProperty()) {
-                indexedProp->set_stringval(stats->ModifierFSSet[value].Str);
-            } else {
-                indexedProp->set_intval(value);
-            }
-        }
-    }
-
-    msg->set_ai_flags(AIFlags.Str);
-
-    for (auto const& reqmt : Requirements) {
-        reqmt.ToProtobuf(msg->add_requirements());
-    }
-
-    for (auto const& reqmt : MemorizationRequirements) {
-        reqmt.ToProtobuf(msg->add_memorization_requirements());
-    }
-
-    for (auto const& category : ComboCategories) {
-        msg->add_combo_categories(category.Str);
-    }
-
-    PropertyList.Iterate([msg](auto const& key, auto const& propertyList) {
-        propertyList->ToProtobuf(key, msg->add_property_lists());
-    });*/
-}
-
-void Object::FromProtobuf(MsgS2CSyncStat const& msg)
-{
-    /*auto stats = GetStaticSymbols().GetStats();
-    Level = msg.level();
-
-    if (msg.indexed_properties_size() != IndexedProperties.size()) {
-        OsiError("IndexedProperties size mismatch for '" << Name << "'! Got "
-            << msg.indexed_properties_size() << ", expected " << IndexedProperties.size());
-        return;
-    }
-
-    auto modifierList = stats->modifierList.Find(ModifierListIndex);
-    for (size_t i = 0; i < IndexedProperties.size(); i++) {
-        auto modifier = modifierList->Attributes.Find((uint32_t)i);
-        auto enumeration = stats->modifierValueList.Find(modifier->RPGEnumerationIndex);
-        if (enumeration->IsIndexedProperty()) {
-            auto const& prop = msg.indexed_properties().Get((uint32_t)i);
-            if (enumeration->IsStringIndexedProperty()) {
-                IndexedProperties[i] = stats->GetOrCreateFixedString(prop.stringval().c_str());
-            } else {
-                IndexedProperties[i] = prop.intval();
-            }
-        } else {
-            IndexedProperties[i] = 0;
-        }
-    }
-
-    AIFlags = MakeFixedString(msg.ai_flags().c_str());
-
-    Requirements.Clear();
-    for (auto const& reqmt : msg.requirements()) {
-        Requirement requirement;
-        requirement.FromProtobuf(reqmt);
-        Requirements.Add(requirement);
-    }
-
-    MemorizationRequirements.Clear();
-    for (auto const& reqmt : msg.memorization_requirements()) {
-        Requirement requirement;
-        requirement.FromProtobuf(reqmt);
-        MemorizationRequirements.Add(requirement);
-    }
-
-    ComboCategories.Clear();
-    for (auto const& category : msg.combo_categories()) {
-        ComboCategories.Add(MakeFixedString(category.c_str()));
-    }
-
-    PropertyList.Clear();
-    for (auto const& props : msg.property_lists()) {
-        auto name = MakeFixedString(props.name().c_str());
-        auto propertyList = stats->ConstructPropertyList(name);
-        propertyList->FromProtobuf(props);
-        PropertyList.Insert(name, propertyList);
-    }*/
-}
-
-void Object::BroadcastSyncMessage(bool syncDuringLoading) const
-{
-    /*auto msg = gExtender->GetNetworkManager().GetFreeServerMessage(ReservedUserId);
-    if (!msg) {
-        OsiErrorS("Failed to get free message");
-        return;
-    }
-
-    auto& wrap = msg->GetMessage();
-    ToProtobuf(wrap.mutable_s2c_sync_stat());
-    if (syncDuringLoading) {
-        gExtender->GetNetworkManager().ServerBroadcastToConnectedPeers(msg, ReservedUserId, true);
-    } else {
-        gExtender->GetNetworkManager().ServerBroadcast(msg, ReservedUserId, true);
-    }*/
-}
     
 
 bool RPGEnumeration::IsFlagType(FixedString const& typeName)
 {
     return
         typeName == GFS.strAttributeFlags
-        || typeName == GFS.strSpellFlagList
         || typeName == GFS.strWeaponFlags
         || typeName == GFS.strResistanceFlags
         || typeName == GFS.strPassiveFlags
-        || typeName == GFS.strProficiencyGroupFlags
-        || typeName == GFS.strStatsFunctorContext
+        || typeName == GFS.strSpellFlagList
         || typeName == GFS.strStatusEvent
         || typeName == GFS.strStatusPropertyFlags
-        || typeName == GFS.strStatusGroupFlags
+        || typeName == GFS.strProficiencyGroupFlags
+        || typeName == GFS.strCinematicArenaFlags
         || typeName == GFS.strLineOfSightFlags
-        || typeName == GFS.strSpellCategoryFlags;
+        || typeName == GFS.strSpellCategoryFlags
+        || typeName == GFS.strStatsFunctorContext
+        || typeName == GFS.strStatusGroupFlags
+        || typeName == GFS.strInterruptContext
+        || typeName == GFS.strInterruptContextScope
+        || typeName == GFS.strInterruptDefaultValue
+        || typeName == GFS.strInterruptFlagsList
+        || typeName == GFS.strAuraFlags
+        || typeName == GFS.strAbilityFlags;
 }
 
 RPGEnumerationType RPGEnumeration::GetPropertyType() const
@@ -416,6 +237,10 @@ RPGEnumerationType RPGEnumeration::GetPropertyType() const
         return RPGEnumerationType::TranslatedString;
     }
 
+    if (Name == GFS.strAIFlags) {
+        return RPGEnumerationType::AIFlags;
+    }
+
     if (Values.size() > 0) {
         if (IsFlagType(Name)) {
             return RPGEnumerationType::Flags;
@@ -427,20 +252,9 @@ RPGEnumerationType RPGEnumeration::GetPropertyType() const
     return RPGEnumerationType::Unknown;
 }
 
-Modifier * ModifierList::GetAttributeInfo(FixedString const& name, int * attributeIndex) const
-{
-    auto index = Attributes.FindIndex(name);
-    if (!index) {
-        return nullptr;
-    } else {
-        *attributeIndex = *index;
-        return Attributes.Find(*index);
-    }
-}
-
 bool RPGStats::ObjectExists(FixedString const& statsId, FixedString const& type)
 {
-    auto object = Objects.Find(statsId);
+    auto object = Objects.GetByName(statsId);
     if (object == nullptr) {
         return false;
     }
@@ -456,43 +270,43 @@ bool RPGStats::ObjectExists(FixedString const& statsId, FixedString const& type)
 
 std::optional<Object*> RPGStats::CreateObject(FixedString const& name, FixedString const& type)
 {
-    auto modifierIdx = ModifierLists.FindIndex(type);
-    if (!modifierIdx) {
+    auto modifierIdx = ModifierLists.GetHandleByName(type);
+    if (modifierIdx == -1) {
         OsiError("Unknown modifier list type: " << type);
         return {};
     }
 
-    return CreateObject(name, *modifierIdx);
+    return CreateObject(name, modifierIdx);
 }
 
 std::optional<Object*> RPGStats::CreateObject(FixedString const& name, int32_t modifierListIndex)
 {
-    auto modifierList = ModifierLists.Find(modifierListIndex);
+    auto modifierList = ModifierLists.GetByHandle(modifierListIndex);
     if (!modifierList) {
         OsiError("Modifier list doesn't exist: " << name);
         return {};
     }
 
-    auto object = Objects.Find(name);
+    auto object = Objects.GetByName(name);
     if (object) {
         OsiError("A stats object already exists with this name: " << name);
         return {};
     }
 
-    if (Objects.Primitives.empty()) {
+    if (Objects.Values.empty()) {
         OsiError("No stats object found to copy VMT from!");
         return {};
     }
 
     object = GameAlloc<Object>();
-    object->VMT = Objects.Primitives[0]->VMT;
+    object->VMT = Objects.Values[0]->VMT;
     object->ModifierListIndex = modifierListIndex;
-    object->IndexedProperties.resize(modifierList->Attributes.Primitives.size(), 0);
+    object->IndexedProperties.resize(modifierList->Attributes.Values.size(), 0);
     object->Name = name;
 
-    for (unsigned i = 0; i < modifierList->Attributes.Primitives.size(); i++) {
-        auto const& modifier = modifierList->Attributes.Primitives[i];
-        auto valueList = ModifierValueLists.Find(modifier->EnumerationIndex);
+    for (unsigned i = 0; i < modifierList->Attributes.Values.size(); i++) {
+        auto const& modifier = modifierList->Attributes.Values[i];
+        auto valueList = ModifierValueLists.GetByHandle(modifier->EnumerationIndex);
         if (valueList) {
             auto type = valueList->GetPropertyType();
             if (type == RPGEnumerationType::Conditions || type == RPGEnumerationType::RollConditions) {
@@ -501,32 +315,16 @@ std::optional<Object*> RPGStats::CreateObject(FixedString const& name, int32_t m
         }
     }
 
-    Objects.Add(name, object);
+    Objects.Insert(object);
     return object;
 }
 
-/*void RPGStats::SyncObjectFromServer(MsgS2CSyncStat const& msg)
-{
-    auto object = objects.Find(ToFixedString(msg.name().c_str()));
-    if (object) {
-        object->FromProtobuf(msg);
-        SyncWithPrototypeManager(object);
-    } else {
-        auto newObject = CreateObject(MakeFixedString(msg.name().c_str()), msg.modifier_list());
-        if (!newObject) {
-            OsiError("Could not construct stats object from server: " << msg.name());
-            return;
-        }
-
-        (*newObject)->FromProtobuf(msg);
-        SyncWithPrototypeManager(*newObject);
-    }
-}*/
-
 void RPGStats::SyncWithPrototypeManager(Object* object)
 {
-    auto modifier = ModifierLists.Find(object->ModifierListIndex);
-    if (modifier->Name == GFS.strSpellData) {
+    auto modifier = ModifierLists.GetByHandle(object->ModifierListIndex);
+    if (!modifier) {
+        ERR("Trying to sync stats entry with no modifier list assigned?");
+    } else if (modifier->Name == GFS.strSpellData) {
         auto spellProtoMgr = GetStaticSymbols().eoc__SpellPrototypeManager;
         if (spellProtoMgr && *spellProtoMgr) {
             (*spellProtoMgr)->SyncStat(object);
@@ -549,51 +347,6 @@ void RPGStats::SyncWithPrototypeManager(Object* object)
     }
 }
 
-/*void RPGStats::BroadcastSyncAll()
-{
-    for (auto const& statsId : gExtender->GetServer().GetExtensionState().GetDynamicStats()) {
-        auto object = objects.Find(statsId);
-        if (!object) {
-            OsiError("Stat entry '" << statsId << "' is marked as dynamic but cannot be found! It will not be synced to the client!");
-        } else {
-            object->BroadcastSyncMessage(true);
-        }
-    }
-}*/
-
-std::optional<int> RPGStats::EnumLabelToIndex(FixedString const& enumName, char const* enumLabel)
-{
-    auto rpgEnum = ModifierValueLists.Find(enumName);
-    if (rpgEnum == nullptr) {
-        OsiError("No enum named '" << enumName << "' exists");
-        return {};
-    }
-
-    auto index = rpgEnum->Values.find(FixedString(enumLabel));
-    if (index == rpgEnum->Values.end()) {
-        return {};
-    } else {
-        return index.Value();
-    }
-}
-
-FixedString RPGStats::EnumIndexToLabel(FixedString const& enumName, int index)
-{
-    auto rpgEnum = ModifierValueLists.Find(enumName);
-    if (rpgEnum == nullptr) {
-        OsiError("No enum named '" << enumName << "' exists");
-        return FixedString{};
-    }
-
-    auto value = rpgEnum->Values.find_by_value(index);
-    if (value != rpgEnum->Values.end()) {
-        return value.Key();
-    }
-    else {
-        return FixedString{};
-    }
-}
-
 std::optional<FixedString*> RPGStats::GetFixedString(int stringId)
 {
     if (stringId > 0) {
@@ -603,14 +356,15 @@ std::optional<FixedString*> RPGStats::GetFixedString(int stringId)
     }
 }
 
-FixedString* RPGStats::GetOrCreateFixedString(int& stringId)
+int RPGStats::CreatePooledFixedString(FixedString const& value)
 {
-    if (stringId < 0) {
-        stringId = (int)FixedStrings.Size();
-        FixedStrings.Add(FixedString{});
-    }
+    auto cachedId = gStatStructureCache.GetValuePool().FixedStrings.try_get(value);
+    if (cachedId) return *cachedId;
 
-    return &FixedStrings[stringId];
+    auto id = (int)FixedStrings.size();
+    FixedStrings.push_back(value);
+
+    return id;
 }
 
 std::optional<int64_t*> RPGStats::GetInt64(int attributeId)
@@ -622,16 +376,17 @@ std::optional<int64_t*> RPGStats::GetInt64(int attributeId)
     }
 }
 
-int64_t* RPGStats::GetOrCreateInt64(int& attributeId)
+int RPGStats::CreatePooledInt64(int64_t value)
 {
-    if (attributeId < 0) {
-        attributeId = (int)Int64s.Size();
-        auto val = GameAlloc<int64_t>();
-        *val = (int64_t)0;
-        Int64s.Add(val);
-    }
+    auto cachedId = gStatStructureCache.GetValuePool().Int64s.try_get(value);
+    if (cachedId) return *cachedId;
 
-    return Int64s[attributeId];
+    auto val = GameAlloc<int64_t>();
+    *val = value;
+    auto id = (int)Int64s.size();
+    Int64s.push_back(val);
+
+    return id;
 }
 
 std::optional<float*> RPGStats::GetFloat(int attributeId)
@@ -643,14 +398,15 @@ std::optional<float*> RPGStats::GetFloat(int attributeId)
     }
 }
 
-float* RPGStats::GetOrCreateFloat(int& attributeId)
+int RPGStats::CreatePooledFloat(float value)
 {
-    if (attributeId < 0) {
-        attributeId = (int)Floats.Size();
-        Floats.Add(.0f);
-    }
+    auto cachedId = gStatStructureCache.GetValuePool().Floats.try_get(value);
+    if (cachedId) return *cachedId;
 
-    return &Floats[attributeId];
+    auto id = (int)Floats.size();
+    Floats.push_back(value);
+
+    return id;
 }
 
 std::optional<Guid*> RPGStats::GetGuid(int attributeId)
@@ -662,14 +418,15 @@ std::optional<Guid*> RPGStats::GetGuid(int attributeId)
     }
 }
 
-Guid* RPGStats::GetOrCreateGuid(int& attributeId)
+int RPGStats::CreatePooledGuid(Guid value)
 {
-    if (attributeId < 0) {
-        attributeId = (int)GUIDs.Size();
-        GUIDs.Add(Guid{});
-    }
+    auto cachedId = gStatStructureCache.GetValuePool().Guids.try_get(value);
+    if (cachedId) return *cachedId;
 
-    return &GUIDs[attributeId];
+    auto id = (int)GUIDs.size();
+    GUIDs.push_back(value);
+
+    return id;
 }
 
 std::optional<TranslatedString*> RPGStats::GetTranslatedString(int attributeId)
@@ -681,14 +438,15 @@ std::optional<TranslatedString*> RPGStats::GetTranslatedString(int attributeId)
     }
 }
 
-TranslatedString* RPGStats::GetOrCreateTranslatedString(int& attributeId)
+int RPGStats::CreatePooledTranslatedString(TranslatedString const& value)
 {
-    if (attributeId < 0) {
-        attributeId = (int)TranslatedStrings.Size();
-        TranslatedStrings.Add(TranslatedString{});
-    }
+    auto cachedId = gStatStructureCache.GetValuePool().TranslatedStrings.try_get(value);
+    if (cachedId) return *cachedId;
 
-    return &TranslatedStrings[attributeId];
+    auto id = (int)TranslatedStrings.size();
+    TranslatedStrings.push_back(value);
+
+    return id;
 }
 
 std::optional<STDString*> RPGStats::GetConditions(int conditionsId)
@@ -702,6 +460,9 @@ std::optional<STDString*> RPGStats::GetConditions(int conditionsId)
 
 int RPGStats::GetOrCreateConditions(STDString const& conditions)
 {
+    auto cachedId = gStatStructureCache.GetCachedCondition(conditions);
+    if (cachedId) return *cachedId;
+
     if (conditions.empty()) {
         return -1;
     }
@@ -712,15 +473,15 @@ int RPGStats::GetOrCreateConditions(STDString const& conditions)
         }
     }
 
-    Conditions.Add(conditions);
+    Conditions.push_back(conditions);
     return (int)Conditions.Size() - 1;
 }
 
 Modifier * RPGStats::GetModifierInfo(FixedString const& modifierListName, FixedString const& modifierName)
 {
-    auto modifiers = ModifierLists.Find(modifierListName);
+    auto modifiers = ModifierLists.GetByName(modifierListName);
     if (modifiers != nullptr) {
-        return modifiers->Attributes.Find(modifierName);
+        return modifiers->Attributes.GetByName(modifierName);
     } else {
         return nullptr;
     }
@@ -728,7 +489,7 @@ Modifier * RPGStats::GetModifierInfo(FixedString const& modifierListName, FixedS
 
 ModifierList * RPGStats::GetTypeInfo(Object * object)
 {
-    return ModifierLists.Find(object->ModifierListIndex);
+    return ModifierLists.GetByHandle(object->ModifierListIndex);
 }
 
 RPGStats::VMTMappings RPGStats::sVMTMappings;
@@ -738,21 +499,8 @@ void RPGStats::VMTMappings::Update()
     if (VMTsMapped) return;
     auto stats = GetStaticSymbols().GetStats();
 
-    if (stats->Objects.Primitives.Size() > 0) {
-        ObjectVMT = stats->Objects.Primitives[0]->VMT;
-    }
-
-    for (auto const& kv : stats->StatsFunctors) {
-        if (StatsFunctorSetVMT == nullptr) {
-            StatsFunctorSetVMT = kv.Value->VMT;
-        }
-
-        for (auto const& prop : kv.Value->FunctorList) {
-            auto it = FunctorVMTs.find(prop->TypeId);
-            if (it == FunctorVMTs.end()) {
-                FunctorVMTs.insert(std::make_pair(prop->TypeId, prop->VMT));
-            }
-        }
+    if (stats->Objects.Values.Size() > 0) {
+        ObjectVMT = stats->Objects.Values[0]->VMT;
     }
 
     VMTsMapped = true;
@@ -762,29 +510,13 @@ Functors* RPGStats::ConstructFunctorSet(FixedString const& propertyName)
 {
     sVMTMappings.Update();
 
-    if (!sVMTMappings.StatsFunctorSetVMT) {
-        OsiError("Cannot construct functor set - VMT not mapped!");
-        return nullptr;
-    }
-
     auto functorSet = GameAlloc<Functors>();
-    functorSet->VMT = sVMTMappings.StatsFunctorSetVMT;
-    // functorSet->FunctorsByName.ResizeHashtable(31);
     functorSet->UniqueName = propertyName;
     return functorSet;
 }
 
 Functor* RPGStats::ConstructFunctor(FunctorId action)
 {
-    sVMTMappings.Update();
-    auto stats = GetStaticSymbols().GetStats();
-
-    auto vmtIt = sVMTMappings.FunctorVMTs.find(action);
-    if (vmtIt == sVMTMappings.FunctorVMTs.end()) {
-        LuaError("Unable to construct functors of this type: " << (unsigned)action << " - VMT not mapped!");
-        return nullptr;
-    }
-
 #define V(type) case type::FunctorType: \
     functor = GameAlloc<type>(); \
     break;
@@ -792,6 +524,8 @@ Functor* RPGStats::ConstructFunctor(FunctorId action)
     Functor* functor{ nullptr };
     switch (action) {
         V(CustomDescriptionFunctor)
+        V(ApplyStatusFunctor)
+        V(SurfaceChangeFunctor)
         V(ResurrectFunctor)
         V(SabotageFunctor)
         V(SummonFunctor)
@@ -802,37 +536,62 @@ Functor* RPGStats::ConstructFunctor(FunctorId action)
         V(CreateSurfaceFunctor)
         V(CreateConeSurfaceFunctor)
         V(RemoveStatusFunctor)
+        V(DealDamageFunctor)
         V(ExecuteWeaponFunctorsFunctor)
+        V(RegainHitPointsFunctor)
         V(TeleportSourceFunctor)
         V(SetStatusDurationFunctor)
+        V(UseSpellFunctor)
+        V(UseActionResourceFunctor)
         V(UseAttackFunctor)
+        V(CreateExplosionFunctor)
         V(BreakConcentrationFunctor)
+        V(ApplyEquipmentStatusFunctor)
         V(RestoreResourceFunctor)
         V(SpawnFunctor)
         V(StabilizeFunctor)
         V(UnlockFunctor)
         V(ResetCombatTurnFunctor)
         V(RemoveAuraByChildStatusFunctor)
-        V(ApplyStatusFunctor)
-        V(DealDamageFunctor)
-        V(UseActionResourceFunctor)
-        V(CreateExplosionFunctor)
-        V(SurfaceChangeFunctor)
-        V(ApplyEquipmentStatusFunctor)
-        V(RegainHitPointsFunctor)
-        V(UseSpellFunctor)
         V(SummonInInventoryFunctor)
         V(SpawnInInventoryFunctor)
         V(RemoveUniqueStatusFunctor)
         V(DisarmWeaponFunctor)
+        V(DisarmAndStealWeaponFunctor)
+        V(SwitchDeathTypeFunctor)
+        V(TriggerRandomCastFunctor)
+        V(GainTemporaryHitPointsFunctor)
+        V(FireProjectileFunctor)
+        V(ShortRestFunctor)
+        V(CreateZoneFunctor)
+        V(DoTeleportFunctor)
+        V(RegainTemporaryHitPointsFunctor)
+        V(RemoveStatusByLevelFunctor)
+        V(SurfaceClearLayerFunctor)
+        V(UnsummonFunctor)
+        V(CreateWallFunctor)
+        V(CounterspellFunctor)
+        V(AdjustRollFunctor)
+        V(SpawnExtraProjectilesFunctor)
+        V(KillFunctor)
+        V(TutorialEventFunctor)
+        V(DropFunctor)
+        V(ResetCooldownsFunctor)
+        V(SetRollFunctor)
+        V(SetDamageResistanceFunctor)
+        V(SetRerollFunctor)
+        V(SetAdvantageFunctor)
+        V(SetDisadvantageFunctor)
+        V(MaximizeRollFunctor)
+        V(CameraWaitFunctor)
+        V(ModifySpellCameraFocusFunctor)
         V(ExtenderFunctor)
 
     default:
-        OsiError("Unhandled stats functor action: " << (unsigned)action);
+        OsiError("Unhandled stats functor type: " << EnumInfo<FunctorId>::Find(action).GetString());
         return nullptr;
     }
 
-    functor->VMT = vmtIt->second;
     functor->TypeId = action;
 
     return functor;
@@ -846,7 +605,7 @@ Object * StatFindObject(char const * name, bool warnOnError)
         return nullptr;
     }
 
-    auto object = stats->Objects.Find(name);
+    auto object = stats->Objects.GetByName(FixedString(name));
     if (object == nullptr) {
         if (warnOnError) {
             OsiError("Stat object '" << name << "' does not exist");
@@ -865,7 +624,7 @@ Object * StatFindObject(int index)
         return nullptr;
     }
 
-    auto object = stats->Objects.Find(index);
+    auto object = stats->Objects.GetByHandle(index);
     if (object == nullptr) {
         OsiError("Stat object #" << index << " does not exist");
         return nullptr;

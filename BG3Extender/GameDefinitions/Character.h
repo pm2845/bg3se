@@ -15,9 +15,6 @@ struct PlayerCustomData : public ProtectedGameObject<PlayerCustomData>
     FixedString ReservedProfileID;
 };
 
-using PlayerId = int16_t;
-using InputPlayerIndex = uint32_t;
-
 /*struct PlayerManager
 {
     struct PlayerInfo
@@ -67,6 +64,8 @@ struct Character : public BaseProxyComponent
     Status* GetStatus(FixedString statusId);
     Status* GetStatusByType(StatusType type);
 
+    CharacterTemplate* CreateCacheTemplate();
+
     void* VMT;
     void* VMT2;
     EntityHandle field_10;
@@ -86,15 +85,15 @@ struct Character : public BaseProxyComponent
     CharacterTemplate* Template;
     CharacterTemplate* OriginalTemplate;
     CharacterTemplate* TemplateUsedForSpells;
-    void* AiActionMachine;
-    void* AiBehaviourMachine;
-    void* AiMovementMachine;
-    void* AiSteeringMachine;
+    ActionMachine* AiActionMachine;
+    BehaviourMachine* AiBehaviourMachine;
+    MovementMachine* AiMovementMachine;
+    SteeringMachine* AiSteeringMachine;
     void* AiSupervisor;
     void* DialogController;
     void* FallbackController;
     void* NetworkController;
-    void* OsirisController;
+    TaskController* OsirisController;
     void* GameplayController;
     StatusMachine* StatusManager;
     void* VariableManager;
@@ -124,7 +123,6 @@ struct Character : public BaseProxyComponent
     uint8_t NumConsumables;
     CharacterFlags2 Flags2;
     CharacterFlags3 Flags3;
-    [[bg3::hidden]] void* _PAD;
 
     RefReturn<Character> LuaGetSelf() const;
 };
@@ -141,7 +139,6 @@ struct PlayerCustomData : public ProtectedGameObject<PlayerCustomData>
     uint8_t field_0;
     __int64 field_8;
     bg3se::PlayerCustomData Base;
-    int field_24;
     uint8_t field_28;
     int field_2C;
     NetId PickpocketTarget;
@@ -168,8 +165,8 @@ struct Character : public BaseProxyComponent
     ecs::EntityRef SelfEntity;
 
     Array<SurfacePathInfluence> SurfacePathInfluences;
-    uint64_t DialogRequest;
-    uint64_t ListenRequest;
+    NetId DialogRequest;
+    NetId ListenRequest;
     CharacterTemplate* Template;
     CharacterTemplate* OriginalTemplate;
     void* AiAction;
@@ -179,7 +176,7 @@ struct Character : public BaseProxyComponent
     void* AiSupervisor;
     void* DialogController;
     void* FallbackController;
-    void* InputController;
+    InputController* InputController;
     void* NetworkController;
     void* GameplayController;
     StatusMachine* StatusManager;
@@ -200,16 +197,12 @@ struct Character : public BaseProxyComponent
     Array<void*> CircleColors_Arr_EntityRef;
     float LastTick;
     float SneakCheck;
-    int field_110;
+    float SpeedMultiplier;
     int DialogData;
     __int16 PhysicsFlags_M;
-    uint8_t BloodType;
+    uint8_t FeetStatus;
     CharacterFlags2 Flags2;
     CharacterFlags3 Flags3;
-    Array<FixedString> field_120;
-    Array<FixedString> field_130;
-    bool OffstageVisibilityVisualLoaded;
-    bool IsInvisible;
 };
 
 END_NS()

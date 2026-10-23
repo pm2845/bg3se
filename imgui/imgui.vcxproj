@@ -19,26 +19,27 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\External\imgui-1.90.9\backends\imgui_impl_sdl2.h" />
-    <ClInclude Include="..\External\imgui-1.90.9\backends\imgui_impl_vulkan.h" />
-    <ClInclude Include="..\External\imgui-1.90.9\backends\imgui_impl_win32.h" />
-    <ClInclude Include="..\External\imgui-1.90.9\imconfig.h" />
-    <ClInclude Include="..\External\imgui-1.90.9\imgui.h" />
-    <ClInclude Include="..\External\imgui-1.90.9\imgui_internal.h" />
-    <ClInclude Include="..\External\imgui-1.90.9\imstb_rectpack.h" />
-    <ClInclude Include="..\External\imgui-1.90.9\imstb_textedit.h" />
-    <ClInclude Include="..\External\imgui-1.90.9\imstb_truetype.h" />
+    <ClInclude Include="..\External\imgui\backends\imgui_impl_dx11.h" />
+    <ClInclude Include="..\External\imgui\backends\imgui_impl_sdl2.h" />
+    <ClInclude Include="..\External\imgui\backends\imgui_impl_vulkan.h" />
+    <ClInclude Include="..\External\imgui\backends\imgui_impl_win32.h" />
+    <ClInclude Include="..\External\imgui\imconfig.h" />
+    <ClInclude Include="..\External\imgui\imgui.h" />
+    <ClInclude Include="..\External\imgui\imgui_internal.h" />
+    <ClInclude Include="..\External\imgui\imstb_rectpack.h" />
+    <ClInclude Include="..\External\imgui\imstb_textedit.h" />
+    <ClInclude Include="..\External\imgui\imstb_truetype.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\External\imgui-1.90.9\backends\imgui_impl_dx11.cpp" />
-    <ClCompile Include="..\External\imgui-1.90.9\backends\imgui_impl_sdl2.cpp" />
-    <ClCompile Include="..\External\imgui-1.90.9\backends\imgui_impl_vulkan.cpp" />
-    <ClCompile Include="..\External\imgui-1.90.9\backends\imgui_impl_win32.cpp" />
-    <ClCompile Include="..\External\imgui-1.90.9\imgui.cpp" />
-    <ClCompile Include="..\External\imgui-1.90.9\imgui_demo.cpp" />
-    <ClCompile Include="..\External\imgui-1.90.9\imgui_draw.cpp" />
-    <ClCompile Include="..\External\imgui-1.90.9\imgui_tables.cpp" />
-    <ClCompile Include="..\External\imgui-1.90.9\imgui_widgets.cpp" />
+    <ClCompile Include="..\External\imgui\backends\imgui_impl_dx11.cpp" />
+    <ClCompile Include="..\External\imgui\backends\imgui_impl_sdl2.cpp" />
+    <ClCompile Include="..\External\imgui\backends\imgui_impl_vulkan.cpp" />
+    <ClCompile Include="..\External\imgui\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="..\External\imgui\imgui.cpp" />
+    <ClCompile Include="..\External\imgui\imgui_demo.cpp" />
+    <ClCompile Include="..\External\imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\External\imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\External\imgui\imgui_widgets.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
@@ -51,26 +52,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -130,11 +131,12 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>IMGUI_DISABLE_OBSOLETE_FUNCTIONS;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)External\VulkanSDK\Include;$(SolutionDir)External\imgui-1.90.9;$(SolutionDir)External\SDL2-2.30.1\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)External\Vulkan\Include;$(SolutionDir)External\imgui;$(SolutionDir)External\SDL\include</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -148,11 +150,11 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>IMGUI_DISABLE_OBSOLETE_FUNCTIONS;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)External\VulkanSDK\Include;$(SolutionDir)External\SDL2-2.30.1\include;$(SolutionDir)External\imgui-1.90.9</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)External\Vulkan\Include;$(SolutionDir)External\imgui;$(SolutionDir)External\SDL\include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>

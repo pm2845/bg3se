@@ -14,32 +14,7 @@ WwiseManager* GetSoundManager()
     LuaError("Sound manager is not available!");
     return nullptr;
 }
-/*
-SoundObjectId GetSoundObjectId(lua_State* L, ComponentHandle const& handle, CharacterSoundObjectType type)
-{
-    EntityHandle entity;
 
-    if (handle.GetType() == (uint32_t)ObjectHandleType::ClientCharacter) {
-        auto character = GetEntityWorld()->GetComponent<Character>(handle);
-        if (character) {
-            entity = character->SoundComponents[(unsigned)type];
-        } else {
-            luaL_error(L, "No character object exists with the specified handle");
-        }
-    } else if (handle.GetType() == (uint32_t)ObjectHandleType::ClientItem) {
-        entity = GetEntityWorld()->GetComponent<Item>(handle)->Base.Entity;
-    } else {
-        luaL_error(L, "Only character and item handles are supported as sound objects");
-    }
-
-    auto soundComp = GetEntityWorld()->GetComponent<SoundComponent>(entity);
-    if (soundComp && soundComp->ActiveData) {
-        return soundComp->ActiveData->WwiseSoundObjectId;
-    } else {
-        return InvalidSoundObjectId;
-    }
-}
-*/
 SoundObjectId GetSoundObjectId(lua_State* L, int idx)
 {
     auto snd = GetSoundManager();
@@ -79,30 +54,28 @@ SoundObjectId GetSoundObjectId(lua_State* L, int idx)
             return snd->CineHUD[playerIndex];
         } else {
             luaL_error(L, "Unknown built-in sound object name: %s", name);
+            return InvalidSoundObjectId;
         }
     }
 
-    /*
-    case LUA_TLIGHTUSERDATA:
+    case LUA_TLIGHTCPPOBJECT:
     {
-        auto handle = get<ComponentHandle>(L, idx);
-        return GetSoundObjectId(L, handle, CharacterSoundObjectType::General);
-    }*/
+        auto entity = get<EntityHandle>(L, idx);
+        auto sound = State::FromLua(L)->GetEntitySystemHelpers()->GetComponent<SoundComponent>(entity);
+        if (sound && sound->ActiveData && sound->ActiveData->SoundObjectId != 0xffffffffffffffffull) {
+            return SoundObjectId(sound->ActiveData->SoundObjectId);
+        } else {
+            return InvalidSoundObjectId;
+        }
+    }
 
     default:
-        luaL_error(L, "Must specify nil, character handle or built-in name as sound object");
+        luaL_error(L, "Must specify nil, entity handle or built-in name as sound object");
         return InvalidSoundObjectId;
     }
 }
 
 END_NS()
-
-BEGIN_SE()
-
-enum class LuaSoundObjectId : SoundObjectId {};
-MARK_INTEGRAL_ALIAS(LuaSoundObjectId)
-
-END_SE()
 
 BEGIN_NS(lua)
 
@@ -150,9 +123,9 @@ void Stop(std::optional<LuaSoundObjectId> soundObject)
     }
 
     if (soundObject) {
-        snd->StopAllOnObject((SoundObjectId)*soundObject);
+        snd->StopSounds((SoundObjectId)*soundObject);
     } else {
-        snd->StopAll();
+        snd->StopAllSounds();
     }
 }
 
@@ -193,11 +166,11 @@ bool UnloadEvent(char const* eventName)
     return GetSoundManager()->UnloadEvent(eventId);
 }
 
-bool PlayExternalSound(LuaSoundObjectId soundObject, char const* eventName, char const* path, unsigned int codecId, std::optional<float> positionSec)
+bool PlayExternalSound(LuaSoundObjectId soundObject, char const* eventName, char const* path, AudioCodec codec, std::optional<float> positionSec)
 {
     STDString lsPath = GetStaticSymbols().ToPath(path, PathRootType::Data);
     auto eventId = GetSoundManager()->GetIDFromString(eventName);
-    return GetSoundManager()->PlayExternalSound((SoundObjectId)soundObject, eventId, lsPath, (uint8_t)codecId, positionSec.value_or(0.0f), false, nullptr);
+    return GetSoundManager()->PlayExternalSound((SoundObjectId)soundObject, eventId, lsPath, (uint8_t)codec, positionSec.value_or(0.0f), false, nullptr);
 }
 
 bool LoadBank(const char* bankName)

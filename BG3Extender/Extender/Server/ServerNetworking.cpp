@@ -19,10 +19,14 @@ void ExtenderProtocol::ProcessExtenderMessage(net::MessageContext& context, net:
     switch (msg.msg_case()) {
     case net::MessageWrapper::kPostLua:
     {
-        auto & postMsg = msg.post_lua();
-        esv::LuaServerPin pin(esv::ExtensionState::Get());
-        if (pin) {
-            pin->OnNetMessageReceived(postMsg.channel_name().c_str(), postMsg.payload().c_str(), postMsg.module().c_str(), postMsg.request_id(), postMsg.reply_id(), context.UserID);
+        if (gExtender->GetServer().HasExtensionState()) {
+            auto& postMsg = msg.post_lua();
+            esv::LuaServerPin pin(esv::ExtensionState::Get());
+            if (pin) {
+                pin->OnNetMessageReceived(postMsg.channel_name(), postMsg.payload(), postMsg.module(), 
+                    postMsg.request_id(), postMsg.reply_id(), context.UserID,
+                    postMsg.serializer() == net::SerializerType::SERIALIZER_BINARY);
+            }
         }
         break;
     }
@@ -31,7 +35,7 @@ void ExtenderProtocol::ProcessExtenderMessage(net::MessageContext& context, net:
     {
         auto const& hello = msg.c2s_extender_hello();
         DEBUG("Got extender support notification from user %d (version %d)", context.UserID.Id, hello.version());
-        gExtender->GetServer().GetNetworkManager().AllowExtenderMessages(context.UserID.GetPeerId(), hello.version());
+        gExtender->GetServer().GetNetworkManager().AllowExtenderMessages(context.UserID.GetPeerId(), (net::ProtoVersion)hello.version());
         break;
     }
 
@@ -51,12 +55,20 @@ void NetworkManager::Reset()
     peerVersions_.clear();
 }
 
+bool NetworkManager::LocalPeerOnly() const
+{
+    auto server = GetServer();
+    return server != nullptr
+        && server->ActivePeerIds.size() == 1
+        && server->ActivePeerIds[0] == (PeerId)server->LocalPeerId;
+}
+
 bool NetworkManager::CanSendExtenderMessages(PeerId peerId) const
 {
     return peerVersions_.find(peerId) != peerVersions_.end();
 }
 
-std::optional<uint32_t> NetworkManager::GetPeerVersion(PeerId peerId) const
+std::optional<net::ProtoVersion> NetworkManager::GetPeerVersion(PeerId peerId) const
 {
     auto it = peerVersions_.find(peerId);
     if (it != peerVersions_.end()) {
@@ -66,7 +78,7 @@ std::optional<uint32_t> NetworkManager::GetPeerVersion(PeerId peerId) const
     }
 }
 
-void NetworkManager::AllowExtenderMessages(PeerId peerId, uint32_t version)
+void NetworkManager::AllowExtenderMessages(PeerId peerId, net::ProtoVersion version)
 {
     peerVersions_.insert_or_assign(peerId, version);
 }
@@ -84,8 +96,8 @@ void NetworkManager::OnClientConnectMessage(net::MessageContext* context, net::C
         auto helloMsg = GetFreeMessage();
         if (helloMsg != nullptr) {
             auto hello = helloMsg->GetMessage().mutable_c2s_extender_hello();
-            hello->set_version(net::ExtenderMessage::ProtoVersion);
-            Send(helloMsg, context->UserID);
+            hello->set_version((uint32_t)net::ProtoVersion::Current);
+            GetServer()->SendMessageSinglePeer((TPeerId)context->UserID.GetPeerId(), helloMsg);
         } else {
             OsiErrorS("Could not get free message!");
         }
@@ -124,7 +136,7 @@ net::GameServer * NetworkManager::GetServer() const
 net::ExtenderMessage * NetworkManager::GetFreeMessage(UserId userId)
 {
     if (userId && !CanSendExtenderMessages(userId.GetPeerId())) {
-        ERR("Attempted to send extender message to user %d that does not understand extender protocol!", userId.Id);
+        ERR("Attempted to send message to user %d that does not understand extender protocol!", userId.Id);
         return nullptr;
     }
 
@@ -141,11 +153,33 @@ net::ExtenderMessage * NetworkManager::GetFreeMessage()
     }
 }
 
+net::ProtoVersion NetworkManager::SharedVersion()
+{
+    auto ver{ net::ProtoVersion::Current };
+    for (auto const& peer : peerVersions_) {
+        ver = std::min(ver, peer.second);
+    }
+
+    return ver;
+}
+
+void NetworkManager::HandleLocalMessage(net::LocalMessage const& msg)
+{
+    esv::LuaServerPin pin(esv::ExtensionState::Get());
+    if (pin) {
+        pin->OnNetMessageReceived(msg.Channel, msg.Payload, msg.Module, msg.RequestId, msg.ReplyId, msg.User, msg.Binary);
+    }
+}
+
 void NetworkManager::Send(net::ExtenderMessage * msg, UserId userId)
 {
     auto server = GetServer();
     if (server != nullptr) {
-        server->SendMessageSinglePeer((TPeerId)userId.GetPeerId(), msg);
+        if (CanSendExtenderMessages(userId.GetPeerId())) {
+            server->SendMessageSinglePeer((TPeerId)userId.GetPeerId(), msg);
+        } else {
+            ERR("Not sending unicast message to peer %d as it does not understand extender protocol!", userId.GetPeerId());
+        }
     }
 }
 
@@ -161,7 +195,7 @@ void NetworkManager::Broadcast(net::ExtenderMessage * msg, UserId excludeUserId,
                 peerIds.push_back(peerId);
             }
         } else {
-            WARN("Not sending extender message to peer %d as it does not understand extender protocol!", peerId);
+            WARN("Not broadcasting message to peer %d as it does not understand extender protocol!", peerId);
         }
     }
 
@@ -180,7 +214,7 @@ void NetworkManager::BroadcastToConnectedPeers(net::ExtenderMessage* msg, UserId
                 peerIds.push_back(peerId);
             }
         } else {
-            WARN("Not sending extender message to peer %d as it does not understand extender protocol!", peerId);
+            WARN("Not broadcasting message to peer %d as it does not understand extender protocol!", peerId);
         }
     }
 

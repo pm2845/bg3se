@@ -27,6 +27,14 @@ struct PathingComponent : public BaseComponent
     uint8_t ServerControl;
 };
 
+struct PathingDistanceChangedOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(PathingDistanceChanged, "eoc::PathingDistanceChangedOneFrameComponent")
+
+    float DistanceXZ;
+    float field_4;
+};
+
 struct SteeringComponent : public BaseComponent
 {
     DEFINE_COMPONENT(Steering, "eoc::SteeringComponent")
@@ -51,7 +59,6 @@ struct AnubisExecutorComponent : public BaseProxyComponent
     [[bg3::hidden]] void* Task;
     uint8_t field_10;
     uint8_t field_11;
-    [[bg3::hidden]] void* field_18; // Unknown?
 };
 
 struct ReplicationDependencyComponent : public BaseComponent

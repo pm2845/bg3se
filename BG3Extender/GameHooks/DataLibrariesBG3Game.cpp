@@ -24,10 +24,12 @@ namespace bg3se
     {
         if (GetModuleHandleW(L"bg3.exe") != NULL)
         {
+            DX11 = false;
             mapper.AddModule("Main", L"bg3.exe");
         }
         else
         {
+            DX11 = true;
             mapper.AddModule("Main", L"bg3_dx11.exe");
         }
 
@@ -51,7 +53,7 @@ namespace bg3se
         auto contextPtr = (int32_t*)AsmResolveInstructionRef(ptr);
         auto indexPtr = (int32_t*)AsmResolveInstructionRef(ptr + 0x1C);
         auto namePtr = (char const*)AsmResolveInstructionRef(ptr + 0x46);
-        GetStaticSymbols().IndexSymbolToNameMaps.insert(std::make_pair(indexPtr, ecs::IndexSymbolInfo{ namePtr, contextPtr }));
+        GetStaticSymbols().IndexSymbolToNameMaps.insert(std::make_pair(indexPtr, IndexSymbolInfo{ namePtr, contextPtr }));
         return SymbolMapper::MappingResult::TryNext;
     }
 
@@ -71,7 +73,7 @@ namespace bg3se
 
         auto nameIt = GetStaticSymbols().StaticStringRegistrantMaps.find(funcPtr);
         if (nameIt != GetStaticSymbols().StaticStringRegistrantMaps.end()) {
-            GetStaticSymbols().IndexSymbolToNameMaps.insert(std::make_pair(indexPtr, ecs::IndexSymbolInfo{ nameIt->second, contextPtr }));
+            GetStaticSymbols().IndexSymbolToNameMaps.insert(std::make_pair(indexPtr, IndexSymbolInfo{ nameIt->second, contextPtr }));
         }
 
         return SymbolMapper::MappingResult::TryNext;
@@ -82,7 +84,7 @@ namespace bg3se
         auto contextPtr = (int32_t*)AsmResolveInstructionRef(ptr);
         auto indexPtr = (int32_t*)AsmResolveInstructionRef(ptr + 0x7);
         auto namePtr = (char const*)AsmResolveInstructionRef(ptr + 0x31);
-        GetStaticSymbols().IndexSymbolToNameMaps.insert(std::make_pair(indexPtr, ecs::IndexSymbolInfo{ namePtr, contextPtr }));
+        GetStaticSymbols().IndexSymbolToNameMaps.insert(std::make_pair(indexPtr, IndexSymbolInfo{ namePtr, contextPtr }));
         return SymbolMapper::MappingResult::TryNext;
     }
 
@@ -126,8 +128,10 @@ namespace bg3se
         SYM_OFF(ls__GlobalStringTable__MainTable__DecRef);
         SYM_OFF(ls__gGlobalStringTable);
 
+        SYM_OFF(ls__ThreadRegistry__RequestThreadIndex);
         SYM_OFF(ls__FileReader__ctor);
         SYM_OFF(ls__FileReader__dtor);
+        SYM_OFF(ls__FileSystem__CollectFilesWithGlob);
         SYM_OFF(ls__PathRoots);
         SYM_OFF(App__Ctor);
         SYM_OFF(App__UpdatePaths);
@@ -136,7 +140,9 @@ namespace bg3se
         SYM_OFF(esv__EoCServer);
         SYM_OFF(ecl__EoCClient__HandleError);
         SYM_OFF(ecl__gCursorControl);
+        SYM_OFF(ls__gDragDropManager);
         SYM_OFF(ls__gTranslatedStringRepository);
+        SYM_OFF(ls__gTranslatedStringKeyManager);
 
         SYM_OFF(ecl__gGameStateEventManager);
         SYM_OFF(esv__gGameStateEventManager);
@@ -145,15 +151,10 @@ namespace bg3se
         SYM_OFF(ecl__GameStateMachine__Update);
         SYM_OFF(esv__GameStateMachine__Update);
         SYM_OFF(App__LoadGraphicSettings);
+        SYM_OFF(ls__gInputManager);
 
         SYM_OFF(ecs__EntityWorld__Update);
         SYM_OFF(ecs__EntityWorld__FlushECBs);
-
-        /*SYM_OFF(esv__SurfaceActionFactory);
-        SYM_OFF(esv__SurfaceActionFactory__CreateAction);
-        SYM_OFF(esv__SurfaceManager__AddAction);*/
-
-        SYM_OFF(stats__Functors__VMT);
 
         SYM_OFF(eoc__SpellPrototypeManager);
         SYM_OFF(eoc__SpellPrototype__Init);
@@ -169,29 +170,28 @@ namespace bg3se
         SYM_OFF(eoc__InterruptPrototypeManager);
         SYM_OFF(eoc__InterruptPrototype__Init);
 
+        SYM_OFF(eoc__DynamicStatsExpressionManager);
+
         SYM_OFF(eoc__ParseStaticBoosts);
 
         SYM_OFF(esv__OsirisVariableHelper__SavegameVisit);
 
-        SYM_OFF(esv__StatusMachine__CreateStatus);
-        SYM_OFF(esv__StatusMachine__ApplyStatus);
-
         SYM_OFF(stats__DealDamageFunctor__ApplyDamage);
         SYM_OFF(esv__StatsSystem__ThrowDamageEvent);
 
-        SYM_OFF(stats__Functors__ExecuteAttackTarget);
-        SYM_OFF(stats__Functors__ExecuteAttackPosition);
-        SYM_OFF(stats__Functors__ExecuteMove);
-        SYM_OFF(stats__Functors__ExecuteTarget);
-        SYM_OFF(stats__Functors__ExecuteNearbyAttacked);
-        SYM_OFF(stats__Functors__ExecuteNearbyAttacking);
-        SYM_OFF(stats__Functors__ExecuteEquip);
-        SYM_OFF(stats__Functors__ExecuteSource);
-        SYM_OFF(stats__Functors__ExecuteInterrupt);
+        SYM_OFF(esv__ExecuteStatsFunctor_AttackTargetContext);
+        SYM_OFF(esv__ExecuteStatsFunctor_AttackPositionContext);
+        SYM_OFF(esv__ExecuteStatsFunctor_MoveContext);
+        SYM_OFF(esv__ExecuteStatsFunctor_TargetContext);
+        SYM_OFF(esv__ExecuteStatsFunctor_NearbyAttackedContext);
+        SYM_OFF(esv__ExecuteStatsFunctor_NearbyAttackingContext);
+        SYM_OFF(esv__ExecuteStatsFunctor_EquipContext);
+        SYM_OFF(esv__ExecuteStatsFunctor_SourceContext);
+        SYM_OFF(esv__ExecuteStatsFunctor_InterruptContext);
 
         SYM_OFF(gRPGStats);
         SYM_OFF(RPGStats__Load);
-        SYM_OFF(RPGStats__PreParseDataFolder);
+        SYM_OFF(RPGStats__ParseDataBuffers);
         SYM_OFF(stats__Object__SetPropertyString);
 
         SYM_OFF(esv__LevelManager);
@@ -199,23 +199,36 @@ namespace bg3se
         SYM_OFF(ls__GlobalTemplateManager);
         SYM_OFF(esv__CacheTemplateManager);
 
+        SYM_OFF(esv__gSurfaceActionFactory);
+        SYM_OFF(esv__SurfaceActionFactory__DoCreateAction);
+        SYM_OFF(esv__TransformSurfaceAction__Init);
+
         SYM_OFF(eoc__AiGrid__FindPath);
         SYM_OFF(eoc__AiGrid__FindPathImmediate);
 
         SYM_OFF(esv__SavegameManager);
 
-#if defined(ENABLE_UI)
-        SYM_OFF(Noesis__gReflection);
-        SYM_OFF(Noesis__SymbolManager__Buf1);
+        SYM_OFF(Noesis__Reflection__LockedByThreadId);
+        SYM_OFF(Noesis__Reflection__Lock);
+        SYM_OFF(Noesis__Reflection__NumLocks);
+        SYM_OFF(Noesis__Reflection__Data);
+
+        SYM_OFF(Noesis__SymbolManager__Data);
+        SYM_OFF(Noesis__SymbolManager__Lock);
+
+        SYM_OFF(Noesis__gErrorHandler);
         SYM_OFF(Noesis__GUI__LoadXaml);
         SYM_OFF(Noesis__Visual__AddVisualChild);
         SYM_OFF(Noesis__Visual__RemoveVisualChild);
-        SYM_OFF(ls__UIStateMachine__FireStateEvent2);
-#endif
+        SYM_OFF(Noesis__Visual__PointFromScreen);
+        SYM_OFF(Noesis__Visual__PointToScreen);
+        SYM_OFF(Noesis__VisualTreeHelper__HitTest);
+
+        SYM_OFF(ui__DataContextProvider__ExecuteCommandQueues);
+        SYM_OFF(ui__deferred__PredicatesManager__UpdateFromUI);
 
         SYM_OFF(AppInstance);
 
-        SYM_OFF(ls__gGlobalAllocator);
         SYM_OFF(ls__GlobalAllocator__Get);
         SYM_OFF(ls__GlobalAllocator__Alloc);
         SYM_OFF(ls__GlobalAllocator__Free);
@@ -226,6 +239,10 @@ namespace bg3se
         SYM_OFF(ls__gTextureAtlasMap);
         SYM_OFF(ls__AppliedMaterial__LoadTexture);
         SYM_OFF(ls__TextureManager__UnloadTexture);
+        SYM_OFF(ls__AppliedMaterial__LoadVirtualTexture);
+        SYM_OFF(ls__AppliedMaterial__TryOverrideTexture2DParameter);
+
+        SYM_OFF(ls__Visual__UpdateBlendshapeWeightsFromSkeleton);
 
         SYM_OFF(ls__GlobalSwitches);
 

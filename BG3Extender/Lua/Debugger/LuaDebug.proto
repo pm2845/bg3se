@@ -58,7 +58,7 @@ message MsgValue {
   oneof value {
     bool boolval = 2;
     int64 intval = 3;
-    float floatval = 4;
+    double floatval = 4;
     string stringval = 5;
   }
   MsgVariablesRef variables = 6;
@@ -139,6 +139,7 @@ message DbgEvaluate {
   DbgContext context = 1;
   string expression = 2;
   int32 frame = 3;
+  uint32 flags = 4;
 }
 
 // Requests the debugger to return a list of child variables for the given expression

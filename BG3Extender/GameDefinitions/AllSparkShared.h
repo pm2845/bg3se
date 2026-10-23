@@ -4,12 +4,10 @@ BEGIN_SE()
 
 struct RenderPropertyList
 {
-    uint32_t RenderPasses;
+    RenderPass RenderPasses;
     uint8_t OpaqueChannel;
     uint8_t AlphaChannel;
-    uint8_t field_6;
-    uint8_t field_7;
-    uint32_t TransformType;
+    uint8_t TransformType;
 };
 
 END_SE()
@@ -47,9 +45,7 @@ struct TimelinePhase
 struct TimelineHeader : public ProtectedGameObject<TimelineHeader>
 {
     float Duration;
-    [[bg3::hidden]] void* PhasesVMT;
-    Array<TimelinePhase> Phases;
-    [[bg3::hidden]] uint64_t PhasesExtra;
+    LegacyArray<TimelinePhase> Phases;
 };
 
 END_NS()

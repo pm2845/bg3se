@@ -11,7 +11,7 @@ inline bool do_get(lua_State * L, int index, Overload<bool>)
 inline NetId do_get(lua_State* L, int index, Overload<NetId>)
 {
     auto v = luaL_checkinteger(L, index);
-    return NetId((uint32_t)v);
+    return NetId((uint64_t)v);
 }
 
 inline UserId do_get(lua_State* L, int index, Overload<UserId>)
@@ -26,6 +26,7 @@ inline char const* do_get(lua_State* L, int index, Overload<char const*>)
 }
 
 FixedString do_get(lua_State* L, int index, Overload<FixedString>);
+FixedStringNoRef do_get(lua_State* L, int index, Overload<FixedStringNoRef>);
 
 inline STDString do_get(lua_State* L, int index, Overload<STDString>)
 {
@@ -36,8 +37,9 @@ inline STDString do_get(lua_State* L, int index, Overload<STDString>)
 
 inline StringView do_get(lua_State* L, int index, Overload<StringView>)
 {
-    luaL_error(L, "Cannot unserialize Lua strings into a StringView");
-    return {};
+    size_t len;
+    auto str = luaL_checklstring(L, index, &len);
+    return StringView(str, str + len);
 }
 
 inline LSStringView do_get(lua_State* L, int index, Overload<LSStringView>)
@@ -46,7 +48,20 @@ inline LSStringView do_get(lua_State* L, int index, Overload<LSStringView>)
     return {};
 }
 
-#if defined(ENABLE_UI)
+inline ScratchBuffer do_get(lua_State* L, int index, Overload<ScratchBuffer>)
+{
+    size_t len;
+    auto str = luaL_checklstring(L, index, &len);
+    return ScratchBuffer(std::span<char const>(str, str + len));
+}
+
+inline ScratchString do_get(lua_State* L, int index, Overload<ScratchString>)
+{
+    size_t len;
+    auto str = luaL_checklstring(L, index, &len);
+    return ScratchString(std::span<char const>(str, str + len));
+}
+
 inline Noesis::String do_get(lua_State* L, int index, Overload<Noesis::String>)
 {
     size_t len;
@@ -59,7 +74,6 @@ inline Noesis::Symbol do_get(lua_State* L, int index, Overload<Noesis::Symbol>)
     auto str = luaL_checkstring(L, index);
     return Noesis::Symbol{ Noesis::SymbolManager::FindString(str) };
 }
-#endif
 
 inline STDWString do_get(lua_State* L, int index, Overload<STDWString>)
 {
@@ -75,6 +89,7 @@ inline Guid do_get(lua_State* L, int index, Overload<Guid>)
     auto guid = Guid::ParseGuidString(StringView(str, len));
     if (!guid) {
         luaL_error(L, "Param %d: not a valid GUID value: '%s'", index, str);
+        return {};
     }
 
     return *guid;
@@ -84,10 +99,8 @@ ComponentHandle do_get(lua_State* L, int index, Overload<ComponentHandle>);
 EntityHandle do_get(lua_State* L, int index, Overload<EntityHandle>);
 ecs::EntityRef do_get(lua_State* L, int index, Overload<ecs::EntityRef>);
 TypeInformationRef do_get(lua_State* L, int index, Overload<TypeInformationRef>);
-#if defined(ENABLE_IMGUI)
 ImguiHandle do_get(lua_State* L, int index, Overload<ImguiHandle>);
 extui::Renderable* do_get(lua_State* L, int index, Overload<extui::Renderable*>);
-#endif
 
 inline Path do_get(lua_State* L, int index, Overload<Path>)
 {
@@ -100,38 +113,43 @@ inline OverrideableProperty<T> do_get(lua_State* L, int index, Overload<Override
     return OverrideableProperty<T>{get<T>(L, index), true};
 }
 
-template <class T>
-inline typename std::enable_if_t<std::is_integral_v<T>, T> do_get(lua_State * L, int index, Overload<T>)
+template <class T> requires std::is_integral_v<T>
+inline T do_get(lua_State * L, int index, Overload<T>)
 {
     return (T)luaL_checkinteger(L, index);
 }
 
-template <class T>
-inline typename std::enable_if_t<std::is_floating_point_v<T>, T> do_get(lua_State* L, int index, Overload<T>)
+template <class T> requires std::is_floating_point_v<T>
+inline T do_get(lua_State* L, int index, Overload<T>)
 {
     return (T)luaL_checknumber(L, index);
 }
 
-template <class T>
-typename std::enable_if_t<std::is_enum_v<T>, T> do_get(lua_State * L, int index, Overload<T>)
+template <class T> requires std::is_enum_v<T>
+typename T do_get(lua_State * L, int index, Overload<T>)
 {
     if constexpr (IsIntegralAlias<T>) {
         return (T)do_get(L, index, Overload<std::underlying_type_t<T>>{});
-    } else if constexpr (IsBitfieldV<T>) {
-        return (T)get_bitfield_value(L, index, BitfieldID<T>::ID);
+    } else if constexpr (IsBitfield<T>) {
+        return (T)get_bitfield_value(L, index, BitfieldID<T>);
+    } else if constexpr (IsEnum<T>) {
+        return (T)get_enum_value(L, index, EnumID<T>);
     } else {
-        return (T)get_enum_value(L, index, EnumID<T>::ID);
+        static_assert(false, "Unsupported enumeration type");
     }
 }
 
 Ref do_get(lua_State* L, int index, Overload<Ref>);
 RegistryEntry do_get(lua_State* L, int index, Overload<RegistryEntry>);
-PersistentRef do_get(lua_State* L, int index, Overload<PersistentRef>);
 PersistentRegistryEntry do_get(lua_State* L, int index, Overload<PersistentRegistryEntry>);
 
 template <class T>
 LuaDelegate<T> do_get(lua_State* L, int index, Overload<LuaDelegate<T>>)
 {
+    if (lua_type(L, index) == LUA_TNIL) {
+        return LuaDelegate<T>();
+    }
+
     return LuaDelegate<T>(L, index);
 }
 
@@ -173,6 +191,17 @@ inline glm::ivec2 do_get(lua_State* L, int index, Overload<glm::ivec2>)
     return val;    
 }
 
+inline glm::ivec3 do_get(lua_State* L, int index, Overload<glm::ivec3>)
+{    
+    auto i = lua_absindex(L, index);
+    glm::ivec3 val;
+    luaL_checktype(L, index, LUA_TTABLE);
+    val.x = gettable<int32_t>(L, 1, i);
+    val.y = gettable<int32_t>(L, 2, i);
+    val.z = gettable<int32_t>(L, 3, i);
+    return val;    
+}
+
 inline glm::ivec4 do_get(lua_State* L, int index, Overload<glm::ivec4>)
 {    
     auto i = lua_absindex(L, index);
@@ -207,6 +236,11 @@ glm::mat4 do_get(lua_State* L, int index, Overload<glm::mat4>);
 MathParam do_get(lua_State* L, int index, Overload<MathParam>);
 EntityHelper do_get(lua_State* L, int index, Overload<EntityHelper>);
 stats::ConditionId do_get(lua_State* L, int index, Overload<stats::ConditionId>);
+StatsExpressionRef do_get(lua_State* L, int index, Overload<StatsExpressionRef>);
+// Jank, but we can't put it anywhere else for now :(
+LuaSoundObjectId do_get(lua_State* L, int index, Overload<LuaSoundObjectId>);
+gn::GenomeVariant do_get(lua_State* L, int index, Overload<gn::GenomeVariant>);
+EntityOrVec3Variant do_get(lua_State* L, int index, Overload<EntityOrVec3Variant>);
 
 inline Version do_get(lua_State* L, int index, Overload<Version>)
 {
@@ -258,31 +292,11 @@ inline typename std::optional<T> do_get(lua_State* L, int index, Overload<std::o
     }
 }
 
-template <class T>
-inline T checked_get_flags(lua_State* L, int index)
-{
-    static_assert(IsBitfieldV<T>, "Can only fetch bitfield fields!");
+template <class T> requires !IsByVal<T> && !std::is_pointer_v<T>
+T do_get(lua_State* L, int index, Overload<T>);
 
-    luaL_checktype(L, index, LUA_TTABLE);
-    T flags = (T)0;
-    for (auto idx : iterate(L, index)) {
-        auto label = do_get(L, idx, Overload<FixedString>{});
-        auto val = BitfieldInfo<T>::Find(label);
-        if (val) {
-            flags |= *val;
-        } else {
-            luaL_error(L, "Label '%s' is not valid for enumeration '%s'", label.GetString(), BitfieldInfo<T>::GetStore().LuaName);
-        }
-    }
-
-    return flags;
-}
-
-template <class T>
-typename std::enable_if_t<!IsByVal<T> && !std::is_pointer_v<T>, T> do_get(lua_State* L, int index, Overload<T>);
-
-template <class T>
-typename std::enable_if_t<!IsByVal<T> && std::is_pointer_v<T>, T> do_get(lua_State* L, int index, Overload<T>);
+template <class T> requires !IsByVal<T> && std::is_pointer_v<T>
+T do_get(lua_State* L, int index, Overload<T>);
 
 // Overload helper for fetching a parameter for a Lua -> C++ function call
 template <class T>

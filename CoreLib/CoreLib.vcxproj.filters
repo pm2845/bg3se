@@ -96,6 +96,15 @@
     <ClInclude Include="Base\BitSet.h">
       <Filter>Header Files\Base</Filter>
     </ClInclude>
+    <ClInclude Include="Base\PagedMap.h">
+      <Filter>Header Files\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="Config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="JsonLibs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -132,6 +141,9 @@
     </None>
     <None Include="Base\BaseString.inl">
       <Filter>Source Files\Base</Filter>
+    </None>
+    <None Include="ConfigUtils.inl">
+      <Filter>Source Files</Filter>
     </None>
   </ItemGroup>
 </Project>

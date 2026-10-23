@@ -1,6 +1,8 @@
 #pragma once
 
 #include <GameDefinitions/CharacterCreation.h>
+#include <GameDefinitions/Animation.h>
+#include <GameDefinitions/Resources.h>
 
 BEGIN_SE()
 
@@ -8,9 +10,8 @@ struct CustomIconComponent : public BaseComponent
 {
     DEFINE_COMPONENT(CustomIcon, "eoc::CustomIconComponent")
 
-    [[bg3::hidden]]
-    ScratchBuffer Buffer;
-    uint8_t Unknown;
+    ScratchBuffer Icon;
+    uint8_t Source;
 };
 
 struct IconComponent : public BaseComponent
@@ -81,43 +82,21 @@ struct GameplayLightComponent : public BaseComponent
 {
     DEFINE_COMPONENT(GameplayLight, "eoc::GameplayLightComponent")
 
-    uint8_t field_0;
-    float field_4;
-    int field_8;
-    int field_C;
-    glm::vec3 field_10;
-    uint8_t field_1C;
-    uint8_t field_1D;
-    uint8_t field_1E;
-    glm::vec3 field_20;
-    std::optional<float> field_2C;
-    bool field_34;
-    FixedString field_38;
+    [[bg3::legacy(field_0)]] bool Active;
+    [[bg3::legacy(field_4)]] float Radius;
+    [[bg3::legacy(field_8)]] float EdgeSharpening;
+    [[bg3::legacy(field_C)]] float SpotlightAngle;
+    [[bg3::legacy(field_10)]] glm::vec3 DirectionalDimensions;
+    [[bg3::legacy(field_1C)]] LightType LightType;
+    [[bg3::legacy(field_1D)]] bool IsHalfLit;
+    [[bg3::legacy(field_1E)]] bool Sunlight;
+    [[bg3::legacy(field_20)]] glm::vec3 AttachAt;
+    [[bg3::legacy(field_2C)]] std::optional<float> PointLightVerticalLimit;
+    [[bg3::legacy(field_34)]] bool CheckLOS;
+    [[bg3::legacy(field_38)]] FixedString LightCookie;
     float field_3C;
     float field_40;
     uint8_t field_44;
-};
-
-struct StaticPhysicsComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(StaticPhysics, "ls::StaticPhysicsComponent")
-
-    [[bg3::hidden]]
-    void* field_0;
-};
-
-struct PhysicsComponent : public BaseComponent
-{
-    DEFINE_COMPONENT(Physics, "ls::PhysicsComponent")
-
-    [[bg3::hidden]]
-    void* Physics;
-    int field_8;
-    int field_C;
-    int field_10;
-    uint8_t field_14;
-    uint8_t field_15;
-    uint8_t field_16;
 };
 
 struct CharacterCreationAppearanceComponent : public BaseComponent
@@ -131,6 +110,18 @@ struct CharacterCreationAppearanceComponent : public BaseComponent
     Guid EyeColor;
     Guid SecondEyeColor;
     Guid HairColor;
+};
+
+struct AnimationBlueprintComponent : public BaseProxyComponent
+{
+    DEFINE_COMPONENT(AnimationBlueprint, "ls::AnimationBlueprintComponent")
+
+    gn::GenomeBlueprintInstance* Instance;
+    resource::AnimationBlueprintResource* Resource;
+    gn::GenomeBlueprint* Blueprint;
+    [[bg3::hidden]] void* LoadCallback;
+    [[bg3::readonly]] int InstanceId;
+    [[bg3::readonly]] uint8_t Flags;
 };
 
 struct AnimationWaterfallElement
@@ -153,6 +144,25 @@ struct AnimationTag
     uint8_t field_10;
 };
 
+struct AnimationSetEntry
+{
+    FixedString Slot;
+    FixedString Resource;
+    FixedString Type;
+    [[bg3::hidden]] AnimationTag* TagsStart;
+    [[bg3::hidden]] AnimationTag* TagsEnd;
+    bool Dynamic;
+};
+
+struct AnimationSetComponent : public BaseComponent
+{
+    DEFINE_PROXY_COMPONENT(AnimationSet, "ls::AnimationSetComponent")
+
+    MiniCompactSet<AnimationSetEntry> Entries;
+    FixedString FallbackSubSet;
+};
+
+DEFINE_TAG_COMPONENT(ls, AnimationUpdateComponent, AnimationUpdate)
 
 struct AnimationWaterfallComponent : public BaseComponent
 {
@@ -176,48 +186,565 @@ struct TemplateAnimationSetOverrideComponent : public BaseComponent
     Array<AnimationWaterfallElement> Overrides;
 };
 
-
-struct AnimationReceivedGameplayEvent
+struct LoadAnimationFromVisualRequestData
 {
-    EntityHandle Entity;
-    FixedString Event;
-    [[bg3::hidden]] gn::GenomeParametrizedEventArgs Args;
+    FixedString VisualResource;
+    FixedString Type;
+    FixedString SkeletonSlot;
+    uint8_t field_C;
 };
 
-struct AnimationReceivedTextKeyEvent
+struct RemoveAnimationSetsRequestOneFrameComponent : public BaseComponent
 {
-    EntityHandle Entity;
-    TextKeyEvent* Event;
-    [[bg3::hidden]] void* Skeleton;
+    DEFINE_ONEFRAME_COMPONENT(RemoveAnimationSetsRequest, "ls::animation::RemoveAnimationSetsRequestOneFrameComponent")
+
+    HashSet<FixedString> AnimationSets;
 };
 
-struct EffectComponent : public BaseProxyComponent
+struct RemoveAnimationSetsGameplayRequestOneFrameComponent : public BaseComponent
 {
-    DEFINE_COMPONENT(Effect, "ls::EffectComponent")
+    DEFINE_ONEFRAME_COMPONENT(RemoveAnimationSetsGameplayRequest, "ls::animation::RemoveAnimationSetsGameplayRequestOneFrameComponent")
 
-    [[bg3::hidden]] void* VMT;
-    [[bg3::hidden]] void* WorkerThreadJob;
-    EntityHandle Entity;
-    resource::EffectResource* EffectResource;
-    aspk::EffectTimeline* Timeline;
+    HashSet<FixedString> AnimationSets;
+};
+
+struct LoadAnimationSetRequestOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(LoadAnimationSetRequest, "ls::animation::LoadAnimationSetRequestOneFrameComponent")
+
+    Array<LoadAnimationFromVisualRequestData> Animations;
+};
+
+struct LoadAnimationSetGameplayRequestOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(LoadAnimationSetGameplayRequest, "ls::animation::LoadAnimationSetGameplayRequestOneFrameComponent")
+
+    Array<LoadAnimationFromVisualRequestData> Animations;
+};
+
+DEFINE_ONEFRAME_TAG_COMPONENT(ls::animation, AnimationSetUpdateRequestComponent, AnimationSetUpdateRequest)
+
+struct AnimationSetSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(AnimationSet, "ls::AnimationSetSystem")
+
+    [[bg3::hidden]] void* AnimationSetSystemHelper;
+    [[bg3::hidden]] void* AnimationBlueprintSystem;
+    [[bg3::hidden]] void* VisualSystem;
     bool field_28;
-    bool PreviewEffect;
-    // bool OverridingFadeOpacity;
-    EffectFlags Flags;
-    FixedString EffectName;
-    FixedString AnimationName;
-    bool UpdateQueued;
-    EntityHandle SoundEntity;
-    EntityHandle field_48;
-    std::array<float, 2> OverrideFadeCapacity;
-    std::array<bool, 2> OverrideFadeShadowEnabled;
-    [[bg3::hidden]] void* ConstructionJob;
-    [[bg3::readonly]] uint16_t ConstructFlags;
-    [[bg3::hidden]] uint64_t _Pad;
+    HashMap<EntityHandle, Array<LoadAnimationFromVisualRequestData>> LoadAnimationSets;
+    HashSet<EntityHandle> AnimationSetUpdates;
+    HashMap<EntityHandle, Array<FixedString>> RemoveAnimationSets;
+    [[bg3::hidden]] UnknownSignalSubscriber DynamicAnimationTagsSignal;
+    [[bg3::hidden]] UnknownSignalSubscriber TemplateAnimationSetOverrideSignal;
 };
 
+struct MaterialParameterFloat
+{
+    FixedString Parameter;
+    float Value;
+    bool Override{ false };
+    uint8_t field_9{ 0 };
+    bool Preset{ false };
+};
+
+struct MaterialParameterVec2
+{
+    FixedString Parameter;
+    glm::vec2 Value;
+    bool Override{ false };
+    uint8_t field_9{ 0 };
+    bool Preset{ false };
+};
+
+struct MaterialParameterVec3
+{
+    FixedString Parameter;
+    glm::vec3 Value;
+    bool Override{ false };
+    uint8_t field_9{ 0 };
+    bool Preset{ false };
+};
+
+struct MaterialParameterVec4
+{
+    FixedString Parameter;
+    glm::aligned_highp_vec4 Value;
+    bool Override{ false };
+    uint8_t field_9{ 0 };
+    bool Preset{ false };
+};
+
+struct MaterialParameterTexture
+{
+    FixedString Parameter;
+    FixedString Value;
+    bool Override{ false };
+    uint8_t field_9{ 0 };
+    bool Preset{ false };
+};
+
+struct MaterialParameterPresetSlot
+{
+    FixedString GroupName;
+    FixedString CCPreset;
+    uint32_t field_8;
+};
+
+struct MaterialParameterPresetsContainer
+{
+    Array<MaterialParameterFloat> FloatOverrides;
+    Array<MaterialParameterVec2> Vec2Overrides;
+    Array<MaterialParameterVec3> Vec3Overrides;
+    Array<MaterialParameterVec4> Vec4Overrides;
+    Array<MaterialParameterTexture> TextureOverrides;
+    Array<MaterialParameterTexture> VirtualTextureOverrides;
+    FixedString field_60;
+    HashMap<FixedString, MaterialParameterPresetSlot> Presets;
+};
+
+struct VisualLocatorAttachment
+{
+    FixedString DisplayName;
+    FixedString LocatorName;
+};
+
+struct VisualSetSlot
+{
+    FixedString Slot;
+    FixedString Visual;
+    FixedString field_8;
+};
+
+struct VisualSetSlots
+{
+    // Editor only
+    // FixedString StatsColorPresetResource;
+    FixedString BodySetVisual;
+    Array<VisualSetSlot> VisualSlots;
+    Array<VisualLocatorAttachment> LocatorAttachments;
+    MaterialParameterPresetsContainer MaterialParameters;
+    LegacyMap<FixedString, MaterialParameterPresetsContainer> Materials;
+    HashMap<FixedString, FixedString> MaterialOverrides;
+    HashMap<FixedString, FixedString> MaterialRemaps;
+    FixedString VisualSet;
+    bool ShowEquipmentVisuals;
+};
+
+struct VisualSetSlotsWrapper : public ProtectedGameObject<VisualSetSlotsWrapper>
+{
+    VisualSetSlots* Slots;
+    bool Managed;
+};
+
+struct VisualChangeRequest
+{
+    EntityHandle Entity;
+    FixedString Visual;
+    VisualLoadFlags Flags;
+};
+
+struct VisualChangeRequestSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(VisualChange, "ls::VisualChangeRequestSystem")
+
+    // TODO - Not supported yet!
+    [[bg3::hidden]] MPMCQueueBounded<VisualChangeRequest> Requests;
+};
+
+
+struct VisualChangedSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(VisualChanged, "ls::VisualChangedSystem")
+
+    HashSet<EntityHandle> VisualChanges;
+    uint32_t FrameNo;
+};
+
+struct VisualLoadComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(VisualLoad, "ls::VisualLoadComponent")
+
+    aio::Priority Priority;
+};
+
+struct VisualStreamComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(VisualStream, "ls::VisualStreamComponent")
+
+    int field_0{ 0 };
+    int field_4{ 0 };
+    float field_8{ -1.0 };
+    bool IsHLOD{ false };
+};
+
+struct VisualStreamLoadComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(VisualStreamLoad, "ls::VisualStreamLoadComponent")
+
+    aio::Priority Priority;
+};
+
+struct VisualLoadDesciptionComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(VisualLoadDescription, "ls::VisualLoadDesciptionComponent")
+
+    FixedString VisualTemplate;
+    VisualLoadFlags Flags;
+    RenderChannel RenderChannel;
+};
+
+struct VisualLoadRequestsSingletonComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(VisualLoadRequests, "ls::VisualLoadRequestsSingletonComponent")
+
+    HashMap<EntityHandle, bool> Requests;
+};
+
+struct VisualChangeRequestOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(VisualChangeRequest, "ls::VisualChangeRequestOneFrameComponent")
+
+    FixedString VisualTemplate;
+    VisualLoadFlags Flags;
+};
+
+struct VisualAttachRequestOneFrameComponent : public BaseComponent
+{
+    DEFINE_ONEFRAME_COMPONENT(VisualAttachRequest, "ls::VisualAttachRequestOneFrameComponent")
+
+    EntityHandle Entity;
+    int field_8;
+};
+
+
+DEFINE_TAG_COMPONENT(ls, VisualLoadedComponent, VisualLoaded)
+DEFINE_ONEFRAME_TAG_COMPONENT(ls, VisualChangedEventOneFrameComponent, VisualChangedEvent)
+
+struct SwapVisualRequest
+{
+    Visual* From;
+    Visual* To;
+};
+
+struct VisualSetSlotsPreAllocatedVisual
+{
+    EntityHandle Entity;
+    Visual* Visual;
+};
+
+struct DeferredLoadRequest : ProtectedGameObject<DeferredLoadRequest>
+{
+    [[bg3::hidden]] void* Callback_pInternalCallback{ nullptr };
+    Visual* Visual;
+    resource::AnimationBlueprintResource* Blueprint;
+    gn::GenomeBlueprintInstance* BlueprintInstance;
+    EntityHandle Entity;
+    VisualSetSlotsWrapper Slots;
+    HashMap<FixedString, Array<VisualSetSlotsPreAllocatedVisual>> PreAllocatedEntities;
+    uint32_t RequestId;
+    VisualLoadFlags LoadFlags;
+    uint8_t field_7E;
+    FixedString BlueprintOverride;
+    uint32_t field_80;
+    uint32_t RefCount;
+};
+
+struct VisualSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(Visual, "ls::VisualSystem")
+
+    [[bg3::hidden]] UnknownSignal VisualLoadedSignal;
+    [[bg3::hidden]] UnknownSignal VisualUnloadedSignal;
+    [[bg3::hidden]] UnknownSignal VisualSwappedSignal;
+    HashMap<EntityHandle, SwapVisualRequest> SwapVisuals;
+    HashMap<EntityHandle, FixedString> RemoveAnimationSetRequests;
+    HashMap<EntityHandle, Array<LoadAnimationFromVisualRequestData>> LoadAnimationRequests;
+    [[bg3::hidden]] VisualChangedSystem* VisualChangedSystem;
+    HashMap<EntityHandle, DeferredLoadRequest*> LoadRequests;
+    [[bg3::hidden]] CRITICAL_SECTION VisualSetSlotUpdatesCS;
+    [[bg3::hidden]] Array<void*> VisualSetSlotUpdates; // some kind of hashmap?
+    [[bg3::hidden]] SRWLOCK DeferredLoadRequestsLock;
+    // TODO - Not supported yet!
+    [[bg3::hidden]] MPMCQueueBounded<DeferredLoadRequest*> DeferredLoadRequests;
+    [[bg3::hidden]] SRWLOCK UnloadRequestsLock;
+    // TODO - Not supported yet!
+    [[bg3::hidden]] MPMCQueueBounded<Visual*> UnloadRequests;
+    [[bg3::hidden]] void* UnloadWorkerThreadBatch;
+    [[bg3::hidden]] void* UnloadWorkerThreadJob;
+    [[bg3::hidden]] void* GenomeManager;
+};
+
+
+struct DecalComponent : public BaseProxyComponent
+{
+    DEFINE_COMPONENT(Decal, "ls::DecalComponent")
+
+    DecalObject* Decal;
+};
+
+struct CullComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(Cull, "ls::CullComponent")
+
+    uint16_t CullFlags;
+};
+
+struct SceneAttachComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(SceneAttach, "ls::SceneAttachComponent")
+
+    [[bg3::hidden]] Scene* Scene;
+};
+
+struct CustomIconsStorageSingletonComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(CustomIconsStorage, "eoc::CustomIconsStorageSingletonComponent")
+
+    HashMap<Guid, ScratchBuffer> Icons;
+};
+
+struct FogVolumeRequestComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(FogVolumeRequest, "eoc::FogVolumeRequestComponent")
+
+    Guid field_0;
+};
+
+struct CombinedLightComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(CombinedLight, "eoc::CombinedLightComponent")
+
+    EntityHandle Entity;
+    BYTE TemplateType;
+    FixedString Template;
+    FixedString InstanceGuid;
+    Transform Transform;
+};
+
+struct StandardGameObject : public ProtectedGameObject<StandardGameObject>
+{
+    [[bg3::hidden]] void* VMT;
+    [[bg3::hidden]] void* VMT2;
+    ecs::EntityRef GameObjectEntity;
+    [[bg3::hidden]] void* field_20;
+    FixedString Level;
+    uint16_t GameObjectFlags;
+};
+
+struct [[bg3::component]] ConstructionTile : public StandardGameObject
+{
+    DEFINE_PROXY_COMPONENT(ConstructionTile, "ls::ConstructionTile")
+
+    EntityHandle Entity;
+    EntityHandle field_48;
+    ConstructionTileTemplate* Template;
+    FixedString ParentTemplate;
+    FixedString TileSetResourceId;
+    float Scale;
+    ConstructionTileFlags Flags;
+};
+
+struct [[bg3::component]] ConstructionFilling : public StandardGameObject
+{
+    DEFINE_PROXY_COMPONENT(ConstructionFilling, "ls::ConstructionFilling")
+
+    Guid InstanceId;
+    EntityHandle Entity;
+    // Editor only
+    // ConstructionFillingTemplate* Template;
+    RenderableObject* Renderable;
+    RenderableObject* Renderable2;
+    FixedString ParentTemplate;
+    FixedString FadeGroup;
+    FixedString Material;
+    FixedString Physics;
+    FixedString Id;
+    float Tiling;
+    bool WalkOn;
+    bool SeeThrough;
+    bool Fadeable;
+    // Editor only
+    // bool HierarchyOnlyFade;
+};
+
+struct [[bg3::component]] Construction : public ProtectedGameObject<Construction>
+{
+    DEFINE_PROXY_COMPONENT(Construction, "ls::Construction")
+
+    [[bg3::hidden]] void* field_0;
+    // Editor only
+    // [[bg3::hidden]] UnknownSignal field_8;
+    Array<EntityHandle> Tiles;
+    Array<EntityHandle> Filling;
+    Guid InstanceId;
+    // Editor only
+    // ConstructionTemplate* Template;
+};
+
+struct ConstructionSystem : public BaseSystem
+{
+    // Editor only
+    // HashMap<Guid, EntityHandle> Constructions;
+    // HashMap<Guid, EntityHandle> Tiles;
+    // HashMap<Guid, EntityHandle> Fillings;
+    // HashMap<Guid, EntityHandle> ConstructionUpdateRequests;
+    [[bg3::hidden]] void* TransformSystem;
+    // Editor only
+    // [[bg3::hidden]] void* PhysicsLoaderSystem;
+    [[bg3::hidden]] void* PhysicsRequestSystem;
+    [[bg3::hidden]] void* VisualChangeRequestSystem;
+    [[bg3::hidden]] void* OcclusionSystem;
+};
+
+DEFINE_TAG_COMPONENT(ls, IsSeeThroughComponent, IsSeeThrough)
+
+
+struct HLODInstanceData
+{
+    Guid UUID;
+    int Level;
+    // Editor only
+    // uint64_t VersionHash;
+    Array<Guid> Children;
+    Array<Guid> Objects;
+};
+
+struct HLODComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(HLOD, "ls::HLODComponent")
+
+    [[bg3::hidden]] LevelBase* Level;
+    HLODInstanceData Instance;
+    float CullDistanceBias;
+    FixedString UUID;
+    Array<EntityHandle> Children;
+    // Editor only
+    // uint64_t RecursiveHash;
+    // uint64_t BaseHash;
+    // bool Enabled;
+};
+
+struct HLODChildComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(HLODChild, "ls::HLODChildComponent")
+
+    EntityHandle Parent;
+    // Editor only
+    // uint64_t Hash;
+};
+
+struct ClusterBoundComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterBound, "ls::ClusterBoundComponent")
+
+    AABound Bounds;
+};
+
+struct ClusterBoundMaxComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterBoundMax, "ls::ClusterBoundMaxComponent")
+
+    float BoundMax;
+};
+
+struct ClusterChildComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterChild, "ls::ClusterChildComponent")
+
+    EntityHandle Parent;
+};
+
+struct ClusterChildIndexedComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterChildIndexed, "ls::ClusterChildIndexedComponent")
+
+    int X;
+    int Y;
+    int Z;
+    int Radius;
+};
+
+struct ClusterContainerComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterContainer, "ls::ClusterContainerComponent")
+
+    HashMap<glm::ivec4, EntityHandle> Clusters;
+};
+
+
+struct ClusterDistMinComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterDistMin, "ls::ClusterDistMinComponent")
+
+    float DistMin;
+};
+
+struct ClusterDistMaxComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterDistMax, "ls::ClusterDistMaxComponent")
+
+    float DistMax;
+};
+
+struct ClusterPositionXComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterPositionX, "ls::ClusterPositionXComponent")
+
+    float X;
+};
+
+struct ClusterPositionYComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterPositionY, "ls::ClusterPositionYComponent")
+
+    float Y;
+};
+
+struct ClusterPositionZComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterPositionZ, "ls::ClusterPositionZComponent")
+
+    float Z;
+};
+
+struct ClusterRadiusComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClusterRadius, "ls::ClusterRadiusComponent")
+
+    float Radius;
+};
+
+DEFINE_TAG_COMPONENT(ls, ClusterComponent, Cluster)
+DEFINE_TAG_COMPONENT(ls, ClusterAttachRequestComponent, ClusterAttachRequest)
+
+struct LocalBoundComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(LocalBound, "ls::LocalBoundComponent")
+
+    AABound Bounds;
+};
+
+struct OcclusionComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(Occlusion, "ls::OcclusionComponent")
+
+    [[bg3::hidden]] void* OcclusionModel;
+};
 
 END_SE()
+
+BEGIN_NS(ecl)
+
+struct ConstructionSystem : public bg3se::ConstructionSystem
+{
+    DEFINE_SYSTEM(ClientConstruction, "ecl::ConstructionSystem")
+
+    bool RequestSetSeeThrough;
+    bool EnableSeeThrough;
+};
+
+END_NS()
 
 BEGIN_NS(animation)
 
@@ -250,10 +777,16 @@ struct TextKeyEventsSingletonComponent : public BaseComponent
     Array<AnimationReceivedTextKeyEvent> Events;
 };
 
+struct GameplayEventsSingletonComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(AnimationGameplayEventsSingleton, "ls::animation::GameplayEventsSingletonComponent")
+
+    Array<AnimationReceivedGameplayEvent> Events;
+};
 
 struct GameplayEventsOneFrameComponent : public BaseComponent
 {
-    DEFINE_COMPONENT(AnimationGameplayEvents, "eoc::animation::GameplayEventsOneFrameComponent")
+    DEFINE_ONEFRAME_COMPONENT(AnimationGameplayEvents, "eoc::animation::GameplayEventsOneFrameComponent")
 
     HashMap<EntityHandle, Array<ReceivedEvent>> Events;
 };
@@ -261,7 +794,7 @@ struct GameplayEventsOneFrameComponent : public BaseComponent
 
 struct TextKeyEventsOneFrameComponent : public BaseComponent
 {
-    DEFINE_COMPONENT(AnimationTextKeyEvents, "eoc::animation::TextKeyEventsOneFrameComponent")
+    DEFINE_ONEFRAME_COMPONENT(AnimationTextKeyEvents, "eoc::animation::TextKeyEventsOneFrameComponent")
 
     HashMap<EntityHandle, Array<TextKeyEventInfo>> Events;
 };
@@ -269,10 +802,11 @@ struct TextKeyEventsOneFrameComponent : public BaseComponent
 
 struct TriggeredEventsOneFrameComponent : public BaseComponent
 {
-    DEFINE_COMPONENT(AnimationTriggeredEvents, "eoc::animation::TriggeredEventsOneFrameComponent")
+    DEFINE_ONEFRAME_COMPONENT(AnimationTriggeredEvents, "eoc::animation::TriggeredEventsOneFrameComponent")
 
     HashMap<EntityHandle, Array<FixedString>> Events;
 };
+
 
 END_NS()
 
@@ -314,52 +848,77 @@ struct IconListComponent : public BaseComponent
     Array<IconInfo> Icons;
 };
 
+struct VisualSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ServerVisual, "esv::VisualSystem")
+
+    [[bg3::hidden]] void* ThothMachine;
+    [[bg3::hidden]] void* AnimationBlueprintSystem;
+    [[bg3::hidden]] void* ShapeshiftSystem;
+    [[bg3::hidden]] void* ResourceManager;
+    HashSet<EntityHandle> UpdateVisuals;
+    HashSet<EntityHandle> BoostsRemoved;
+    [[bg3::hidden]] HashMap<EntityHandle, std::optional<TemplateInfo>> CharacterSetVisualResource;
+    HashMap<EntityHandle, FixedString> ItemSetVisualResource;
+    // Editor only?
+    // [[bg3::hidden]] void* field_110;
+    // HashSet<EntityHandle> ScaleChange;
+    // HashMap<EntityHandle, FixedString> TemplateIDChange;
+    [[bg3::hidden]] void* GlobalTemplateManager;
+    [[bg3::hidden]] void* CacheTemplateManager;
+    [[bg3::hidden]] void* LevelManager;
+    [[bg3::hidden]] UnknownFunction field_1A0;
+    [[bg3::hidden]] UnknownFunction field_1E0;
+};
+
+
 END_NS()
 
 BEGIN_NS(ecl)
 
 
-struct EquipmentVisualData
+struct EquipmentVisualRequest
 {
     Array<FixedString> VisualTemplates;
-    FixedString BoneSheathed;
-    FixedString SourceBoneSheathed;
-    FixedString field_18;
-    EntityHandle field_20;
-    Array<resource::PresetData::ScalarParameter> ScalarParameters;
-    Array<resource::PresetData::Vector3Parameter> Vector3Parameters;
+    [[bg3::legacy(BoneSheathed)]] FixedString Bone;
+    [[bg3::legacy(SourceBoneSheathed)]] FixedString SourceBone;
+    FixedString Level;
+    VisualAttachmentFlags AttachFlags;
+    EntityHandle Parent;
+    Array<material::ScalarParameterPreset> ScalarParameters;
+    Array<material::Vector3ParameterPreset> Vector3Parameters;
+    EntityHandle Item;
+    VisualLoadFlags VisualFlags;
     uint8_t HairType;
-    ecs::EntityRef Item;
-    uint32_t Flags_60;
-    uint16_t Flags_64;
-    uint32_t SlotAndFlags;
-    uint8_t Flags_6C;
+    VisualRequestFlags RequestFlags;
+    ItemSlot Slot;
 };
 
 
-struct EquipmentSubVisualRequest
+struct EquipmentVisualCallbackLoadDesc : public ProtectedGameObject<EquipmentVisualCallbackLoadDesc>
 {
     FixedString VisualTemplate;
     EntityHandle VisualEntity;
-    [[bg3::hidden]] void* LoadRequest_M;
+    [[bg3::hidden]] void* Callback;
     bool Processed;
 };
 
 
-struct EquipmentVisualRequest
+struct EquipmentVisualSlotRequest
 {
     Array<EntityHandle> Item;
-    Array<EquipmentSubVisualRequest> SubRequests;
-    EquipmentVisualData Data;
+    Array<EquipmentVisualCallbackLoadDesc*> Callbacks;
+    EquipmentVisualRequest Data;
     EntityHandle field_90;
 };
 
-struct EquipmentVisual
+struct EquipmentVisualSlot
 {
     EntityHandle Item;
     Array<EntityHandle> SubVisuals;
-    EquipmentVisualRequest* VisualRequest;
-    bool field_20;
+    EquipmentVisualSlotRequest* VisualRequest{ nullptr };
+    std::optional<EquipmentVisualRequest> VisualData;
+    [[bg3::legacy(field_20)]] bool Loaded{ false };
 };
 
 struct EquipmentVisualsComponent : public BaseComponent
@@ -367,7 +926,7 @@ struct EquipmentVisualsComponent : public BaseComponent
     DEFINE_COMPONENT(ClientEquipmentVisuals, "ecl::EquipmentVisualsComponent")
 
     EntityHandle Entity;
-    std::array<EquipmentVisual, 19> Equipment;
+    HashMap<ItemSlot, EquipmentVisualSlot> Equipment;
 };
 
 struct PaperdollComponent : public BaseComponent
@@ -375,7 +934,319 @@ struct PaperdollComponent : public BaseComponent
     DEFINE_COMPONENT(ClientPaperdoll, "ecl::PaperdollComponent")
 
     EntityHandle Entity;
+    [[bg3::legacy(field_8)]] bool Combat;
+};
+
+struct LoadAnimationFromVisualRequestData
+{
+    FixedString field_0;
+    FixedString field_4;
+    FixedString field_8;
+    bool field_C;
+};
+
+struct EquipmentRemoveMaterialRequest
+{
+    EntityHandle Entity;
+    FixedString Material;
+    bool field_C;
+    bool RemoveOverlayMaterial;
+    uint8_t CheckFlags;
+};
+
+struct EquipmentUnloadRequest
+{
+    EntityHandle Parent;
+    EntityHandle Visual;
+    EntityHandle Item;
+    ItemSlot Slot;
+};
+
+struct EquipmentEventSlotData
+{
+    EntityHandle Item;
+    uint32_t field_8{ 0 };
+};
+
+struct EquipmentVisualsSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ClientEquipmentVisuals, "ecl::EquipmentVisualsSystem")
+
+    [[bg3::hidden]] UnknownSignal field_10;
+    [[bg3::hidden]] UnknownSignal field_28;
+    [[bg3::hidden]] void* EocClient;
+    [[bg3::hidden]] void* LevelManager;
+    [[bg3::hidden]] void* MaterialManager;
+    [[bg3::hidden]] void* LevelInstanceAttachRequestSystem;
+    [[bg3::hidden]] void* EquipmentVisualsUnitTestHelper;
+    [[bg3::hidden]] UnknownFunction field_68;
+    [[bg3::hidden]] UnknownSignalSubscriber field_A8;
+    [[bg3::hidden]] UnknownSignalSubscriber field_F8;
+    Array<EquipmentRemoveMaterialRequest> RemoveMaterials;
+    HashMap<EntityHandle, uint64_t> PendingSlotLoads;
+    HashMap<EntityHandle, HashMap<uint16_t, EquipmentEventSlotData>> InventoryEvents;
+    Array<EquipmentUnloadRequest> UnloadRequests;
+    HashSet<EntityHandle> DyeUpdates;
+    [[bg3::readonly]] int StreamingCount;
+    [[bg3::readonly]] int UnloadVisualRequestCount;
+    [[bg3::hidden]] void* Dispatcher;
+    HashMap<EntityHandle, Array<LoadAnimationFromVisualRequestData>> AnimationSetRequest;
+    HashMap<EntityHandle, HashSet<FixedString>> RemoveAnimationSetRequest;
+    HashSet<EntityHandle> UpdateSplatter;
+    HashMap<EntityHandle, FixedString> InitVisualLevel;
+    HashMap<EntityHandle, EntityHandle> VFXTargetRequest;
+    HashSet<EntityHandle> DestroyVisuals;
+};
+
+struct VisualSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ClientVisual, "ecl::VisualSystem")
+
+    [[bg3::hidden]] UnknownSignal field_10;
+    [[bg3::hidden]] UnknownSignalSubscriber field_28;
+    [[bg3::hidden]] UnknownSignalSubscriber field_78;
+    [[bg3::hidden]] UnknownSignalSubscriber field_C8;
+    [[bg3::hidden]] UnknownSignalSubscriber field_118;
+    [[bg3::hidden]] UnknownFunction field_168;
+    HashMap<EntityHandle, bool> ReloadVisuals;
+    HashMap<EntityHandle, uint32_t> ChangeSplatterState;
+    HashSet<EntityHandle> UpdateScale;
+    HashMap<EntityHandle, uint32_t> SplatterType;
+    bool ReloadAllVisuals;
+    [[bg3::hidden]] void* LSVisualSystem;
+    [[bg3::hidden]] void* CacheTemplateManager;
+    [[bg3::hidden]] void* LevelManager;
+    [[bg3::hidden]] void* GlobalTemplateManager;
+    [[bg3::hidden]] void* ResourceManager;
+};
+
+
+struct CharacterIconRequestComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClientCharacterIconRequest, "ecl::CharacterIconRequestComponent")
+
+    FixedString Visual;
+    VisualSetSlots VisualSet;
+    Array<FixedString> Equipment;
+    FixedString Template;
+    std::optional<ArmorSetState> ArmorSetState;
+    EntityHandle field_190;
+    STDString Trigger;
+    int field_1B0;
+};
+
+struct CharacterIconResultComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClientCharacterIconResult, "ecl::CharacterIconResultComponent")
+
+    ScratchBuffer Icon;
+};
+
+struct CharacterIconRenderSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ClientCharacterIconRender, "ecl::CharacterIconRenderSystem")
+
+    [[bg3::hidden]] UnknownFunction qword10;
+    HashSet<EntityHandle> IconRequests;
+    HashSet<EntityHandle> DeletedIconRequests;
+    int RenderState;
+    float RenderTimeRemaining;
+    uint32_t ProcessingStage;
+    [[bg3::hidden]] void* IconRenderer;
+    uint32_t PollResult;
+    int field_CC;
+    int field_D0;
+    int field_D4;
+    bool IconRendererSetUp;
+    uint8_t field_D9;
+    uint8_t field_DA;
+    uint8_t field_DB;
+    uint16_t field_DC;
+    uint8_t field_DE;
+    ScratchBuffer Icon;
+    EntityHandle EntityBeingRendered;
+    EntityHandle field_140;
+    uint32_t field_148;
+    EntityHandle RenderCallback;
+    uint32_t SessionCount;
+    [[bg3::hidden]] void* EquipmentVisualsSystem;
+};
+
+struct TradeModeChangeRequest
+{
+    uint16_t field_0;
+    uint8_t field_2;
+};
+
+struct CharacterManager : public BaseSystem
+{
+    DEFINE_SYSTEM(ClientCharacterManager, "ecl::CharacterManager")
+
+    [[bg3::hidden]] void* GameEventListenerVMT;
+    [[bg3::hidden]] void* field_18;
+    [[bg3::hidden]] void* GameStateEventListenerVMT;
+    [[bg3::hidden]] UnknownSignal field_28;
+    [[bg3::hidden]] UnknownSignal field_40;
+    [[bg3::hidden]] UnknownSignal field_58;
+    [[bg3::hidden]] UnknownSignal field_70;
+    [[bg3::hidden]] void* EntityManager;
+    [[bg3::hidden]] void* AnimationBlueprintSystem;
+    [[bg3::hidden]] void* LSVisualSystem;
+    [[bg3::hidden]] void* LEDSystem;
+    [[bg3::hidden]] void* FactionContainer;
+    [[bg3::hidden]] void* EoCGlobalSwitches;
+    [[bg3::hidden]] void* ResourceManager;
+    [[bg3::hidden]] void* GameAnalyticsSystem;
+    [[bg3::hidden]] void* StatusSystem;
+    [[bg3::hidden]] void* TransformSystem;
+    [[bg3::hidden]] void* StatsSystem;
+    [[bg3::hidden]] void* LevelManager;
+    [[bg3::hidden]] void* HUB;
+    [[bg3::hidden]] void* CharacterSoundSystem;
+    [[bg3::hidden]] void* GameActionManager;
+    [[bg3::hidden]] void* PlayerManager;
+    [[bg3::hidden]] void* SpellPrototypeManager;
+    [[bg3::hidden]] Array<void*> field_110;
+    [[bg3::hidden]] Array<void*> field_120;
+    HashSet<EntityHandle> RefreshLights;
+    HashSet<EntityHandle> UpdatePhysicsGroup;
+    HashMap<EntityHandle, HashSet<ItemSlot>> RefreshEquipmentSlot;
+    HashSet<EntityHandle> UpdateObscurity;
+    HashSet<EntityHandle> ReloadVisuals;
+    HashSet<EntityHandle> ReloadPhysics;
+    HashMap<EntityHandle, TradeModeChangeRequest> TradingModeChanges;
+    HashSet<EntityHandle> ChangedTemplates;
+    [[bg3::hidden]] UnknownSignalSubscriber field_2D0;
+    Array<EntityHandle> UpdateCombatCamera;
+    std::array<HashSet<EntityHandle>, 3> UpdateCharacterHighlights;
+    std::array<HashSet<EntityHandle>, 3> UpdateCharacterHighlights2;
+    HashSet<EntityHandle> UpdateRepose;
+    [[bg3::hidden]] UnknownSignalSubscriber field_480;
+    [[bg3::hidden]] UnknownSignalSubscriber field_4D0;
+    [[bg3::hidden]] UnknownSignalSubscriber field_520;
+    [[bg3::hidden]] UnknownSignalSubscriber field_570;
+    [[bg3::hidden]] UnknownSignalSubscriber field_5C0;
+    [[bg3::hidden]] UnknownSignalSubscriber field_610;
+    [[bg3::hidden]] UnknownSignalSubscriber field_660;
+    [[bg3::hidden]] UnknownFunction field_6B0;
+    bool PauseState;
+    bool RestoreCharacters;
+    bool ReloadVisualSets;
+    uint8_t ColorBlindMode;
+};
+
+struct CharacterLightDesc
+{
+    EntityHandle Entity;
+    TLAutomatedLight* TimelineLight;
+};
+
+struct CharacterLightComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(CharacterLight, "ecl::CharacterLightComponent")
+
+    bool Enabled;
+    uint8_t LightChannel;
+    uint8_t field_2;
+    uint8_t field_3;
+    uint8_t field_4;
+    uint8_t field_5;
+    uint8_t field_6;
+    uint8_t field_7;
+    Array<HashMap<Guid, Array<CharacterLightDesc>>> Lights;
+};
+
+struct CharacterLightViewData
+{
+    float SwapTime;
+    float field_4;
+    float Time;
+    float field_C;
+    Guid TargetAtmosphere;
+    Guid PreviousAtmosphere;
+};
+
+struct CharacterLightSingletonComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(CharacterLightSingleton, "ecl::CharacterLightSingletonComponent")
+
+    std::array<CharacterLightViewData, 2> Views;
+    [[bg3::hidden]] void* Scene; // TLScene*
+};
+
+
+END_NS()
+
+BEGIN_NS(ecl::equipment)
+
+struct EquipmentSlotVisualState
+{
+    EntityHandle Item;
     uint8_t field_8;
+    uint8_t field_9;
+};
+
+struct VisualsVisibilityStateComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClientEquipmentVisibilityState, "ecl::equipment::VisualsVisibilityStateComponent")
+
+    HashMap<ItemSlot, EquipmentSlotVisualState> Equipment;
+    uint8_t field_40;
+    uint8_t field_41;
+};
+
+struct VisualsDesiredStateComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(ClientVisualsDesiredState, "ecl::equipment::VisualsDesiredStateComponent")
+
+    HashMap<ItemSlot, EquipmentVisualRequest> Slots;
+};
+
+struct VisualsVisibilityStateSystem : public BaseSystem
+{
+    DEFINE_SYSTEM(ClientVisualsVisibilityState, "ecl::equipment::VisualsVisibilityStateSystem")
+
+    HashMap<EntityHandle, bool> SetVisualState;
+    HashSet<EntityHandle> UnloadVisuals;
+    [[bg3::hidden]] void* CacheTemplateManager;
+    [[bg3::hidden]] void* LevelManager;
+    [[bg3::hidden]] void* GlobalTemplateManager;
+    [[bg3::hidden]] void* ResourceManager;
+    [[bg3::hidden]] void* VisualsVisibilityStateUnitTestHelper;
+};
+
+END_NS()
+
+BEGIN_NS(esv::splatter)
+
+struct SplatterState
+{
+    float Blood;
+    float Bruises;
+    float Dirt;
+    float Sweat;
+};
+
+struct BaseStateComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(SplatterBaseState, "esv::splatter::BaseStateComponent")
+
+    SplatterState State;
+};
+
+struct StateComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(SplatterState, "eoc::splatter::StateComponent")
+
+    SplatterState State;
+    glm::vec3 Translate;
+};
+
+struct SweatChangeComponent : public BaseComponent
+{
+    DEFINE_COMPONENT(SplatterSweatChange, "eoc::splatter::SweatChangeComponent")
+
+    float Sweat;
 };
 
 END_NS()

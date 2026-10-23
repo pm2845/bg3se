@@ -62,9 +62,7 @@ struct IntegerRangeProperty : public Property
 struct ColorARGBKeyFrameData
 {
     float Time;
-    [[bg3::hidden]] __int32 field_4;
-    [[bg3::hidden]] __int64 field_8;
-    glm::fvec4 Color;
+    glm::aligned_highp_vec4 Color;
 };
 
 struct ColorARGBKeyFrameProperty : public Property
@@ -276,7 +274,7 @@ struct TLActor
 struct TLBaseComponent : public Component
 {
     TLActor Actor;
-    uint8_t field_68x;
+    bool Enabled;
     uint32_t TypeId;
     int64_t PhaseIndex;
     bool IsSnappedToEnd;
@@ -298,12 +296,11 @@ END_BARE_NS()
 template<typename Key>
 struct TLKeyBaseComponent : public TLBaseComponent
 {
-    float field_68;
     [[bg3::hidden]] Array<Key*> Keys;
     bool HasTargetKey;
-    Key* TargetKey;
+    uint64_t TargetKey;
     bool NeedsKeyUpdate;
-    bool field_91;
+    bool IsEvent;
     std::array<uint32_t, 2> Random;
 };
 
@@ -476,14 +473,22 @@ BEGIN_BARE_NS(keys)
 
     struct SoundEventKey : public KeyBase
     {
-        struct Type1
+        struct Type0
         {
             bg3se::Guid SoundEventID;
             uint8_t SoundObjectIndex;
             bool KeepAlive;
             float LoopLifetime;
         };
+        struct Type1
+        {
+            bg3se::Guid SoundEventID;
+        };
         struct Type2
+        {
+            bg3se::Guid SoundEventID;
+        };
+        struct Type3
         {
             bg3se::Guid SoundEventID;
         };
@@ -498,7 +503,7 @@ BEGIN_BARE_NS(keys)
             uint8_t VocalType;
             uint8_t SoundObjectIndex;
         };
-        std::variant<Type1, Type2, Type2, Type2, Type4, Type5> data;
+        std::variant<Type0, Type1, Type2, Type3, Type4, Type5> data;
     };
 
     struct SplatterChannelKey : public KeyBase
@@ -665,18 +670,25 @@ struct TimelineActorPropertiesReflectionComponent : public TLBaseComponent
     Array<Parameter*> PropertyParameters;
 };
 
+struct TLAnimationLazyId
+{
+    struct TLAnimationComponent* Animation;
+    Guid AnimationId;
+    std::optional<Guid> ResolvedAnimationId;
+};
+
 struct TLAnimationComponent : public TLBaseComponent
 {
-    __int64 field_80;
-    bg3se::Guid AnimationSourceId;
-    __int64 field_98;
-    __int64 field_a0;
-    __int64 field_a8;
-    // channels::EventKeyChannel<bool> field_b0;
-    [[bg3::hidden]] std::array<__int8, 0xb8> raw_field_b0;
-    [[bg3::getter]] channels::EventKeyChannel<bool>* field_b0()
+    // Editor only?
+    // [[bg3::hidden]] void* VMT2;
+    // bg3se::Guid AnimationSourceId;
+    // resource::AnimationResource* AnimationResource;
+    TLAnimationLazyId AnimationId;
+    // channels::EventKeyChannel<bool> Visibility;
+    [[bg3::hidden]] alignas(8) std::array<uint8_t, sizeof(channels::EventKeyChannel<bool>)> VisibilityInternal;
+    [[bg3::getter]] channels::EventKeyChannel<bool>* Visibility()
     {
-        return reinterpret_cast<channels::EventKeyChannel<bool>*>(&raw_field_b0);
+        return reinterpret_cast<channels::EventKeyChannel<bool>*>(&VisibilityInternal);
     }
     FixedString AnimationSlot;
     bool Continuous;
@@ -687,33 +699,22 @@ struct TLAnimationComponent : public TLBaseComponent
     double FadeOut;
     double FadeInOffset;
     double FadeOutOffset;
-    __int64 field_190;
+    double AdditiveFadeIn;
     double AnimationPlayRate;
     double AnimationPlayStartOffset;
     uint8_t OffsetType;
-    __int8 field_1a9;
-    __int16 field_1aa;
-    __int32 field_1ac;
-    bg3se::Guid AnimationGroup;
-    struct TargetTransforms
-    {
-        glm::fvec4 RotationQuat;
-        glm::fvec3 Position;
-        float field_1c;
-        float field_20;
-        float Scale;
-    };
-    TargetTransforms TargetTransform;
-    bg3se::Guid BoneGroupId;
-    __int64 field_1f8;
+    Guid AnimationGroup;
+    Transform TargetTransform;
+    Guid BoneGroupId;
+    bool HasRootMotion;
     // channels::EventKeyChannel<bool> HideVfxChannel;
-    [[bg3::hidden]] std::array<__int8, 0xb8> raw_HideVfxChannel;
+    [[bg3::hidden]] alignas(8) std::array<uint8_t, sizeof(channels::EventKeyChannel<bool>)> raw_HideVfxChannel;
     [[bg3::getter]] channels::EventKeyChannel<bool>* HideVfxChannel()
     {
         return reinterpret_cast<channels::EventKeyChannel<bool>*>(&raw_HideVfxChannel);
     }
-    __int64 field_2b8;
-    __int64 field_2c0;
+    [[bg3::hidden]] void* Callback1;
+    [[bg3::hidden]] void* Callback2;
 };
 
 struct TLAdditiveAnimationComponent : public TLAnimationComponent
@@ -732,7 +733,6 @@ struct TLAttachToEventComponent : public TLInterpolationKeyComponent<keys::Attac
 struct TLAttitudeEventComponent : public TLKeyBaseComponent<keys::AttitudeEventKey>
 {
     FixedString field_b0;
-    __int32 field_b4;
 };
 
 struct TLCameraDoFComponent : public TLBaseComponent
@@ -764,11 +764,11 @@ struct TLEmotionEventComponent : public TLEventKeyComponent<keys::EmotionEventKe
 
 struct TLFloatRTPCComponent : public TLInterpolationKeyComponent<keys::FloatRTPCKey>
 {
-    __int64 field_b0;
+    EntityHandle Entity;
     FixedString RTPCName;
     uint8_t SoundType;
     uint8_t SoundObjectIndex;
-    [[bg3::hidden]] __int16 field_be;
+    bool HasEmitter;
 };
 
 struct TLGenomeTextEventComponent : public TLEventKeyComponent<keys::GenomeTextEventKey>
@@ -808,8 +808,6 @@ struct TLMaterialComponent : public TLBaseComponent
     {
         bool TextureParam;
         bool IsVirtual;
-        __int16 field_1a;
-        __int32 field_1c;
 
         [[bg3::getter]] inline std::span<channels::TLMaterialTextureKeyComponent*> PropertyParameters()
         {
@@ -831,7 +829,7 @@ struct TLMaterialComponent : public TLBaseComponent
 
     Array<Parameter*> MaterialParameters;
     // channels::EventKeyChannel<bool> VisibilityChannel;
-    [[bg3::hidden]] std::array<__int8, 0xb8> raw_VisibilityChannel;
+    [[bg3::hidden]] alignas(8) std::array<uint8_t, sizeof(channels::EventKeyChannel<bool>)> raw_VisibilityChannel;
     [[bg3::getter]] channels::EventKeyChannel<bool>* VisibilityChannel()
     {
         return reinterpret_cast<channels::EventKeyChannel<bool>*>(&raw_VisibilityChannel);
@@ -839,7 +837,6 @@ struct TLMaterialComponent : public TLBaseComponent
     bg3se::Guid GroupId;
     bool IsContinuous;
     bool IsOverlay;
-    __int16 field_15a;
     float OverlayPriority;
 };
 
@@ -862,38 +859,24 @@ struct TLShapeShiftComponent : public TLEventKeyComponent<keys::ShapeShiftKey>
 
 struct TLShotComponent : public TLBaseComponent
 {
-    __int64 field_80;
-    bg3se::Guid FirstCamera;
-    Array<bg3se::Guid> CameraContainers;
+    float SwitchInterval;
+    Guid FirstCamera;
+    Array<Guid> CameraContainers;
     bool AutomatedCamera;
     bool AutomatedLighting;
     bool DisableConditionalStaging;
     bool IsLooping;
-    bool SwitchInterval;
+    float SwitchInterval2;
     bool IsJCutEnabled;
-    __int8 field_b1;
-    __int16 field_b2;
     float JCutLength;
     __int64 field_b8;
     __int64 field_c0;
-    __int64 field_c8;
-    __int64 field_d0;
+    Guid field_c8;
     bool IsLogicEnabled;
-    __int8 field_d9;
-    __int16 field_da;
-    __int32 field_dc;
-    bg3se::Guid CompanionCameraA;
-    bg3se::Guid CompanionCameraB;
-    bg3se::Guid CompanionCameraC;
-    __int64 field_110;
-    __int64 field_118;
-    __int64 field_120;
-    __int64 field_128;
-    __int64 field_130;
-    __int64 field_138;
-    __int64 field_140;
-    __int64 field_148;
-    __int64 field_150;
+    Guid CompanionCameraA;
+    Guid CompanionCameraB;
+    Guid CompanionCameraC;
+    HashMap<Guid, Array<uint32_t>> VTPrefetchData;
 };
 
 struct TLShotHoldPreviousComponent : public TLBaseComponent
@@ -1110,8 +1093,9 @@ struct DeflectorComponent : public FxBaseComponent
     FloatProperty* PositionModifierXProperty;
     FloatProperty* PositionModifierYProperty;
     FloatProperty* PositionModifierZProperty;
-    RenderableObject* PlaneVisual1;
-    RenderableObject* PlaneVisual2;
+    // Only available in editor
+    // RenderableObject* PlaneVisual1;
+    // RenderableObject* PlaneVisual2;
 };
 
 struct DragForceComponent : public FxBaseComponent
@@ -1152,13 +1136,14 @@ struct LightComponent : public FxBaseComponent
     FloatKeyFrameProperty* InitialRotationProperty;
     FloatKeyFrameProperty* RotationLifeProperty;
     [[bg3::hidden]] void* field_E8;
+    // Only available in editor
+    // RenderableObject* PreviewVisual;
     EntityHandle LightEntity;
     float SnapToTop;
     float SnapToBottom;
     glm::vec3 CalculatedPosition;
     glm::vec3 LastPosition;
     glm::vec3 field_120;
-    glm::vec3 Velocity;
     glm::vec3 Offset;
     glm::vec3 Position;
     glm::vec3 KeyframedPosition;
@@ -1283,11 +1268,13 @@ struct OverlayMaterialComponent : public FxBaseComponent
     uint8_t field_154;
     uint8_t AlphaChannel;
     [[bg3::hidden]] uint64_t field_158;
+    [[bg3::hidden]] uint64_t field_158x;
     glm::vec4 field_160;
     glm::vec4 field_170;
-    bool HasPreview;
-    EntityHandle VisualEntity;
-    FixedString Animation;
+    // Only available in editor
+    // bool HasPreview;
+    // EntityHandle DebugVisualEntity;
+    // FixedString DebugAnimation;
 };
 
 struct PackedUnitVector
@@ -1315,7 +1302,7 @@ struct FxParticleData
     Array<uint16_t> FixedScalars;
     Array<float> DiscardValues;
     Array<float> UnitAges;
-    Array<glm::vec3> Scales;
+    [[bg3::hidden]] Array<glm::vec3> Scales;
     Array<glm::vec3> AppliedForces;
     [[bg3::hidden]] Array<void*> MoveInstructions;
     Array<uint32_t> DiedParticles;
@@ -1513,16 +1500,14 @@ struct Ribbon2Component : public FxBaseComponent
     uint32_t EmissionBehavior;
     uint32_t TexCoordType;
     [[bg3::hidden]] RibbonParticleData ParticleData;
+    [[bg3::hidden]] uint64_t Unknown;
     uint32_t DynamicParametersType;
     FloatKeyFrameProperty* DynamicParameterValueProperty;
     FloatProperty* DynamicParameterModifierXProperty;
     FloatProperty* DynamicParameterModifierYProperty;
     FloatProperty* DynamicParameterModifierZProperty;
     FloatProperty* DynamicParameterModifierWProperty;
-    float field_118;
-    float field_11C;
-    float field_120;
-    float field_124;
+    glm::vec4 DynamicParameterVec;
     uint32_t ColorType;
     ColorARGBKeyFrameProperty* ColorProperty;
     FloatKeyFrameProperty* BrightnessProperty;
@@ -1649,7 +1634,7 @@ struct Timeline : public ProtectedGameObject<Timeline>
     bool PlayToEnd;
     bool IsPaused;
     bool field_23;
-    bool field_24;
+    bool IsHoldingAtPhaseEnd;
     bool NeedsPostUpdate_M;
     float PlayingSpeed;
     float TimePlayed;

@@ -36,7 +36,7 @@ std::optional<EntityReplicationEventHooks::SubscriptionIndex> ServerEntityReplic
     auto& pool = AddComponentType(type);
     pool.Fields |= fields;
     if (!entity) {
-        pool.GlobalHooks.Add(index);
+        pool.GlobalHooks.push_back(index);
     } else {
         auto entityHooks = pool.EntityHooks.try_get(entity);
         if (entityHooks) {
@@ -85,6 +85,7 @@ void ServerEntityReplicationEventHooks::OnEntityReplication(ecs::EntityWorld& wo
 {
     if (!buffers || !buffers->Dirty) return;
 
+    OPTICK_EVENT();
     for (unsigned i = 0; i < buffers->ComponentPools.size(); i++) {
         auto const& pool = buffers->ComponentPools[i];
         if (hookedReplicationComponentMask_[i] && pool.size() > 0) {
@@ -109,7 +110,7 @@ void ServerEntityReplicationEventHooks::OnEntityReplication(ecs::EntityWorld& wo
                 .Entity = entity,
                 .Fields = fields,
                 .Type = type,
-                .Hook = *hook
+                .Index = index
             });
         }
     }
@@ -123,7 +124,7 @@ void ServerEntityReplicationEventHooks::OnEntityReplication(ecs::EntityWorld& wo
                     .Entity = entity,
                     .Fields = fields,
                     .Type = type,
-                    .Hook = *hook
+                    .Index = index
                 });
             }
         }
@@ -133,7 +134,10 @@ void ServerEntityReplicationEventHooks::OnEntityReplication(ecs::EntityWorld& wo
         esv::LuaServerPin lua(gExtender->GetServer().GetExtensionState());
         if (lua) {
             for (auto const& e : events) {
-                CallHandler(e.Entity, e.Fields, e.Type, e.Hook);
+                auto sub = subscriptions_.Find(e.Index);
+                if (sub) {
+                    CallHandler(e.Entity, e.Fields, e.Type, *sub);
+                }
             }
         }
     }
@@ -143,7 +147,7 @@ void ServerEntityReplicationEventHooks::CallHandler(EntityHandle entity, uint64_
 {
     auto L = state_.GetState();
     auto componentType = state_.GetEntitySystemHelpers()->GetComponentType(type);
-    hook.Hook.Push();
+    hook.Hook.Push(L);
     Ref func(L, lua_absindex(L, -1));
 
     ProtectedFunctionCaller<std::tuple<EntityHandle, ExtComponentType, uint64_t>, void> caller{ func, std::tuple(entity, *componentType, fields) };

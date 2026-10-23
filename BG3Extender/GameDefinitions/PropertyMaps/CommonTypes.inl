@@ -24,6 +24,7 @@ P_RO(IsBitfield)
 P_RO(IsBuiltin)
 P_RO(ModuleRole)
 P_RO(ComponentName)
+P_RO(SystemName)
 END_CLS()
 
 
@@ -46,23 +47,26 @@ P_FUN(Get, TranslatedFSString::Get)
 END_CLS()
 
 
-BEGIN_CLS(StatsExpressionParam)
+BEGIN_CLS(StatsExpressionInternal)
 P(Params)
 P(Code)
 END_CLS()
 
 
-BEGIN_CLS(StatsExpressionParamEx)
-INHERIT(StatsExpressionParam)
+BEGIN_CLS(StatsExpressionPooled)
+INHERIT(StatsExpressionInternal)
+P_GETTER_SETTER(Params, GetParams, SetParams)
+P_GETTER_SETTER(Code, GetCode, SetCode)
+P_GETTER(RefCount, GetRefCount)
 END_CLS()
 
 
 BEGIN_CLS(StatsExpressionWithMetadata)
-INHERIT(StatsExpressionParam)
-P(field_28)
+INHERIT(StatsExpressionInternal)
+P_RENAMED(BoostType, field_28)
 P(Cause)
-P(field_48)
-P(field_58)
+P_RENAMED(BoostSourceName, field_48)
+P_RENAMED(CriticalHit, field_58)
 END_CLS()
 
 
@@ -80,11 +84,22 @@ END_CLS()
 BEGIN_CLS(BaseProxyComponent)
 END_CLS()
 
+BEGIN_CLS(BaseSystem)
+END_CLS()
+
 
 BEGIN_CLS(stats::FunctorGroup)
 P(TextKey)
 // Lua read-only helper until RO properties or transparent index support is added
 P_GETTER(Functors, GetFunctors)
+P_FUN(AddNew, stats::FunctorGroup::AddNew)
+P_FUN(Remove, stats::FunctorGroup::Remove)
+END_CLS()
+
+
+BEGIN_CLS(AABound)
+P(Min)
+P(Max)
 END_CLS()
 
 
@@ -92,6 +107,12 @@ BEGIN_CLS(AiTilePos)
 P(X)
 P(Y)
 P(SubgridId)
+END_CLS()
+
+
+BEGIN_CLS(AiTileCell)
+P(X)
+P(Y)
 END_CLS()
 
 

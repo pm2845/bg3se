@@ -1,15 +1,16 @@
 #pragma once
 
-#if !defined(OSI_NO_DEBUGGER)
-
 #include <cstdint>
 #include <WinSock2.h>
 
-#include <Osiris/Debugger/osidebug.pb.h>
-#include <Lua/Debugger/LuaDebug.pb.h>
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
+#pragma warning(push)
+#pragma warning(disable:4267)
+#include <Osiris/Debugger/osidebug.pb.h>
+#include <Lua/Debugger/LuaDebug.pb.h>
+#pragma warning(pop)
 
 namespace bg3se
 {
@@ -38,9 +39,9 @@ namespace bg3se
 
         uint16_t port_;
         SOCKET socket_;
-        SOCKET clientSocket_{ 0 };
+        SOCKET clientSocket_{ INVALID_SOCKET };
         uint8_t receiveBuf_[0x10000];
-        uint32_t receivePos_;
+        uint32_t receivePos_{ 0 };
         std::function<void()> connectHandler_;
         std::function<void()> disconnectHandler_;
         std::mutex sendMutex_;
@@ -101,5 +102,3 @@ namespace bg3se
     using OsirisDebugInterface = ProtobufSocketInterface<osidbg::DebuggerToBackend, osidbg::BackendToDebugger>;
     using LuaDebugInterface = ProtobufSocketInterface<lua::dbg::DebuggerToBackend, lua::dbg::BackendToDebugger>;
 }
-
-#endif

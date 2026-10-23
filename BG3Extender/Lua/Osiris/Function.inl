@@ -187,27 +187,28 @@ bool OsiFunction::MatchTuple(lua_State * L, int firstIndex, TupleVec const & tup
             auto const & v = tuple.Values[i];
             switch (GetBaseType((ValueType)v.TypeId)) {
             case ValueType::Integer:
-                if (v.Value.Int32 != lua_tointeger(L, firstIndex + i)) {
+                if (v.Value.Int32 != get<int32_t>(L, firstIndex + i)) {
                     return false;
                 }
                 break;
 
             case ValueType::Integer64:
-                if (v.Value.Int64 != lua_tointeger(L, firstIndex + i)) {
+                if (v.Value.Int64 != get<int64_t>(L, firstIndex + i)) {
                     return false;
                 }
                 break;
 
             case ValueType::Real:
-                if (abs(v.Value.Float - lua_tonumber(L, firstIndex + i)) > 0.00001f) {
+                if (abs(v.Value.Float - get<float>(L, firstIndex + i)) > 0.00001f) {
                     return false;
                 }
                 break;
 
             case ValueType::String:
             {
-                auto str = lua_tostring(L, firstIndex + i);
-                if (!str || _stricmp(v.Value.String, str) != 0) {
+                auto str = get<char const*>(L, firstIndex + i);
+                auto tval = v.GetString();
+                if (_stricmp(tval, str) != 0) {
                     return false;
                 }
                 break;
@@ -215,19 +216,17 @@ bool OsiFunction::MatchTuple(lua_State * L, int firstIndex, TupleVec const & tup
 
             case ValueType::GuidString:
             {
-                auto str = lua_tostring(L, firstIndex + i);
-                if (!str) return false;
-
-                auto len = strlen(str);
-                auto valueLen = strlen(v.Value.String);
-                if (valueLen < 36 || len < 36 || _stricmp(&v.Value.String[valueLen - 36], &str[len - 36]) != 0) {
+                auto str = get<StringView>(L, firstIndex + i);
+                auto tval = v.GetString();
+                auto valueLen = strlen(tval);
+                if (valueLen < 36 || str.size() < 36 || _stricmp(&tval[valueLen - 36], &str[str.size() - 36]) != 0) {
                     return false;
                 }
                 break;
             }
 
             default:
-                OsiError("Unsupported ValueType for comparison: " << v.TypeId);
+                OsiError("Unsupported ValueType for comparison: " << (uint16_t)v.TypeId);
                 return false;
             }
         }
@@ -384,6 +383,7 @@ int OsiFunction::OsiQuery(lua_State * L) const
         push(L, handled);
         return 1;
     } else {
+        lua_checkstack(L, outParams);
         if (handled) {
             for (uint32_t i = 0; i < numParams; i++) {
                 if (function_->Signature->OutParamList.isOutParam(i)) {
@@ -413,44 +413,34 @@ int OsiFunction::OsiUserQuery(lua_State * L) const
     }
 
     auto state = ServerState::FromLua(L);
-    OsiArgumentListPin<ListNode<TupleLL::Item>> nodes(state->Osiris().GetTupleNodePool(), (uint32_t)numParams + 1);
 
-    VirtTupleLL tuple;
-        
-    auto & args = tuple.Data.Items;
+    SmallTuple args;
+    args.Reserve((uint32_t)numParams);
+ 
     auto argType = function_->Signature->Params->Params.Head->Next;
-    args.Init(nodes.Args());
 
-    auto prev = args.Head;
     uint32_t inputArgIndex = 0;
     for (uint32_t i = 0; i < numParams; i++) {
-        auto node = nodes.Args() + i + 1;
-        args.Insert(node, prev);
-        node->Item.Index = i;
+        auto& tv = args.Add();
         if (!function_->Signature->OutParamList.isOutParam(i)) {
-            LuaToOsi(L, inputArgIndex + 2, node->Item.Value, (ValueType)argType->Item.Type);
+            LuaToOsi(L, inputArgIndex + 2, tv, (ValueType)argType->Item.Type);
             inputArgIndex++;
-        } else {
-            node->Item.Value.VMT = gExtender->GetServer().Osiris().GetGlobals().TypedValueVMT;
-            node->Item.Value.TypeId = (uint32_t)ValueType::None;
         }
 
-        prev = node;
         argType = argType->Next;
     }
 
+    lua_checkstack(L, outParams);
     auto node = (*gExtender->GetServer().Osiris().GetGlobals().Nodes)->Db.Elements[function_->Node.Id - 1];
-    bool valid = node->IsValid(&tuple, adapter_.Id);
+    bool valid = node->IsValid(&args, adapter_.Id);
     if (valid) {
         if (outParams > 0) {
             auto retType = function_->Signature->Params->Params.Head->Next;
-            auto ret = args.Head->Next;
             for (uint32_t i = 0; i < numParams; i++) {
                 if (function_->Signature->OutParamList.isOutParam(i)) {
-                    OsiToLua(L, ret->Item.Value);
+                    OsiToLua(L, args[i]);
                 }
 
-                ret = ret->Next;
                 retType = retType->Next;
             }
 
